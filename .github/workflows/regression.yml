@@ -1,0 +1,16 @@
+name: XiaoBao regression
+on:
+  push:
+    branches:
+      - main
+      - feature/growth-v1.1.0
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify JavaScript and migration compatibility
+        run: node --test tests/*.test.cjs
