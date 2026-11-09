@@ -77,6 +77,18 @@
 .plan-size-heading{font-size:13px;font-weight:750;color:#5147bb}
 .plan-size-stock{font-size:11px;color:#8992a5;margin:4px 0 9px}
 @media(max-width:600px){.plan-more{padding:10px}.plan-size-group{margin-top:14px}}
+
+/* v1.1.2: shared size guidance and stage-aware stocktaking. */
+.size-help{font-size:11px;color:#8c94a5;margin-top:4px;line-height:1.55}
+.stock-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.stock-size{background:#fbfbff;border:1px solid #e9eaf4;border-radius:12px;padding:11px}
+.stock-size.active{background:#f8f7ff;border-color:#b6aff6}
+.stock-size .field label{font-size:13px;color:#5147bb;font-weight:750}
+.stock-size .field input{margin-top:5px}
+.stock-title{font-weight:750;font-size:13px;color:#4d5270;margin:0 0 10px}
+.stock-current{margin-bottom:14px}
+.stock-details{margin:12px 0}
+@media(max-width:600px){.stock-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stock-size{padding:10px}}
 </style>
 </head>
 <body>
@@ -127,7 +139,7 @@
         <div class="form-grid">
           <div class="field"><label for="qBrand">品牌</label><select id="qBrand"><option>好奇</option><option>帮宝适</option><option>Babycare</option><option>花王妙而舒</option><option>尤妮佳 Moony</option><option>大王</option><option>碧芭宝贝</option><option>宜婴</option><option>安儿乐</option><option>雀氏</option><option>露安适</option><option>BBS（图中品牌）</option><option value="其他">其他 / 自定义</option></select></div>
           <div class="field"><label for="qSeriesChoice">具体系列（可切换）</label><select id="qSeriesChoice" aria-label="选择具体系列"><option value="">请选择系列</option></select><input id="qSeries" placeholder="请输入其他系列名称" maxlength="45" autocomplete="off" hidden /><span class="fine">点选系列即可生效；随时可重新展开切换</span></div>
-          <div class="field"><label for="qSize">尺码</label><select id="qSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div>
+          <div class="field"><label for="qSize">尺码</label><select id="qSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select><span class="size-help" id="qSizeRange"></span></div>
           <div class="field"><label for="qPerPack">每包片数</label><input id="qPerPack" type="number" min="1" step="1" value="60" inputmode="numeric" /></div>
           <div class="field"><label for="qPacks">购买包数</label><input id="qPacks" type="number" min="1" step="1" value="1" inputmode="numeric" /></div>
           <div class="field"><label for="qPrice">全部实付金额（元）</label><input id="qPrice" type="number" min="0.01" step="0.01" placeholder="券后到手价" inputmode="decimal" /></div>
@@ -157,7 +169,7 @@
       <div class="card" id="historyList"></div>
       <div class="head"><h2>🧾 库存盘点</h2><span class="sub">如果之前已经买过，直接修正库存即可</span></div>
       <div class="card">
-        <div class="form-grid" id="stockEditForm"></div>
+        <div id="stockEditForm"></div>
         <div class="action-row"><button class="btn" id="saveStocks">保存实际库存</button><span class="fine">盘点修改不会自动生成采购支出记录。</span></div>
       </div>
     </section>
@@ -203,7 +215,7 @@
       <div class="card">
         <div class="form-grid">
           <div class="field"><label for="sizeMode">尺码选择模式</label><select id="sizeMode"><option value="manual">手动优先</option><option value="auto">自动参考体重</option></select></div>
-          <div class="field"><label for="currentSize">手动尺码 / 自动起点</label><select id="currentSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div>
+          <div class="field" id="manualSizeBox"><label for="currentSize">宝宝实际穿着的尺码</label><select id="currentSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select><span class="size-help" id="manualSizeRange"></span></div>
           <div class="field"><label for="goalPrice">个人目标单价（元/片）</label><input type="number" id="goalPrice" min="0.1" step="0.1" /></div>
         </div>
         <p class="soft-note" id="sizePreview">手动模式优先。自动模式参考体重，不会强迫在重叠区间换码。</p>
@@ -258,7 +270,7 @@
 <script>
 (()=>{'use strict';
 const SIZES=['NB','S','M','L','XL','XXL'];
-const RANGES={NB:'约 5kg 以下',S:'约 4–8kg',M:'约 6–11kg',L:'约 9–14kg',XL:'约 12–17kg',XXL:'依品牌标注'};
+const RANGES=XBGrowth.LIMITS;
 const TOTAL={NB:'150–300片',S:'300–600片',M:'500–900片',L:'600–1200片',XL:'个体差异较大',XXL:'按需购买'};
 // Price reference transcribed from the user's image. The values are PERSONAL REFERENCE prices, NOT live market data.
 // Exact matching only: same brand + series + size. Empty cells must never be inferred from another size.
@@ -397,7 +409,7 @@ const missing=neededNB+neededS;
 let msg='',warn=false,button='去比价';if(state.birthDate&&days<4){msg=`宝宝目前使用 ${current} 码，预计库存不足 4 天。建议尽快补货，别一次囤太多。`;warn=true}else if(!state.birthDate&&missing>0){msg=`首批还差 ${neededNB} 片 NB、${neededS} 片 S。可先比较两款小包装，确认适合后再补。`}else if(missing===0){msg='首批 NB / S 备货目标已完成！不建议因为活动价继续大量囤 NB 码。';button='查看库存'}else{msg=`目前 ${current} 码预计还能用 ${days.toFixed(1)} 天，留意尺码变化，及时小批量补货。`}
 $('recoAlert').innerHTML=`<div class="alert ${warn?'warning':''}"><div><strong>${warn?'⚠️ 补货提醒':'💡 采购提示'}</strong><p>${msg}</p></div><button class="btn ${warn?'':'secondary'} sm" data-action="go" data-target="${button==='去比价'?'compare':'history'}">${button}</button></div>`;
 }
-function renderSizesLegacy(){const cur=state.currentSize;const born=Boolean(state.birthDate);$('sizeCards').innerHTML=SIZES.map(x=>{const stock=stageStock(x),target=Math.max(0,Math.round(num(state.target[x]))),daily=num(state.daily[x],1),days=stockDays(x),progress=target===0?(stock>0?100:0):clamp(stock/target*100,0,100);return `<div class="sizecard ${cur===x?'focus':''}"><div class="size-top"><span class="size-pill">${x}${born&&cur===x?' · 正在用':''}</span><span class="size-range">${RANGES[x]}</span></div><div class="stock-number"><b>${int(stock)}</b><small>片现货</small></div><div class="bar"><span style="width:${progress}%"></span></div><div class="micro"><span>备货目标 ${target} 片</span><span>约可用 ${days.toFixed(1)} 天</span></div><div class="size-actions"><button class="btn secondary sm" data-action="consume" data-size="${x}" data-count="1" ${stock===0?'disabled':''}>− 用 1 片</button><button class="btn ghost sm" data-action="consume" data-size="${x}" data-count="${Math.min(stock,Math.round(daily))}" ${stock===0?'disabled':''}>− 记 1 天</button><button class="btn ghost sm" data-action="editstock" data-size="${x}">盘点</button></div><div class="size-detail">整个尺码阶段大致 ${TOTAL[x]} · 估计日用 ${daily} 片</div></div>`}).join('')}
+function renderSizesLegacy(){const cur=state.currentSize;const born=Boolean(state.birthDate);$('sizeCards').innerHTML=SIZES.map(x=>{const stock=stageStock(x),target=Math.max(0,Math.round(num(state.target[x]))),daily=num(state.daily[x],1),days=stockDays(x),progress=target===0?(stock>0?100:0):clamp(stock/target*100,0,100);return `<div class="sizecard ${cur===x?'focus':''}"><div class="size-top"><span class="size-pill">${x}${born&&cur===x?' · 正在用':''}</span><span class="size-range">建议体重：${esc(RANGES[x])}</span></div><div class="stock-number"><b>${int(stock)}</b><small>片现货</small></div><div class="bar"><span style="width:${progress}%"></span></div><div class="micro"><span>备货目标 ${target} 片</span><span>约可用 ${days.toFixed(1)} 天</span></div><div class="size-actions"><button class="btn secondary sm" data-action="consume" data-size="${x}" data-count="1" ${stock===0?'disabled':''}>− 用 1 片</button><button class="btn ghost sm" data-action="consume" data-size="${x}" data-count="${Math.min(stock,Math.round(daily))}" ${stock===0?'disabled':''}>− 记 1 天</button><button class="btn ghost sm" data-action="editstock" data-size="${x}">盘点</button></div><div class="size-detail">整个尺码阶段大致 ${TOTAL[x]} · 估计日用 ${daily} 片</div></div>`}).join('')}
 function renderShoppingLegacy(){let lines=['NB','S'].map(x=>{const rest=Math.max(0,state.target[x]-stageStock(x));return `<div class="plan-row"><div class="plan-left"><span class="dot">${x}</span><div><b>${x==='NB'?'新生儿首批试用':'下一码少量准备'}</b><div class="progress-info">目标 ${int(state.target[x])} 片 · 已有 ${int(stageStock(x))} 片</div></div></div><div class="planned ${rest?'purple':'green'}">${rest?'再买 '+rest+' 片':'✓ 已备齐'}</div></div>`}).join('');const missing=Math.max(0,state.target.NB-stageStock('NB'))+Math.max(0,state.target.S-stageStock('S'));$('shoppingPlan').innerHTML=`<h3 class="section-title">建议优先购买</h3>${lines}<div class="tip" style="margin-top:15px"><b>粗略待购预算：${money(missing*num(state.goalPrice,1.5))}</b>（按个人目标单价 ${money(state.goalPrice)} / 片计算）。实际支付价格以比价记录为准。</div>`;
 $('tipsCard').innerHTML=`<h3 class="section-title">选购判断小抄</h3><div class="statline"><span class="sub">个人好价目标</span><strong>${money(state.goalPrice)} /片</strong></div><div class="statline"><span class="sub">全部历史实付</span><strong>${money(spend())}</strong></div><div class="tip" style="margin-top:13px"><b>购买原则：</b>先小包试 NB → 看腰腿贴合、漏尿、红屁屁情况 → 再按需补。尺码重叠时以宝宝实际身形为准。</div>`}
 function renderOverview(){
@@ -446,6 +458,7 @@ function compareInput(){const per=Math.floor(num($('qPerPack').value)),packs=Mat
 function validateQuote(q){if(q.per<1||q.packs<1||q.per>1000||q.packs>200||q.pieces>30000){toast('请填有效片数与包数');return false}if(!(q.price>0)||q.price>100000){toast('请填写实际支付金额');return false}return true}
 function quoteBadge(unit){if(!(unit>0))return ['等待输入',''];if(unit<=1)return ['价格很划算','good'];if(unit<=num(state.goalPrice,1.5))return ['达到你的目标价','good'];if(unit<=2)return ['略高于目标','warn'];return ['偏高，建议对比','bad']}
 function preview(){
+ $('qSizeRange').textContent='建议体重：'+XBGrowth.sizeRange($('qSize').value)+'（以包装为准）';
  const q=compareInput(),valid=q.pieces>0&&q.price>0;const sig=priceSignal(valid?q.unit:0,q.brand,q.series,q.size);const [fallbackMsg,fallbackKind]=quoteBadge(valid?q.unit:null);const msg=valid&&sig.price?sig.label:fallbackMsg,kind=valid&&sig.price?sig.kind:fallbackKind;
  $('unitPreview').textContent=valid?money(q.unit):'¥—';$('unitTag').innerHTML=`<span class="tag ${kind}">${msg}</span>`;
  $('priceExplanation').textContent=valid?`共 ${q.pieces} 片 · 实付 ${money(q.price)} · 个人目标 ${money(state.goalPrice)}/片`:'填入实际支付金额，即可自动计算';
@@ -569,7 +582,8 @@ function renderSettings(){
   const saved=Math.max(0,Math.round(num(state.target[x])));
   return '<div class="setting-size '+(label==='正在使用'?'plan-size-now':label==='下一尺码'?'plan-size-next':'')+'">'
     +'<div class="plan-size-heading">'+esc(x)+(label?' · '+label:'')+'</div>'
-    +'<div class="plan-size-stock">现有库存 '+int(stageStock(x))+' 片</div>'
+    +'<div class="plan-size-stock">建议体重：'+esc(XBGrowth.sizeRange(x))+'</div>'
+     +'<div class="plan-size-stock">现有库存 '+int(stageStock(x))+' 片</div>'
     +'<label for="target_'+x+'">自定义目标（片）</label><input data-plan-target="1" id="target_'+x+'" type="number" min="0" max="10000" step="1" value="'+saved+'"/>'
     +'<label for="daily_'+x+'">每日预计消耗（片）</label><input id="daily_'+x+'" type="number" min="1" max="30" step="1" value="'+Math.round(num(state.daily[x]))+'"/>'
     +'</div>';
