@@ -97,7 +97,7 @@ function dashboard(state){
  function sizeCard(s){
   const n=p.stockOf(s),d=p.dailyOf(s),goalInfo=targetForSize(state,s),goal=goalInfo.target;
   const pct=Math.max(0,Math.min(100,(n/goal)*100));
-  return '<div class="sizecard '+(s===p.size?'focus':'')+'"><div class="size-top"><span class="size-pill">'+s+(s===p.size?' · 正在用':s===p.next?' · 下一码':'')+'</span><span class="size-range">'+esc(LIMITS[s])+'</span></div>'
+  return '<div class="sizecard '+(s===p.size?'focus':'')+'"><div class="size-top"><span class="size-pill">'+s+(s===p.size?' · 正在用':s===p.next?' · 下一码':'')+'</span><span class="size-range">建议体重：'+esc(LIMITS[s])+'</span></div>'
    +'<div class="stock-number"><b>'+fmt(n)+'</b><small>片现货</small></div>'
    +'<div class="bar"><span style="width:'+pct.toFixed(0)+'%"></span></div>'
    +'<div class="micro"><span>'+(goalInfo.source==='fallback'?'参考备货 '+fmt(goal)+' 片':'目标 '+fmt(goal)+' 片')+'</span><span>约可用 '+(n/d).toFixed(1)+' 天</span></div>'
