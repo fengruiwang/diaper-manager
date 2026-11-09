@@ -558,6 +558,24 @@ function restoreReference(brand,series,size){
 function renderHistory(){const buys=state.transactions.filter(t=>t.type==='buy'),used=state.transactions.filter(t=>t.type==='use'),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
 const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td><button class="btn ghost sm" data-action="deletetx" data-id="${esc(t.id)}">撤销</button></td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
 $('stockEditForm').innerHTML=SIZES.map(x=>`<div class="field"><label for="inv_${x}">${x} 现有片数</label><input id="inv_${x}" type="number" min="0" max="100000" step="1" value="${stageStock(x)}" inputmode="numeric" /></div>`).join('')}
+function updateSizeModePreview(){
+ const mode=$('sizeMode').value,manual=$('currentSize').value;
+ $('manualSizeBox').hidden=mode==='auto';
+ $('manualSizeRange').textContent='建议体重：'+XBGrowth.sizeRange(manual)+'（以实际贴合为准）';
+ if(mode==='manual'){
+  $('sizePreview').textContent='手动指定 '+manual+' 码；体重记录不会覆盖你的选择。';
+  return;
+ }
+ const latest=XBGrowth.latestWeight(state),recommended=XBGrowth.latestRecommendation(state);
+ if(!latest||!recommended){
+  $('sizePreview').textContent='没有有效体重，暂时无法自动推荐；库存仍按原有 '+state.currentSize+' 码展示。请到「成长」记录体重。';
+  return;
+ }
+ const source=latest.source==='record'?'最新测量 '+latest.date:latest.source==='birth'?'出生体重 '+latest.date:'旧版体重（无测量日期）';
+ $('sizePreview').textContent=source+'：'+latest.weight.toFixed(2)+' kg → 推荐 '+recommended+' 码。'+
+  (!XBGrowth.born(state)?' 当前尚未填写已发生的出生日期，首页仍采用出生前备货布局。':' 首页和库存盘点将同步采用推荐尺码。')+
+  ' 尺码仅供参考，以实际贴合和品牌标注为准。';
+}
 function renderSettings(){
  const p=state.babyProfile||{};
  $('dueDate').value=state.dueDate||'';$('birthDate').value=state.birthDate||'';
@@ -567,10 +585,7 @@ function renderSettings(){
  $('birthWeight').value=p.birthWeight??'';$('birthLength').value=p.birthLength??'';
  $('sizeMode').value=state.sizeMode==='auto'?'auto':'manual';
  $('currentSize').value=state.currentSize;$('goalPrice').value=state.goalPrice;
- const last=XBGrowth.latestWeight(state);
- $('sizePreview').textContent='当前生效 '+XBGrowth.effectiveSize(state)+' 码。'+
-  (state.sizeMode==='auto'?(last?'体重参考 '+last.weight.toFixed(2)+' kg；':'暂无有效体重，暂沿用原尺码。'):'手动选择优先。')+
-  '体重重叠区间不强制换码，实际以品牌包装、腰腿贴合和漏尿情况为准。';
+ updateSizeModePreview();
  const born=XBGrowth.born(state),active=XBGrowth.effectiveSize(state);
  $('planSettingsTitle').textContent=born?'🎯 补货目标与日均用量':'🎯 出生前备货目标';
  $('planIntro').textContent=born?'围绕当前穿着尺码管理库存。旧尺码只做历史管理，不再计入补货建议。':'出生前以 NB / S 试用备货为主，其他尺码可以展开提前设置。';
@@ -659,11 +674,10 @@ function saveProfile(){
 }
 function saveSizePreferences(){
  const mode=$('sizeMode').value,size=$('currentSize').value,goal=Number($('goalPrice').value);
- if(!['manual','auto'].includes(mode)||!SIZES.includes(size)||!(goal>0)||goal>100){toast('请检查尺码与采购偏好');return}
- const switching=state.sizeMode!==mode;
- Object.assign(state,{sizeMode:mode,currentSize:size,goalPrice:goal});
- if(switching&&mode==='auto')state.autoSize=size;
- XBGrowth.syncAutoSize(state);save();renderAll();toast('尺码与采购偏好已保存');
+ if(!['manual','auto'].includes(mode)||(mode==='manual'&&!SIZES.includes(size))||!(goal>0)||goal>100){toast('请检查尺码与采购偏好');return}
+ // The deprecated autoSize field remains in backups for compatibility but never anchors recommendations.
+ Object.assign(state,{sizeMode:mode,currentSize:mode==='manual'?size:state.currentSize,goalPrice:goal});
+ save();renderAll();toast('尺码与采购偏好已保存');
 }
 function saveStocks(){for(const x of SIZES){const n=Number($('inv_'+x).value);if(!Number.isInteger(n)||n<0||n>100000){toast(`${x} 库存必须是非负整数`);return}state.inventory[x]=n}save();renderAll();toast('实际库存已更新')}
 function undo(id){const i=state.transactions.findIndex(t=>t.id===id);if(i<0)return;const t=state.transactions[i];if(!confirm(`确认撤销这条${t.type==='buy'?'采购':'消耗'}记录？库存也会相应修正。`))return;if(t.type==='buy')state.inventory[t.size]=Math.max(0,stageStock(t.size)-num(t.pieces));else state.inventory[t.size]=stageStock(t.size)+num(t.pieces);state.transactions.splice(i,1);save();renderAll();toast('记录已撤销，库存已同步修正')}
@@ -691,6 +705,8 @@ $('buyNow').addEventListener('click',()=>addBuy(compareInput()));
 $('clearQuotes').addEventListener('click',()=>{if(!state.quotes.length)return;if(!confirm('确定清空全部候选价格？不会影响采购记录。'))return;state.quotes=[];save();renderQuotes();toast('候选价已清空')});
 $('saveProfile').addEventListener('click',saveProfile);
 $('saveSizePreferences').addEventListener('click',saveSizePreferences);
+$('sizeMode').addEventListener('change',updateSizeModePreview);
+$('currentSize').addEventListener('change',updateSizeModePreview);
 $('saveWeight').addEventListener('click',saveWeight);
 $('cancelWeight').addEventListener('click',clearWeightForm);
 $('growthRange').addEventListener('change',renderGrowth);
