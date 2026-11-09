@@ -1,4 +1,4 @@
-/* XiaoBao growth and post-birth planning domain, v1.1.1. No network, no storage writes. */
+/* XiaoBao growth and post-birth planning domain, v1.1.2. No network, no storage writes. */
 (function(root){
 'use strict';
 const SIZES=['NB','S','M','L','XL','XXL'];
@@ -52,22 +52,25 @@ function latestWeight(state){
  if(validWeight(state.babyWeight))return {weight:number(state.babyWeight),date:'',source:'legacy',count:0};
  return null;
 }
-function recommendSize(weight,anchor){
+// Deterministic weight recommendation. The deprecated autoSize field must never
+// act as a minimum: edits and deletions can validly move the result backwards.
+function recommendSize(weight){
  if(!validWeight(weight))return null;
- let i=Math.max(0,SIZES.indexOf(isSize(anchor)?anchor:'NB'));
- while(i<SIZES.length-1&&number(weight)>MAX_KG[SIZES[i]])i++;
- return SIZES[i];
+ const w=number(weight);
+ return SIZES.find(size=>w<=MAX_KG[size])||'XXL';
+}
+function latestRecommendation(state){
+ const current=latestWeight(state);
+ return current?recommendSize(current.weight):null;
 }
 function effectiveSize(state){
  const manual=isSize(state.currentSize)?state.currentSize:'NB';
  if(state.sizeMode!=='auto'||!born(state))return manual;
- const weight=latestWeight(state);
- return weight?recommendSize(weight.weight,isSize(state.autoSize)?state.autoSize:manual):manual;
+ return latestRecommendation(state)||manual;
 }
-function syncAutoSize(state){
- if(state.sizeMode==='auto'&&born(state)&&latestWeight(state))state.autoSize=effectiveSize(state);
- return effectiveSize(state);
-}
+// Kept for old event callbacks, but intentionally never mutates legacy autoSize.
+function syncAutoSize(state){return effectiveSize(state)}
+function sizeRange(size){return LIMITS[size]||'请核对产品包装'}
 function stockPlan(state){
  const size=effectiveSize(state),idx=SIZES.indexOf(size),next=SIZES[idx+1]||null;
  const stock=x=>Math.max(0,Math.round(number((state.inventory||{})[x])||0));
@@ -81,7 +84,7 @@ const money=n=>'¥'+(Number(n)||0).toFixed(2);
 function dashboard(state){
  const p=stockPlan(state);
  const days=p.days.toFixed(1),weight=p.weight;
- const kpis='<div class="kpi"><div class="kpi-label">当前使用尺码</div><div class="kpi-value purple">'+p.size+'</div><div class="kpi-meta">'+(state.sizeMode==='auto'?'体重自动推荐':'手动指定')+'</div></div>'
+ const kpis='<div class="kpi"><div class="kpi-label">'+(state.sizeMode==='auto'&&weight?'体重推荐尺码':'当前使用尺码')+'</div><div class="kpi-value purple">'+p.size+'</div><div class="kpi-meta">'+(state.sizeMode==='auto'?(weight?'最新体重 '+weight.weight.toFixed(2)+' kg':'尚无体重 · 暂按原尺码'):'手动指定')+'</div></div>'
   +'<div class="kpi"><div class="kpi-label">'+p.size+' 码现有库存</div><div class="kpi-value">'+fmt(p.stock)+' <span class="fine">片</span></div><div class="kpi-meta">日用约 '+fmt(p.daily)+' 片</div></div>'
   +'<div class="kpi"><div class="kpi-label">当前尺码预计可用</div><div class="kpi-value '+(p.days<5?'orange':'green')+'">'+days+' <span class="fine">天</span></div><div class="kpi-meta">按现有库存计算</div></div>'
   +'<div class="kpi"><div class="kpi-label">建议补货</div><div class="kpi-value">'+fmt(p.shortage)+' <span class="fine">片</span></div><div class="kpi-meta">补至 '+fmt(p.target)+' 片 · '+(p.targetSource==='days'?'按'+p.policy.days+'天用量':p.targetSource==='custom'?'自定义目标':'临时按7天用量')+'</div></div>';
@@ -133,7 +136,7 @@ function history(state){
  if(!entries.length)return '<div class="empty"><b>暂无测量记录</b>填写出生体重或新增一次测量。</div>';
  return '<div class="table-wrap"><table class="tbl"><thead><tr><th>日期时间</th><th>体重</th><th>备注</th><th>操作</th></tr></thead><tbody>'+entries.map(x=>'<tr><td>'+esc(x.date)+' '+esc(x.time)+'</td><td><b>'+x.weight.toFixed(2)+' kg</b></td><td>'+esc(x.note)+'</td><td>'+(x.isBirth?'<span class="fine">在宝宝资料中修改</span>':'<button class="btn ghost sm" data-action="editweight" data-id="'+esc(x.id)+'">编辑</button><button class="btn danger sm" data-action="deleteweight" data-id="'+esc(x.id)+'">删除</button>')+'</td></tr>').join('')+'</tbody></table></div>';
 }
-const api={SIZES,MAX_KG,dateOK,timeOK,validWeight,born,extras,replenishmentPolicy,targetForSize,measurements,latestWeight,recommendSize,effectiveSize,syncAutoSize,stockPlan,dashboard,chart,history};
+const api={SIZES,MAX_KG,LIMITS,dateOK,timeOK,validWeight,born,extras,replenishmentPolicy,targetForSize,measurements,latestWeight,recommendSize,latestRecommendation,effectiveSize,syncAutoSize,sizeRange,stockPlan,dashboard,chart,history};
 if(root)root.XBGrowth=api;
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
