@@ -555,9 +555,35 @@ function restoreReference(brand,series,size){
  refreshReferencePrices();
  if(ok)toast('已恢复内置默认参考价');
 }
+function renderStockEditor(){
+ const editor=(size,label)=>'<div class="stock-size '+(label==='正在使用'?'active':'')+'"><div class="field">'
+  +'<label for="inv_'+size+'">'+esc(size)+' 码'+(label?' · '+esc(label):'')+'</label>'
+  +'<span class="size-help">建议体重：'+esc(XBGrowth.sizeRange(size))+'</span>'
+  +'<input id="inv_'+size+'" type="number" min="0" max="100000" step="1" value="'+stageStock(size)+'" inputmode="numeric"/>'
+  +'</div></div>';
+ const grid=(list,labels)=>'<div class="stock-grid">'+list.map((size,i)=>editor(size,labels?.[i])).join('')+'</div>';
+ const fold=(title,list,note)=>{
+  if(!list.length)return '';
+  return '<details class="plan-more stock-details"><summary>'+esc(title)+'</summary>'+grid(list)+
+   '<p class="plan-more-note">'+esc(note)+'</p></details>';
+ };
+ if(!XBGrowth.born(state)){
+  $('stockEditForm').innerHTML='<section class="stock-current"><div class="stock-title">出生前重点库存</div>'
+   +grid(['NB','S'],['首批备货','下一码'])+'</section>'
+   +fold('其他尺码盘点（M / L / XL / XXL）',SIZES.slice(2),'未出生时可以提前盘点，不会修改出生前备货方案。');
+  return;
+ }
+ const active=XBGrowth.effectiveSize(state),idx=SIZES.indexOf(active);
+ const primary=SIZES.slice(idx,idx+2),future=SIZES.slice(idx+2),past=SIZES.slice(0,idx);
+ const snapshot=past.map(x=>x+' '+stageStock(x)+'片').join(' / ');
+ $('stockEditForm').innerHTML='<section class="stock-current"><div class="stock-title">当前与下一尺码</div>'
+  +grid(primary,['正在使用','下一尺码'])+'</section>'
+  +fold('未来尺码盘点（'+future.join(' / ')+'）',future,'未来尺码仅在需要时查看和盘点。')
+  +fold('历史尺码库存（'+(snapshot||'无')+'）',past,'已换码的库存仍然保留，可以展开修正，不会自动清零。');
+}
 function renderHistory(){const buys=state.transactions.filter(t=>t.type==='buy'),used=state.transactions.filter(t=>t.type==='use'),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
 const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td><button class="btn ghost sm" data-action="deletetx" data-id="${esc(t.id)}">撤销</button></td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
-$('stockEditForm').innerHTML=SIZES.map(x=>`<div class="field"><label for="inv_${x}">${x} 现有片数</label><input id="inv_${x}" type="number" min="0" max="100000" step="1" value="${stageStock(x)}" inputmode="numeric" /></div>`).join('')}
+renderStockEditor()}
 function updateSizeModePreview(){
  const mode=$('sizeMode').value,manual=$('currentSize').value;
  $('manualSizeBox').hidden=mode==='auto';
@@ -679,7 +705,17 @@ function saveSizePreferences(){
  Object.assign(state,{sizeMode:mode,currentSize:mode==='manual'?size:state.currentSize,goalPrice:goal});
  save();renderAll();toast('尺码与采购偏好已保存');
 }
-function saveStocks(){for(const x of SIZES){const n=Number($('inv_'+x).value);if(!Number.isInteger(n)||n<0||n>100000){toast(`${x} 库存必须是非负整数`);return}state.inventory[x]=n}save();renderAll();toast('实际库存已更新')}
+function saveStocks(){
+ const next={};
+ for(const x of SIZES){
+  const input=$('inv_'+x),raw=input?.value??'',n=Number(raw);
+  // Every size exists in the document even if its details group is collapsed.
+  if(raw===''||!Number.isInteger(n)||n<0||n>100000){toast(x+' 库存必须是非负整数');return}
+  next[x]=n;
+ }
+ for(const x of SIZES)state.inventory[x]=next[x];
+ save();renderAll();toast('实际库存已更新');
+}
 function undo(id){const i=state.transactions.findIndex(t=>t.id===id);if(i<0)return;const t=state.transactions[i];if(!confirm(`确认撤销这条${t.type==='buy'?'采购':'消耗'}记录？库存也会相应修正。`))return;if(t.type==='buy')state.inventory[t.size]=Math.max(0,stageStock(t.size)-num(t.pieces));else state.inventory[t.size]=stageStock(t.size)+num(t.pieces);state.transactions.splice(i,1);save();renderAll();toast('记录已撤销，库存已同步修正')}
 function exportData(){const data=JSON.stringify({app:'xiaobao-diapers',version:1,exportedAt:new Date().toISOString(),data:state},null,2);const blob=new Blob([data],{type:'application/json;charset=utf-8'});const href=URL.createObjectURL(blob);const a=document.createElement('a');a.href=href;a.download=`小宝纸尿裤备份_${localDate()}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),1000);toast('备份文件已导出')}
 function importData(file){const reader=new FileReader();reader.onload=()=>{try{const obj=JSON.parse(reader.result);if(obj.app!=='xiaobao-diapers'||!obj.data||typeof obj.data!=='object'||!obj.data.inventory||!obj.data.target)throw Error('not-valid');if(!confirm('确定用这个备份替换本机现有的库存和记录吗？'))return;const d=defaults(),raw=obj.data;state={...d,...raw,target:{...d.target,...raw.target},daily:{...d.daily,...raw.daily},inventory:{...d.inventory,...raw.inventory},quotes:Array.isArray(raw.quotes)?raw.quotes:[],transactions:Array.isArray(raw.transactions)?raw.transactions:[],referenceOverrides:raw.referenceOverrides&&typeof raw.referenceOverrides==='object'&&!Array.isArray(raw.referenceOverrides)?raw.referenceOverrides:{}};for(const x of SIZES){state.inventory[x]=clamp(Math.round(num(state.inventory[x])),0,100000);state.target[x]=clamp(Math.round(num(state.target[x])),0,10000);state.daily[x]=clamp(Math.round(num(state.daily[x],8)),1,30)}Object.assign(state,XBGrowth.extras({...raw,currentSize:state.currentSize}));XBGrowth.syncAutoSize(state);save();renderAll();toast('备份已恢复')}catch{toast('备份文件格式不正确')}};reader.readAsText(file,'utf-8')}
@@ -698,7 +734,7 @@ $('qBrand').addEventListener('change',()=>{$('qSeries').value='';updateSeriesPic
 $('qSeriesChoice').addEventListener('change',chooseSeriesFromSelect);
 $('qSeries').addEventListener('input',renderSeriesChips);
 Array.from(document.querySelectorAll('.tab')).forEach(el=>el.addEventListener('click',()=>tab(el.dataset.tab)));
-document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;if(action==='go'){tab(b.dataset.target);return}if(action==='consume'){consume(b.dataset.size,b.dataset.count);return}if(action==='editstock'){tab('history');$('inv_'+b.dataset.size)?.focus();return}if(action==='deletequote'){state.quotes=state.quotes.filter(q=>q.id!==b.dataset.id);save();renderQuotes();toast('候选已移除');return}if(action==='buyquote'){const q=state.quotes.find(q=>q.id===b.dataset.id);if(q)addBuy(q);return}if(action==='deletetx'){undo(b.dataset.id);return}if(action==='series'){$('qSeries').value=b.dataset.series;$('qSeriesChoice').value=b.dataset.series;$('qSeries').hidden=true;renderSeriesChips();preview();return}if(action==='pickref'){$('qBrand').value=b.dataset.brand;$('qSeries').value=b.dataset.series;$('qSize').value=b.dataset.size;updateSeriesPicks();preview();document.querySelector('#compare .head')?.scrollIntoView({behavior:'smooth',block:'start'});toast('已填入品牌、系列与尺码');return}if(action==='editref'){editReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}if(action==='resetref'){restoreReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;if(action==='go'){tab(b.dataset.target);return}if(action==='consume'){consume(b.dataset.size,b.dataset.count);return}if(action==='editstock'){tab('history');const field=$('inv_'+b.dataset.size);const section=field?.closest('details');if(section)section.open=true;field?.focus();return}if(action==='deletequote'){state.quotes=state.quotes.filter(q=>q.id!==b.dataset.id);save();renderQuotes();toast('候选已移除');return}if(action==='buyquote'){const q=state.quotes.find(q=>q.id===b.dataset.id);if(q)addBuy(q);return}if(action==='deletetx'){undo(b.dataset.id);return}if(action==='series'){$('qSeries').value=b.dataset.series;$('qSeriesChoice').value=b.dataset.series;$('qSeries').hidden=true;renderSeriesChips();preview();return}if(action==='pickref'){$('qBrand').value=b.dataset.brand;$('qSeries').value=b.dataset.series;$('qSize').value=b.dataset.size;updateSeriesPicks();preview();document.querySelector('#compare .head')?.scrollIntoView({behavior:'smooth',block:'start'});toast('已填入品牌、系列与尺码');return}if(action==='editref'){editReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}if(action==='resetref'){restoreReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}});
 for(const x of ['qBrand','qSeries','qSize','qPerPack','qPacks','qPrice'])$(x).addEventListener('input',preview);
 $('saveQuote').addEventListener('click',()=>{const q=compareInput();if(!validateQuote(q))return;state.quotes.push({...q,id:uid(),date:localDate()});save();renderQuotes();toast('候选价已保存，可继续录入另一款比较')});
 $('buyNow').addEventListener('click',()=>addBuy(compareInput()));
