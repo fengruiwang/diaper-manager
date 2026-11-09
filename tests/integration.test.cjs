@@ -24,15 +24,16 @@ function boot(legacy,chosenTab){
   const classes=new Set(id==='overview'||id==='tab-overview'?['active']:[]);
   return {id,hidden:false,value:'',innerHTML:'',textContent:'',style:{},dataset:{},files:null,disabled:false,
    classList:{contains:x=>classes.has(x),toggle:(x,on)=>{if(on)classes.add(x);else classes.delete(x)},add:x=>classes.add(x),remove:x=>classes.delete(x)},
-   handlers:{},addEventListener(type,cb){this.handlers[type]=cb},focus(){},select(){},scrollIntoView(){},setAttribute(){},getAttribute(){return null},closest(){return null}};
+   handlers:{},addEventListener(type,cb){this.handlers[type]=cb},focus(){this.focused=true},select(){},scrollIntoView(){},setAttribute(){},getAttribute(){return null},closest(){return this.parentDetails||null}};
  }
  const tabs=['overview','compare','history','growth','settings'].map(id=>{const e=elements('tab-'+id);e.dataset.tab=id;return e});
  const panels=['overview','compare','history','growth','settings'].map(elements);
+ const documentEvents={};
  const document={
   getElementById:elements,
   querySelectorAll(sel){return sel==='.tab'?tabs:sel==='.panel'?panels:[]},
   querySelector(sel){return elements(sel)},
-  addEventListener(){},
+  addEventListener(type,cb){(documentEvents[type]??=[]).push(cb)},
   createElement:()=>elem('created'),
   body:{append(){}}
  };
@@ -51,7 +52,7 @@ function boot(legacy,chosenTab){
   FileReader:function(){this.readAsText=file=>{this.result=file.json;this.onload()}},Blob:function(){},URL:{createObjectURL(){},revokeObjectURL(){}},
  };
  vm.runInNewContext(script,context,{timeout:5000,filename:'index-app.js'});
- return {elements,store,tabs,panels};
+ return {elements,store,tabs,panels,documentEvents};
 }
 const fixture=()=>({
  dueDate:'2027-01-08',birthDate:'2025-01-08',currentSize:'S',babyWeight:'5.5',
@@ -107,12 +108,12 @@ test('new-format JSON backups restore growth records, profile and reference pric
  assert.deepEqual(restored.inventory,data.inventory);
  assert.deepEqual(restored.transactions,data.transactions);
 });
-test('v1.1.1 app shell precaches new growth module without changing user storage',()=>{
+test('v1.1.2 app shell precaches new growth module without changing user storage',()=>{
  const sw=fs.readFileSync(path.join(__dirname,'../sw.js'),'utf8');
  const version=JSON.parse(fs.readFileSync(path.join(__dirname,'../version.json'),'utf8'));
- assert.match(sw,/xiaobao-shell-v1\.1\.1/);
+ assert.match(sw,/xiaobao-shell-v1\.1\.2/);
  assert.match(sw,/\.\/growth\.js/);
- assert.equal(version.version,'1.1.1');
+ assert.equal(version.version,'1.1.2');
  assert.match(source,/const KEY='xiaobao_diaper_planner_v1'/);
 });
 
@@ -183,4 +184,111 @@ test('old backups without policy import with seven-day default and unchanged bud
  assert.deepEqual(after.inventory,original.inventory);
  assert.deepEqual(after.target,original.target);
  assert.deepEqual(after.referenceOverrides,original.referenceOverrides);
+});
+
+function sendAction(env,action,fields){
+ for(const cb of env.documentEvents.click||[]){
+  cb({target:{closest(){return {dataset:{action,...fields}}}}});
+ }
+}
+function setRecord(env,{date,weight,time=''}) {
+ env.elements('weightDate').value=date;env.elements('weightTime').value=time;
+ env.elements('weightKg').value=String(weight);env.elements('weightNote').value='';
+ env.elements('saveWeight').handlers.click();
+}
+test('adding, editing and removing weights immediately change home and settings',()=>{
+ const data=fixture();data.sizeMode='auto';data.currentSize='L';data.autoSize='XXL';
+ data.weightRecords=[{id:'w1',date:'2025-03-01',time:'08:00',weight:4.5,note:''}];
+ const env=boot(data,'growth');
+ assert.match(env.elements('kpiGrid').innerHTML,/NB/);
+ setRecord(env,{date:'2025-04-01',weight:6.2,time:'08:30'});
+ let stored=JSON.parse(env.store.get('xiaobao_diaper_planner_v1'));
+ assert.equal(G.effectiveSize(stored),'S');
+ assert.match(env.elements('sizeCards').innerHTML,/S · 正在用/);
+ const newId=stored.weightRecords.find(x=>x.id!=='w1').id;
+ sendAction(env,'editweight',{id:newId});
+ setRecord(env,{date:'2025-04-01',weight:11.2,time:'08:30'});
+ stored=JSON.parse(env.store.get('xiaobao_diaper_planner_v1'));
+ assert.equal(G.effectiveSize(stored),'L');
+ assert.match(env.elements('kpiGrid').innerHTML,/L/);
+ sendAction(env,'deleteweight',{id:newId});
+ stored=JSON.parse(env.store.get('xiaobao_diaper_planner_v1'));
+ assert.equal(G.effectiveSize(stored),'NB');
+ assert.match(env.elements('sizeCards').innerHTML,/NB · 正在用/);
+ assert.equal(stored.autoSize,'XXL','old field must not anchor size');
+});
+test('manual mode resists new weight recordings',()=>{
+ const data=fixture();data.currentSize='L';data.sizeMode='manual';
+ const env=boot(data,'growth');
+ setRecord(env,{date:'2025-04-05',weight:4.4});
+ const after=JSON.parse(env.store.get('xiaobao_diaper_planner_v1'));
+ assert.equal(G.effectiveSize(after),'L');
+ assert.match(env.elements('sizeCards').innerHTML,/L · 正在用/);
+});
+test('settings hide manual selector in auto and show a weight-based recommendation',()=>{
+ const data=fixture();data.sizeMode='auto';data.currentSize='L';data.autoSize='XXL';
+ data.weightRecords=[{id:'w',date:'2025-05-10',time:'',weight:4.5,note:''}];
+ const env=boot(data,'settings');
+ assert.equal(env.elements('manualSizeBox').hidden,true);
+ assert.match(env.elements('sizePreview').textContent,/推荐 NB/);
+ assert.match(env.elements('settingsSizes').innerHTML,/建议体重：/);
+ env.elements('sizeMode').value='manual';env.elements('sizeMode').handlers.change();
+ assert.equal(env.elements('manualSizeBox').hidden,false);
+ assert.match(env.elements('sizePreview').textContent,/手动指定 L/);
+});
+test('auto mode with no weight clearly distinguishes an unknown recommendation',()=>{
+ const data=fixture();data.babyWeight='';data.weightRecords=[];data.sizeMode='auto';
+ const env=boot(data,'settings');
+ assert.match(env.elements('sizePreview').textContent,/没有有效体重/);
+ assert.equal(G.latestRecommendation(JSON.parse(env.store.get('xiaobao_diaper_planner_v1'))),null);
+});
+test('stocktaking prioritizes L/XL, folds all older sizes but keeps their input fields',()=>{
+ const data=fixture();data.currentSize='L';data.inventory.M=11;
+ const env=boot(data,'history');
+ const markup=env.elements('stockEditForm').innerHTML;
+ assert.match(markup,/L 码 · 正在使用/);
+ assert.match(markup,/XL 码 · 下一尺码/);
+ assert.ok(markup.indexOf('L 码 · 正在使用')<markup.indexOf('NB 码'));
+ assert.match(markup,/历史尺码库存/);
+ assert.match(markup,/建议体重：约 9–14 kg/);
+ for(const size of G.SIZES)assert.match(markup,new RegExp('id="inv_'+size+'"'));
+});
+test('stock update never resets folded historical or unmodified inventory',()=>{
+ const data=fixture();data.currentSize='L';data.inventory.M=12;
+ const env=boot(data,'history');
+ for(const size of G.SIZES)env.elements('inv_'+size).value=String(data.inventory[size]);
+ env.elements('inv_L').value='55';
+ env.elements('saveStocks').handlers.click();
+ const updated=JSON.parse(env.store.get('xiaobao_diaper_planner_v1'));
+ assert.equal(updated.inventory.L,55);
+ for(const size of ['NB','S','M','XL','XXL'])assert.equal(updated.inventory[size],data.inventory[size]);
+ assert.deepEqual(updated.referenceOverrides,data.referenceOverrides);
+ assert.deepEqual(updated.transactions,data.transactions);
+});
+test('invalid stock input is atomic: historical inventory remains unchanged',()=>{
+ const data=fixture();data.currentSize='L';
+ const env=boot(data,'history');
+ for(const size of G.SIZES)env.elements('inv_'+size).value=String(data.inventory[size]);
+ env.elements('inv_NB').value='0';env.elements('inv_S').value='-2';
+ env.elements('saveStocks').handlers.click();
+ const updated=JSON.parse(env.store.get('xiaobao_diaper_planner_v1'));
+ assert.deepEqual(updated.inventory,data.inventory);
+});
+test('clicking historical stock link unfolds the corresponding inventory editor',()=>{
+ const data=fixture();data.currentSize='L';
+ const env=boot(data);
+ const oldSection={open:false};
+ env.elements('inv_NB').parentDetails=oldSection;
+ sendAction(env,'editstock',{size:'NB'});
+ assert.equal(oldSection.open,true);
+ assert.equal(env.elements('inv_NB').focused,true);
+ assert.equal(env.panels[2].classList.contains('active'),true);
+});
+test('original localStorage key, version and PWA cache all survive',()=>{
+ const sw=fs.readFileSync(path.join(__dirname,'../sw.js'),'utf8');
+ const version=JSON.parse(fs.readFileSync(path.join(__dirname,'../version.json'),'utf8'));
+ assert.equal(version.version,'1.1.2');
+ assert.match(sw,/xiaobao-shell-v1\.1\.2/);
+ assert.match(source,/const KEY='xiaobao_diaper_planner_v1'/);
+ assert.doesNotMatch(source,/自动起点/);
 });

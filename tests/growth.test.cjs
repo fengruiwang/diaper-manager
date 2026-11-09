@@ -40,3 +40,45 @@ test('home day-policy labels show actual selected days and not the old custom go
  assert.match(ui.kpis,/按5天用量/);
  assert.doesNotMatch(ui.kpis,/补至 100 片/);
 });
+
+test('new automatic algorithm ignores legacy autoSize anchor and moves down when weight falls',()=>{
+ const s={...base,birthDate:'2025-01-08',currentSize:'L',autoSize:'XXL',sizeMode:'auto',weightRecords:[{id:'w1',date:'2025-06-08',time:'10:00',weight:4.5}]};
+ assert.equal(G.effectiveSize(s),'NB');
+ assert.equal(G.latestRecommendation(s),'NB');
+ assert.equal(s.autoSize,'XXL','must not mutate old field');
+ assert.equal(G.syncAutoSize(s),'NB');
+ assert.equal(s.autoSize,'XXL');
+});
+test('latest recorded weight always wins by measurement date, not insertion order',()=>{
+ const s={...base,birthDate:'2025-01-08',sizeMode:'auto',autoSize:'XL',weightRecords:[
+ {id:'new',date:'2025-07-01',time:'15:30',weight:6.2},
+ {id:'old',date:'2025-06-01',time:'09:00',weight:4.2}
+ ]};
+ assert.equal(G.latestWeight(s).weight,6.2);
+ assert.equal(G.effectiveSize(s),'S');
+ s.weightRecords.push({id:'same-day-earlier',date:'2025-07-01',time:'09:00',weight:9.2});
+ assert.equal(G.latestWeight(s).weight,6.2);
+});
+test('editing or deleting the most recent measurement can return to smaller size',()=>{
+ const s={...base,birthDate:'2025-01-08',sizeMode:'auto',autoSize:'M',weightRecords:[
+ {id:'w1',date:'2025-06-01',time:'',weight:4.5},
+ {id:'w2',date:'2025-06-02',time:'',weight:6.2}
+ ]};
+ assert.equal(G.effectiveSize(s),'S');
+ s.weightRecords[1].weight=4.3;
+ assert.equal(G.effectiveSize(s),'NB');
+ s.weightRecords[1].weight=11.2;
+ assert.equal(G.effectiveSize(s),'L');
+ s.weightRecords.pop();
+ assert.equal(G.effectiveSize(s),'NB');
+});
+test('manual selection is never overwritten by weight changes',()=>{
+ const s={...base,birthDate:'2025-01-08',sizeMode:'manual',currentSize:'L',autoSize:'XXL',weightRecords:[{id:'a',date:'2025-06-01',time:'',weight:4.5}]};
+ assert.equal(G.effectiveSize(s),'L');
+ assert.equal(G.latestRecommendation(s),'NB');
+});
+test('common ranges cover all six sizes and are shared by exported API',()=>{
+ for(const size of G.SIZES)assert.ok(G.sizeRange(size).length>0);
+ assert.equal(G.sizeRange('S'),'约 4–8 kg');
+ assert.match(G.dashboard({...base,birthDate:'2025-01-08'}).cards,/建议体重/);
+});
