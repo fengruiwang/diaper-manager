@@ -63,6 +63,20 @@
 .baby-time input{text-align:center;padding:10px 3px}
 .profile-item.wide{grid-column:span 2}
 @media(max-width:600px){.tabs{grid-template-columns:repeat(5,minmax(0,1fr))}.tab{font-size:11px;padding:9px 0}.growth-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.growth-stat{padding:11px}.growth-stat b{font-size:18px}}
+
+/* v1.1.1: stage-aware replenishment settings. */
+.plan-size-group{margin-top:15px}
+.plan-size-group h3{font-size:14px;margin:0 0 10px;color:#4c5267}
+.plan-more{margin-top:13px;border:1px solid #e5e7f0;border-radius:13px;background:#fcfcff;padding:11px 12px}
+.plan-more summary{cursor:pointer;font-size:13px;font-weight:700;color:#59627c}
+.plan-more .setting-grid{margin-top:12px}
+.plan-more-note{font-size:11px;color:#8a93a5;margin-top:8px}
+.plan-formats{margin-top:12px}
+.plan-size-now{border-color:#b3adfa;background:#f8f7ff}
+.plan-size-next{border-color:#e1ddfb}
+.plan-size-heading{font-size:13px;font-weight:750;color:#5147bb}
+.plan-size-stock{font-size:11px;color:#8992a5;margin:4px 0 9px}
+@media(max-width:600px){.plan-more{padding:10px}.plan-size-group{margin-top:14px}}
 </style>
 </head>
 <body>
@@ -191,15 +205,30 @@
           <div class="field"><label for="sizeMode">尺码选择模式</label><select id="sizeMode"><option value="manual">手动优先</option><option value="auto">自动参考体重</option></select></div>
           <div class="field"><label for="currentSize">手动尺码 / 自动起点</label><select id="currentSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div>
           <div class="field"><label for="goalPrice">个人目标单价（元/片）</label><input type="number" id="goalPrice" min="0.1" step="0.1" /></div>
-          <div class="field"><label for="plannedBudget">首批备货预算（元）</label><input type="number" id="plannedBudget" min="0" step="10" /></div>
         </div>
         <p class="soft-note" id="sizePreview">手动模式优先。自动模式参考体重，不会强迫在重叠区间换码。</p>
         <div class="action-row"><button class="btn" id="saveSizePreferences">保存尺码与采购偏好</button></div>
       </div>
-      <div class="head"><h2>🎯 备货目标与日均用量</h2></div>
-      <div class="card"><div class="sub">目标是希望手头保有多少片，并非整个尺码使用阶段的总需求。日均用量用于估算库存还能使用几天，可以随时修改。</div>
-        <div class="chip-row"><button class="chip" data-preset="cautious">保守备货：NB80 / S60</button><button class="chip active" data-preset="balanced">均衡备货：NB100 / S60</button><button class="chip" data-preset="relaxed">宽松备货：NB120 / S80</button></div>
-        <div class="setting-grid" id="settingsSizes"></div>
+      <div class="head"><h2 id="planSettingsTitle">🎯 备货目标与日均用量</h2></div>
+      <div class="card">
+        <div class="sub" id="planIntro">目标是希望手头保有多少片，并非整个尺码阶段总需求。</div>
+        <div class="chip-row" id="prenatalPresets">
+          <button class="chip" data-preset="cautious" type="button">保守备货：NB80 / S60</button>
+          <button class="chip active" data-preset="balanced" type="button">均衡备货：NB100 / S60</button>
+          <button class="chip" data-preset="relaxed" type="button">宽松备货：NB120 / S80</button>
+        </div>
+        <div id="postnatalPolicy" class="plan-formats" hidden>
+          <div class="form-grid">
+            <div class="field"><label for="replenishMode">当前补货方式</label>
+              <select id="replenishMode"><option value="days">按可用天数补货</option><option value="custom">自定义目标片数</option></select>
+            </div>
+            <div class="field" id="replenishDaysBox"><label for="replenishDays">希望保有几天库存</label>
+              <select id="replenishDays"><option value="5">少量备货 · 5天</option><option value="7">常规备货 · 7天</option><option value="10">适度备货 · 10天</option></select>
+            </div>
+          </div>
+          <p class="soft-note" id="replenishPreview"></p>
+        </div>
+        <div id="settingsSizes"></div>
         <div class="action-row"><button class="btn" id="savePlans">保存目标与日均用量</button></div>
       </div>
       <div class="head"><h2>💾 数据备份与恢复</h2></div>
@@ -289,7 +318,7 @@ function getRef(brand,series,size){const row=findReferenceRow(brand,series);retu
 function priceSignal(unit,brand,series,size){const r=getRef(brand,series,size);if(!(unit>0))return {...r,kind:'',label:'等待实付价',delta:null,pct:null};if(!(r.price>0))return {...r,kind:'muted',label:r.row?'该尺码无参考价':'系列暂无参考价',delta:null,pct:null};const rawDelta=unit-r.price,delta=Math.abs(rawDelta)<1e-9?0:rawDelta,pct=delta/r.price*100;let kind,label;if(pct<=-5){kind='good';label='低于参考价'}else if(pct<=5){kind='good';label='接近参考价'}else if(pct<=15){kind='warn';label='略高于参考价'}else{kind='bad';label='明显高于参考价'}return {...r,kind,label,delta,pct}}
 
 const KEY='xiaobao_diaper_planner_v1';
-const defaults=()=>({dueDate:'2027-01-08',birthDate:'',currentSize:'NB',babyWeight:'',babyProfile:{name:'小宝',sex:'',birthTime:'',birthWeight:'',birthLength:''},weightRecords:[],sizeMode:'manual',autoSize:'NB',goalPrice:1.5,plannedBudget:250,target:{NB:100,S:60,M:0,L:0,XL:0,XXL:0},daily:{NB:10,S:9,M:7,L:6,XL:5,XXL:5},inventory:Object.fromEntries(SIZES.map(x=>[x,0])),quotes:[],transactions:[],referenceOverrides:{},preset:'balanced'});
+const defaults=()=>({dueDate:'2027-01-08',birthDate:'',currentSize:'NB',babyWeight:'',babyProfile:{name:'小宝',sex:'',birthTime:'',birthWeight:'',birthLength:''},weightRecords:[],sizeMode:'manual',autoSize:'NB',replenishPolicy:{mode:'days',days:7},goalPrice:1.5,plannedBudget:250,target:{NB:100,S:60,M:0,L:0,XL:0,XXL:0},daily:{NB:10,S:9,M:7,L:6,XL:5,XXL:5},inventory:Object.fromEntries(SIZES.map(x=>[x,0])),quotes:[],transactions:[],referenceOverrides:{},preset:'balanced'});
 const num=(x,fb=0)=>Number.isFinite(+x)?+x:fb;
 const clamp=(x,lo,hi)=>Math.min(hi,Math.max(lo,x));
 function load(){
@@ -303,7 +332,7 @@ function load(){
   n.referenceOverrides=raw.referenceOverrides&&typeof raw.referenceOverrides==='object'&&!Array.isArray(raw.referenceOverrides)?raw.referenceOverrides:{};
   Object.assign(n,XBGrowth.extras({...raw,currentSize:n.currentSize}));
   // One-time additive migration; existing prices, inventory and purchases remain byte-equivalent as data.
-  if(!raw.babyProfile||!Array.isArray(raw.weightRecords)||!['manual','auto'].includes(raw.sizeMode)||!SIZES.includes(raw.autoSize)){
+  if(!raw.babyProfile||!Array.isArray(raw.weightRecords)||!['manual','auto'].includes(raw.sizeMode)||!SIZES.includes(raw.autoSize)||!raw.replenishPolicy||!['days','custom'].includes(raw.replenishPolicy.mode)||![5,7,10].includes(Number(raw.replenishPolicy.days))){
    try{localStorage.setItem(KEY,JSON.stringify(n))}catch(_){/* Keep loaded data in memory if storage is unavailable. */}
   }
   return n;
@@ -370,7 +399,7 @@ $('recoAlert').innerHTML=`<div class="alert ${warn?'warning':''}"><div><strong>$
 }
 function renderSizesLegacy(){const cur=state.currentSize;const born=Boolean(state.birthDate);$('sizeCards').innerHTML=SIZES.map(x=>{const stock=stageStock(x),target=Math.max(0,Math.round(num(state.target[x]))),daily=num(state.daily[x],1),days=stockDays(x),progress=target===0?(stock>0?100:0):clamp(stock/target*100,0,100);return `<div class="sizecard ${cur===x?'focus':''}"><div class="size-top"><span class="size-pill">${x}${born&&cur===x?' · 正在用':''}</span><span class="size-range">${RANGES[x]}</span></div><div class="stock-number"><b>${int(stock)}</b><small>片现货</small></div><div class="bar"><span style="width:${progress}%"></span></div><div class="micro"><span>备货目标 ${target} 片</span><span>约可用 ${days.toFixed(1)} 天</span></div><div class="size-actions"><button class="btn secondary sm" data-action="consume" data-size="${x}" data-count="1" ${stock===0?'disabled':''}>− 用 1 片</button><button class="btn ghost sm" data-action="consume" data-size="${x}" data-count="${Math.min(stock,Math.round(daily))}" ${stock===0?'disabled':''}>− 记 1 天</button><button class="btn ghost sm" data-action="editstock" data-size="${x}">盘点</button></div><div class="size-detail">整个尺码阶段大致 ${TOTAL[x]} · 估计日用 ${daily} 片</div></div>`}).join('')}
 function renderShoppingLegacy(){let lines=['NB','S'].map(x=>{const rest=Math.max(0,state.target[x]-stageStock(x));return `<div class="plan-row"><div class="plan-left"><span class="dot">${x}</span><div><b>${x==='NB'?'新生儿首批试用':'下一码少量准备'}</b><div class="progress-info">目标 ${int(state.target[x])} 片 · 已有 ${int(stageStock(x))} 片</div></div></div><div class="planned ${rest?'purple':'green'}">${rest?'再买 '+rest+' 片':'✓ 已备齐'}</div></div>`}).join('');const missing=Math.max(0,state.target.NB-stageStock('NB'))+Math.max(0,state.target.S-stageStock('S'));$('shoppingPlan').innerHTML=`<h3 class="section-title">建议优先购买</h3>${lines}<div class="tip" style="margin-top:15px"><b>粗略待购预算：${money(missing*num(state.goalPrice,1.5))}</b>（按个人目标单价 ${money(state.goalPrice)} / 片计算）。实际支付价格以比价记录为准。</div>`;
-$('tipsCard').innerHTML=`<h3 class="section-title">选购判断小抄</h3><div class="statline"><span class="sub">个人好价目标</span><strong>${money(state.goalPrice)} /片</strong></div><div class="statline"><span class="sub">全部历史实付</span><strong>${money(spend())}</strong></div><div class="statline"><span class="sub">首批备货预算</span><strong>${money(state.plannedBudget)}</strong></div><div class="tip" style="margin-top:13px"><b>购买原则：</b>先小包试 NB → 看腰腿贴合、漏尿、红屁屁情况 → 再按需补。尺码重叠时以宝宝实际身形为准。</div>`}
+$('tipsCard').innerHTML=`<h3 class="section-title">选购判断小抄</h3><div class="statline"><span class="sub">个人好价目标</span><strong>${money(state.goalPrice)} /片</strong></div><div class="statline"><span class="sub">全部历史实付</span><strong>${money(spend())}</strong></div><div class="tip" style="margin-top:13px"><b>购买原则：</b>先小包试 NB → 看腰腿贴合、漏尿、红屁屁情况 → 再按需补。尺码重叠时以宝宝实际身形为准。</div>`}
 function renderOverview(){
  dateInfo();
  const section=$('legacySection');
@@ -525,18 +554,81 @@ function renderSettings(){
  $('birthWeight').value=p.birthWeight??'';$('birthLength').value=p.birthLength??'';
  $('sizeMode').value=state.sizeMode==='auto'?'auto':'manual';
  $('currentSize').value=state.currentSize;$('goalPrice').value=state.goalPrice;
- $('plannedBudget').value=state.plannedBudget;
  const last=XBGrowth.latestWeight(state);
  $('sizePreview').textContent='当前生效 '+XBGrowth.effectiveSize(state)+' 码。'+
   (state.sizeMode==='auto'?(last?'体重参考 '+last.weight.toFixed(2)+' kg；':'暂无有效体重，暂沿用原尺码。'):'手动选择优先。')+
   '体重重叠区间不强制换码，实际以品牌包装、腰腿贴合和漏尿情况为准。';
+ const born=XBGrowth.born(state),active=XBGrowth.effectiveSize(state);
+ $('planSettingsTitle').textContent=born?'🎯 补货目标与日均用量':'🎯 出生前备货目标';
+ $('planIntro').textContent=born?'围绕当前穿着尺码管理库存。旧尺码只做历史管理，不再计入补货建议。':'出生前以 NB / S 试用备货为主，其他尺码可以展开提前设置。';
+ $('prenatalPresets').hidden=born;$('postnatalPolicy').hidden=!born;
+ const policy=XBGrowth.replenishmentPolicy(state);
+ $('replenishMode').value=policy.mode;$('replenishDays').value=String(policy.days);
  document.querySelectorAll('[data-preset]').forEach(b=>b.classList.toggle('active',b.dataset.preset===state.preset));
- $('settingsSizes').innerHTML=SIZES.map(x=>'<div class="setting-size"><b>'+x+'</b><label for="target_'+x+'">目标现货（片）</label><input id="target_'+x+'" type="number" min="0" max="10000" step="1" value="'+Math.round(num(state.target[x]))+'"/><label for="daily_'+x+'">每日预计消耗（片）</label><input id="daily_'+x+'" type="number" min="1" max="30" step="1" value="'+Math.round(num(state.daily[x]))+'"/></div>').join('');
+ const editor=(x,label)=>{
+  const saved=Math.max(0,Math.round(num(state.target[x])));
+  return '<div class="setting-size '+(label==='正在使用'?'plan-size-now':label==='下一尺码'?'plan-size-next':'')+'">'
+    +'<div class="plan-size-heading">'+esc(x)+(label?' · '+label:'')+'</div>'
+    +'<div class="plan-size-stock">现有库存 '+int(stageStock(x))+' 片</div>'
+    +'<label for="target_'+x+'">自定义目标（片）</label><input data-plan-target="1" id="target_'+x+'" type="number" min="0" max="10000" step="1" value="'+saved+'"/>'
+    +'<label for="daily_'+x+'">每日预计消耗（片）</label><input id="daily_'+x+'" type="number" min="1" max="30" step="1" value="'+Math.round(num(state.daily[x]))+'"/>'
+    +'</div>';
+ };
+ const group=(names,labels)=>'<div class="setting-grid">'+names.map((x,i)=>editor(x,labels?labels[i]:null)).join('')+'</div>';
+ const details=(title,names,notes,labels)=>{
+  if(!names.length)return '';
+  return '<details class="plan-more"><summary>'+esc(title)+'</summary>'+group(names,labels)+'<p class="plan-more-note">'+esc(notes)+'</p></details>';
+ };
+ if(!born){
+  $('settingsSizes').innerHTML='<section class="plan-size-group"><h3>🍼 出生前重点备货</h3>'+group(['NB','S'],['首批试用','下一码'])+'</section>'
+   +details('其他尺码设置（M / L / XL / XXL）',SIZES.slice(2),'可预先设定日均用量和自定义目标，但出生前不计入首批备货统计。');
+ }else{
+  const idx=SIZES.indexOf(active),main=SIZES.slice(idx,idx+2),past=SIZES.slice(0,idx),future=SIZES.slice(idx+2);
+  const note=past.map(x=>x+' '+int(stageStock(x))+'片').join(' / ');
+  $('settingsSizes').innerHTML='<section class="plan-size-group"><h3>🧷 当前与下一尺码</h3>'+group(main,['正在使用','下一尺码'])+'</section>'
+   +details('未来尺码设置（'+(future.join(' / ')||'无')+'）',future,'未来尺码无需现在大量囤货，可根据实际体重和贴合情况逐步准备。')
+   +details('历史尺码设置（'+(note||'无')+'）',past,'旧尺码的全部目标、库存和记录仍保留；此区域仅用于查看和修改，不参与当前补货。');
+ }
+ updateReplenishmentPreview();
+}
+function updateReplenishmentPreview(){
+ const born=XBGrowth.born(state);
+ if(!born)return;
+ const mode=$('replenishMode').value,days=Number($('replenishDays').value);
+ $('replenishDaysBox').hidden=mode!=='days';
+ for(const x of SIZES){const input=$('target_'+x);if(input)input.disabled=mode!=='custom';}
+ const current=XBGrowth.effectiveSize(state);
+ const dailyInput=$('daily_'+current),targetInput=$('target_'+current);
+ const daily=Math.max(1,Math.min(30,Number(dailyInput?.value)||8));
+ const target=mode==='days'?daily*days:Math.max(0,Math.round(Number(targetInput?.value)||0))||daily*7;
+ const old=mode==='custom'&&!(Number(targetInput?.value)>0);
+ $('replenishPreview').textContent='当前 '+current+' 码：按每天 '+daily+' 片，目标 '+target+' 片，库存 '+stageStock(current)+' 片，'
+   +(mode==='days'?'计划保有 '+days+' 天用量。':old?'尚未填写自定义目标，临时按7天用量计算。':'使用自定义目标。')
+   +' 保存后才会更新首页，不改动现有实际库存。';
 }
 function renderAll(){renderOverview();if($('compare').classList.contains('active')){renderQuotes();renderReferenceTable();}if($('history').classList.contains('active'))renderHistory();if($('growth').classList.contains('active'))renderGrowth();if($('settings').classList.contains('active'))renderSettings()}
 function consume(size,count){count=clamp(Math.floor(num(count)),0,stageStock(size));if(!count)return;state.inventory[size]=stageStock(size)-count;state.transactions.unshift({id:uid(),type:'use',date:localDate(),size,pieces:count,price:0});save();renderAll();toast(`${size} 已记录消耗 ${count} 片`)}
-function setPreset(p){const presets={cautious:[80,60],balanced:[100,60],relaxed:[120,80]};if(!presets[p])return;state.preset=p;state.target.NB=presets[p][0];state.target.S=presets[p][1];save();renderSettings();renderOverview();toast('已切换目标方案，可继续手动微调')}
-function savePlans(){for(const x of SIZES){const t=Number($('target_'+x).value),d=Number($('daily_'+x).value);if(!Number.isInteger(t)||t<0||t>10000||!Number.isInteger(d)||d<1||d>30){toast(`${x}：请填有效目标数量与日均用量`);return}state.target[x]=t;state.daily[x]=d}state.preset='custom';save();renderAll();toast('备货目标已保存')}
+function setPreset(p){const presets={cautious:[80,60],balanced:[100,60],relaxed:[120,80]};if(!presets[p]||XBGrowth.born(state))return;state.preset=p;state.target.NB=presets[p][0];state.target.S=presets[p][1];save();renderSettings();renderOverview();toast('已切换目标方案，可继续手动微调')}
+function savePlans(){
+ const born=XBGrowth.born(state),mode=born?$('replenishMode').value:'custom',days=born?Number($('replenishDays').value):7;
+ if(!['days','custom'].includes(mode)||![5,7,10].includes(days)){toast('请检查补货设置');return}
+ // Validate first: never partially modify stored targets/daily usage on a failed input.
+ const target={},daily={};
+ for(const x of SIZES){
+  const rawTarget=$('target_'+x).value.trim(),rawDaily=$('daily_'+x).value.trim();
+  const t=Number(rawTarget),d=Number(rawDaily);
+  if(!rawDaily||!Number.isInteger(d)||d<1||d>30
+   ||!rawTarget||!Number.isInteger(t)||t<0||t>10000){toast(x+'：请填写有效目标与日均用量');return}
+  target[x]=t;daily[x]=d;
+ }
+ for(const x of SIZES){
+  state.daily[x]=daily[x];
+  // Day-based mode preserves every old custom target; it is never reset to daily×days.
+  if(!born||mode==='custom')state.target[x]=target[x];
+ }
+ if(born)state.replenishPolicy={mode,days};else state.preset='custom';
+ save();renderAll();toast('备货与补货设置已保存');
+}
 function saveProfile(){
  const due=$('dueDate').value,birth=$('birthDate').value;
  if(!XBGrowth.dateOK(due)||(birth&&(!XBGrowth.dateOK(birth)||birth>localDate()))){toast('请检查预产期与实际出生日期');return}
@@ -552,10 +644,10 @@ function saveProfile(){
  XBGrowth.syncAutoSize(state);save();renderAll();toast('宝宝资料已保存');
 }
 function saveSizePreferences(){
- const mode=$('sizeMode').value,size=$('currentSize').value,goal=Number($('goalPrice').value),budget=Number($('plannedBudget').value);
- if(!['manual','auto'].includes(mode)||!SIZES.includes(size)||!(goal>0)||goal>100||!Number.isFinite(budget)||budget<0||budget>100000){toast('请检查尺码与采购偏好');return}
+ const mode=$('sizeMode').value,size=$('currentSize').value,goal=Number($('goalPrice').value);
+ if(!['manual','auto'].includes(mode)||!SIZES.includes(size)||!(goal>0)||goal>100){toast('请检查尺码与采购偏好');return}
  const switching=state.sizeMode!==mode;
- Object.assign(state,{sizeMode:mode,currentSize:size,goalPrice:goal,plannedBudget:budget});
+ Object.assign(state,{sizeMode:mode,currentSize:size,goalPrice:goal});
  if(switching&&mode==='auto')state.autoSize=size;
  XBGrowth.syncAutoSize(state);save();renderAll();toast('尺码与采购偏好已保存');
 }
@@ -609,6 +701,9 @@ document.addEventListener('click',e=>{
 $('savePlans').addEventListener('click',savePlans);
 $('saveStocks').addEventListener('click',saveStocks);
 for(const b of document.querySelectorAll('[data-preset]'))b.addEventListener('click',()=>setPreset(b.dataset.preset));
+$('replenishMode').addEventListener('change',updateReplenishmentPreview);
+$('replenishDays').addEventListener('change',updateReplenishmentPreview);
+$('settingsSizes').addEventListener('input',updateReplenishmentPreview);
 $('exportData').addEventListener('click',exportData);
 $('importDataBtn').addEventListener('click',()=>$('importFile').click());
 $('importFile').addEventListener('change',e=>{if(e.target.files?.[0])importData(e.target.files[0]);e.target.value=''});
