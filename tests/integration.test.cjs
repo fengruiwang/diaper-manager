@@ -107,11 +107,80 @@ test('new-format JSON backups restore growth records, profile and reference pric
  assert.deepEqual(restored.inventory,data.inventory);
  assert.deepEqual(restored.transactions,data.transactions);
 });
-test('v1.1.0 app shell precaches new growth module without changing user storage',()=>{
+test('v1.1.1 app shell precaches new growth module without changing user storage',()=>{
  const sw=fs.readFileSync(path.join(__dirname,'../sw.js'),'utf8');
  const version=JSON.parse(fs.readFileSync(path.join(__dirname,'../version.json'),'utf8'));
- assert.match(sw,/xiaobao-shell-v1\.1\.0/);
+ assert.match(sw,/xiaobao-shell-v1\.1\.1/);
  assert.match(sw,/\.\/growth\.js/);
- assert.equal(version.version,'1.1.0');
+ assert.equal(version.version,'1.1.1');
  assert.match(source,/const KEY='xiaobao_diaper_planner_v1'/);
+});
+
+test('budget field stays in legacy JSON but budget setting is absent',()=>{
+ assert.doesNotMatch(source,/id="plannedBudget"/);
+ assert.match(source,/plannedBudget:250/);
+ assert.doesNotMatch(source,/首批备货预算<\/span>/);
+ assert.match(source,/const KEY='xiaobao_diaper_planner_v1'/);
+});
+test('birth-stage settings keep NB/S presets without postnatal policy',()=>{
+ const s=fixture();s.birthDate='';
+ const {elements}=boot(s,'settings');
+ assert.equal(elements('prenatalPresets').hidden,false);
+ assert.equal(elements('postnatalPolicy').hidden,true);
+ assert.match(elements('settingsSizes').innerHTML,/出生前重点备货/);
+ assert.match(elements('settingsSizes').innerHTML,/NB · 首批试用/);
+ assert.match(elements('settingsSizes').innerHTML,/S · 下一码/);
+});
+test('when L is active, current and next are first and NB/S/M are collapsed as history',()=>{
+ const s=fixture();s.currentSize='L';s.inventory.M=11;
+ const {elements}=boot(s,'settings'),markup=elements('settingsSizes').innerHTML;
+ assert.equal(elements('prenatalPresets').hidden,true);
+ assert.equal(elements('postnatalPolicy').hidden,false);
+ assert.match(markup,/L · 正在使用/);
+ assert.match(markup,/XL · 下一尺码/);
+ assert.match(markup,/<details class="plan-more"><summary>历史尺码设置/);
+ assert.ok(markup.indexOf('L · 正在使用')<markup.indexOf('NB'));
+ assert.match(markup,/NB 18片 \/ S 36片 \/ M 11片/);
+});
+test('saving a 5-day policy preserves every historical target and price record',()=>{
+ const before=fixture();before.currentSize='L';
+ before.target.L=72;before.target.NB=80;before.target.S=60;
+ const {elements,store}=boot(before,'settings');
+ for(const x of G.SIZES){elements('target_'+x).value=String(before.target[x]);elements('daily_'+x).value=String(before.daily[x]);}
+ elements('replenishMode').value='days';elements('replenishDays').value='5';
+ elements('daily_L').value='7';
+ elements('savePlans').handlers.click();
+ const after=JSON.parse(store.get('xiaobao_diaper_planner_v1'));
+ assert.deepEqual(after.target,before.target);
+ assert.equal(after.daily.L,7);
+ assert.deepEqual(after.replenishPolicy,{mode:'days',days:5});
+ assert.equal(after.plannedBudget,250);
+ for(const key of ['inventory','transactions','quotes','referenceOverrides','weightRecords'])
+  if(before[key]!==undefined) assert.deepEqual(after[key],before[key]);
+ assert.equal(G.stockPlan(after).target,35);
+});
+test('custom target can be set for current L without changing unused NB/S',()=>{
+ const before=fixture();before.currentSize='L';before.target.L=0;
+ const {elements,store}=boot(before,'settings');
+ for(const x of G.SIZES){elements('target_'+x).value=String(before.target[x]);elements('daily_'+x).value=String(before.daily[x]);}
+ elements('replenishMode').value='custom';elements('replenishDays').value='7';
+ elements('target_L').value='54';
+ elements('savePlans').handlers.click();
+ const after=JSON.parse(store.get('xiaobao_diaper_planner_v1'));
+ assert.equal(after.target.L,54);
+ assert.equal(after.target.NB,before.target.NB);
+ assert.equal(after.target.S,before.target.S);
+ assert.equal(G.stockPlan(after).target,54);
+});
+test('old backups without policy import with seven-day default and unchanged budget',()=>{
+ const {elements,store}=boot(fixture());
+ const original=fixture();
+ const box=elements('importFile');box.files=[{json:JSON.stringify({app:'xiaobao-diapers',version:1,data:original})}];
+ box.handlers.change({target:box});
+ const after=JSON.parse(store.get('xiaobao_diaper_planner_v1'));
+ assert.deepEqual(after.replenishPolicy,{mode:'days',days:7});
+ assert.equal(after.plannedBudget,original.plannedBudget);
+ assert.deepEqual(after.inventory,original.inventory);
+ assert.deepEqual(after.target,original.target);
+ assert.deepEqual(after.referenceOverrides,original.referenceOverrides);
 });

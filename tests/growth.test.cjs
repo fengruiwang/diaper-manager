@@ -13,3 +13,30 @@ test('legacy weight is fallback without fabricated measurement date',()=>{const 
 test('validation rejects future invalid date and time',()=>{assert.equal(G.dateOK('2027-02-30'),false);assert.equal(G.dateOK('2027-01-31'),true);assert.equal(G.timeOK('25:30:00'),false);assert.equal(G.timeOK('12:30:45'),true);});
 test('chart escapes unsafe measurement notes in history',()=>{const s={...base,weightRecords:[{id:'a',date:'2027-02-10',time:'',weight:4.4,note:'<script>alert(1)</script>'}]};assert.doesNotMatch(G.history(s),/<script>/);assert.match(G.history(s),/&lt;script&gt;/);});
 test('no mutation of purchase, price or inventory datasets',()=>{const s=JSON.parse(JSON.stringify(base)),before=JSON.stringify(s);G.dashboard(s);G.history(s);G.chart(s,'all');assert.equal(JSON.stringify(s),before);});
+
+test('policy defaults to seven days and migrates without changing old targets',()=>{
+ const x=G.extras({currentSize:'L',target:{NB:80,S:60,L:32},plannedBudget:300});
+ assert.deepEqual(x.replenishPolicy,{mode:'days',days:7});
+ assert.equal(G.targetForSize({...base,currentSize:'L',target:{...base.target,L:32}},'L').target,42);
+});
+test('five, seven and ten day replenishment use the current size daily rate',()=>{
+ for(const days of [5,7,10]){
+  const s={...base,currentSize:'L',replenishPolicy:{mode:'days',days},daily:{...base.daily,L:6}};
+  const p=G.stockPlan(s);
+  assert.equal(p.target,days*6);assert.equal(p.shortage,days*6);
+  assert.equal(p.targetSource,'days');
+ }
+});
+test('custom target is respected and zero target safely falls back to seven days',()=>{
+ const s={...base,currentSize:'L',replenishPolicy:{mode:'custom',days:5},target:{...base.target,L:48}};
+ assert.equal(G.stockPlan(s).target,48);
+ assert.equal(G.stockPlan({...s,target:{...base.target,L:0}}).target,42);
+ assert.equal(G.stockPlan({...s,target:{...base.target,L:0}}).targetSource,'fallback');
+});
+test('home day-policy labels show actual selected days and not the old custom goal',()=>{
+ const s={...base,currentSize:'L',replenishPolicy:{mode:'days',days:5},target:{...base.target,L:100}};
+ const ui=G.dashboard(s);
+ assert.equal(ui.plan.target,30);
+ assert.match(ui.kpis,/按5天用量/);
+ assert.doesNotMatch(ui.kpis,/补至 100 片/);
+});
