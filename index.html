@@ -52,6 +52,17 @@
 .pwa-notice.migration p{color:#8b6530}
 @media(max-width:600px){.pwa-notice{flex-wrap:wrap}.pwa-launch{margin:10px 1px 0}}
 @media print{.pwa-launch,.pwa-notice{display:none!important}}
+
+/* Growth v1.1.0: responsive and standalone chart. */
+.growth-chart{width:100%;max-height:320px;display:block}
+.growth-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.growth-stat{background:#f8f8ff;border:1px solid #e9e7fd;border-radius:14px;padding:14px}
+.growth-stat small{display:block;color:#788299;font-size:11px}
+.growth-stat b{display:block;font-size:21px;color:#5147bb;margin-top:4px}
+.baby-time{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.baby-time input{text-align:center;padding:10px 3px}
+.profile-item.wide{grid-column:span 2}
+@media(max-width:600px){.tabs{grid-template-columns:repeat(5,minmax(0,1fr))}.tab{font-size:11px;padding:9px 0}.growth-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.growth-stat{padding:11px}.growth-stat b{font-size:18px}}
 </style>
 </head>
 <body>
@@ -77,6 +88,7 @@
     <button class="tab active" data-tab="overview">🏠 备货总览</button>
     <button class="tab" data-tab="compare">🏷️ 好价比对</button>
     <button class="tab" data-tab="history">📒 采购记录</button>
+    <button class="tab" data-tab="growth">📈 成长</button>
     <button class="tab" data-tab="settings">⚙️ 个性设置</button>
   </nav>
   <main>
@@ -90,6 +102,10 @@
         <div class="card" id="shoppingPlan"></div>
         <div class="card" id="tipsCard"></div>
       </div>
+      <section id="legacySection" hidden>
+        <div class="head"><h2>📦 历史尺码库存</h2><span class="sub">已换码但仍有剩余的纸尿裤</span></div>
+        <div class="card" id="legacyStock"></div>
+      </section>
     </section>
     <section class="panel" id="compare">
       <div class="head"><h2>🏷️ 购买前先比一比</h2><span class="sub">实付单价 vs 对应品牌系列尺码参考价</span></div>
@@ -131,18 +147,54 @@
         <div class="action-row"><button class="btn" id="saveStocks">保存实际库存</button><span class="fine">盘点修改不会自动生成采购支出记录。</span></div>
       </div>
     </section>
+    <section class="panel" id="growth">
+      <div class="head"><h2>📈 宝宝成长记录</h2></div>
+      <div class="card">
+        <div class="growth-summary" id="growthSummary"></div>
+        <div class="field" style="max-width:180px;margin:18px 0 5px"><label for="growthRange">趋势范围</label>
+          <select id="growthRange"><option value="all">全部记录</option><option value="30">近30天</option><option value="90">近90天</option></select>
+        </div>
+        <div id="growthChart" aria-live="polite"></div>
+        <p class="soft-note">这里只展示原始体重变化，不代替儿童保健的医学评估；同一天可记录多次。</p>
+      </div>
+      <div class="head"><h2>✍️ 新增体重记录</h2></div>
+      <div class="card">
+        <div class="form-grid">
+          <div class="field"><label for="weightDate">测量日期</label><input type="date" id="weightDate" /></div>
+          <div class="field"><label for="weightTime">测量时间（可选）</label><input type="time" id="weightTime" step="60" /></div>
+          <div class="field"><label for="weightKg">体重（kg）</label><input type="number" id="weightKg" min="0.3" max="40" step="0.001" inputmode="decimal" placeholder="如 3.250" /></div>
+          <div class="field wide"><label for="weightNote">备注（可选）</label><input id="weightNote" maxlength="120" placeholder="如：儿保测量，穿薄衣" /></div>
+        </div>
+        <div class="action-row"><button class="btn" id="saveWeight" type="button">保存体重记录</button><button class="btn ghost" id="cancelWeight" type="button" hidden>取消编辑</button></div>
+      </div>
+      <div class="head"><h2>📋 历史体重</h2></div>
+      <div class="card" id="growthHistory"></div>
+    </section>
     <section class="panel" id="settings">
-      <div class="head"><h2>👶 宝宝信息及使用习惯</h2></div>
+      <div class="head"><h2>👶 宝宝基本资料</h2></div>
       <div class="card">
         <div class="profile">
+          <div class="profile-item"><div class="field"><label for="babyName">宝宝昵称</label><input id="babyName" maxlength="30" placeholder="小宝" /></div></div>
+          <div class="profile-item"><div class="field"><label for="babySex">性别（可选）</label><select id="babySex"><option value="">暂不设置</option><option value="男">男</option><option value="女">女</option></select></div></div>
           <div class="profile-item"><div class="field"><label for="dueDate">预产期</label><input type="date" id="dueDate" /></div></div>
-          <div class="profile-item"><div class="field"><label for="birthDate">实际出生日期（未出生可留空）</label><input type="date" id="birthDate" /></div></div>
-          <div class="profile-item"><div class="field"><label for="currentSize">当前穿的尺码</label><select id="currentSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div></div>
-          <div class="profile-item"><div class="field"><label for="babyWeight">当前体重（kg，可不填）</label><input type="number" id="babyWeight" min="0" step="0.1" placeholder="如 3.5" /></div></div>
-          <div class="profile-item"><div class="field"><label for="goalPrice">个人目标单价（元/片）</label><input type="number" id="goalPrice" min="0.1" step="0.1" /></div></div>
-          <div class="profile-item"><div class="field"><label for="plannedBudget">首批备货预算（元）</label><input type="number" id="plannedBudget" min="0" step="10" /></div></div>
+          <div class="profile-item"><div class="field"><label for="birthDate">实际出生日期（未出生留空）</label><input type="date" id="birthDate" /></div></div>
+          <div class="profile-item wide"><div class="field"><label>出生时间（可选，时 / 分 / 秒）</label><div class="baby-time"><input id="birthHour" type="number" min="0" max="23" inputmode="numeric" placeholder="时 0–23" aria-label="出生小时" /><input id="birthMinute" type="number" min="0" max="59" inputmode="numeric" placeholder="分 0–59" aria-label="出生分钟" /><input id="birthSecond" type="number" min="0" max="59" inputmode="numeric" placeholder="秒 0–59" aria-label="出生秒数" /></div></div></div>
+          <div class="profile-item"><div class="field"><label for="birthWeight">出生体重（kg，可选）</label><input id="birthWeight" type="number" min="0.3" max="10" step="0.001" inputmode="decimal" placeholder="如 3.250" /></div></div>
+          <div class="profile-item"><div class="field"><label for="birthLength">出生身长（cm，可选）</label><input id="birthLength" type="number" min="20" max="70" step="0.1" inputmode="decimal" placeholder="如 50" /></div></div>
         </div>
-        <div class="action-row"><button class="btn" id="saveProfile">保存宝宝信息</button></div>
+        <p class="soft-note">出生体重自动作为体重曲线第一个数据点。旧版体重不会丢失，也不会虚构测量日期。</p>
+        <div class="action-row"><button class="btn" id="saveProfile">保存宝宝基本资料</button></div>
+      </div>
+      <div class="head"><h2>🧷 纸尿裤尺码与采购偏好</h2></div>
+      <div class="card">
+        <div class="form-grid">
+          <div class="field"><label for="sizeMode">尺码选择模式</label><select id="sizeMode"><option value="manual">手动优先</option><option value="auto">自动参考体重</option></select></div>
+          <div class="field"><label for="currentSize">手动尺码 / 自动起点</label><select id="currentSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div>
+          <div class="field"><label for="goalPrice">个人目标单价（元/片）</label><input type="number" id="goalPrice" min="0.1" step="0.1" /></div>
+          <div class="field"><label for="plannedBudget">首批备货预算（元）</label><input type="number" id="plannedBudget" min="0" step="10" /></div>
+        </div>
+        <p class="soft-note" id="sizePreview">手动模式优先。自动模式参考体重，不会强迫在重叠区间换码。</p>
+        <div class="action-row"><button class="btn" id="saveSizePreferences">保存尺码与采购偏好</button></div>
       </div>
       <div class="head"><h2>🎯 备货目标与日均用量</h2></div>
       <div class="card"><div class="sub">目标是希望手头保有多少片，并非整个尺码使用阶段的总需求。日均用量用于估算库存还能使用几天，可以随时修改。</div>
@@ -173,6 +225,7 @@
     <p class="price-editor-foot">只修改当前品牌 · 系列 · 尺码；其他尺码不受影响。保存后立即更新对照提醒，并保存在本机备份数据中。</p>
   </div>
 </div>
+<script src="./growth.js"></script>
 <script>
 (()=>{'use strict';
 const SIZES=['NB','S','M','L','XL','XXL'];
