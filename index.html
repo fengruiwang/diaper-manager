@@ -4,8 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#f6f7fb" />
-<meta name="description" content="各尺码备货、库存、消费流水、参考好价提醒和单片比价，首次使用需联网，之后可离线使用。" />
-<title>小宝纸尿裤管家 · 备货比价</title>
+<meta name="description" content="纸尿裤备货计划、库存管理、采购记录、参考好价提醒和单片比价。" />
+<title>小宝管家 · 备货比价</title>
 <link rel="manifest" href="./manifest.webmanifest" />
 <link rel="icon" href="./icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
@@ -57,11 +57,10 @@
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="logo"><div class="logo-mark">♡</div><div><div class="logo-title">小宝纸尿裤管家</div><div class="logo-sub">备货 · 比价 · 好价提醒</div></div></div>
-    <div class="privacy"><span>●</span> 离线使用 · 数据仅保存在本机</div>
+    <div class="logo"><div class="logo-mark">♡</div><div><div class="logo-title">小宝管家</div><div class="logo-sub">备货 · 比价 · 好价提醒</div></div></div>
   </header>
   <section class="hero">
-    <div><div class="eyebrow">BABY ESSENTIALS PLANNER</div><h1>把纸尿裤买得刚刚好。</h1><p>从出生前备货，到出生后记录用量、比价、补货，一套工具管理全部尺码。不用注册，首次打开联网后即可离线使用。</p></div>
+    <div><div class="eyebrow">BABY ESSENTIALS PLANNER</div><h1>把纸尿裤买得刚刚好。</h1><p>从出生前备货，到出生后记录用量、比价、补货，一套工具管理全部尺码。</p></div>
     <div class="due"><div><div class="due-label" id="dueTitle">距离预产期</div><div class="due-value" id="dueValue">—</div></div><div class="due-sub" id="dueSub">预产期 2027-01-08</div></div>
   </section>
   <div class="pwa-launch" id="pwaLaunch">
@@ -161,7 +160,7 @@
       </div>
     </section>
   </main>
-  <div class="footer-note">常见尺码与每阶段消耗量仅供采购估算，最终以宝宝实际体重、腰腿贴合和具体品牌包装标注为准。<br />本工具不提供医疗诊断；首次打开与程序更新需联网，日常记录保存在本机，不含广告。建议先试用再大量囤货。</div>
+  <div class="footer-note">常见尺码与每阶段消耗量仅供采购估算，最终以宝宝实际体重、腰腿贴合和具体品牌包装标注为准。<br />本工具不提供医疗诊断；建议先试用再大量囤货。</div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="price-editor-backdrop" id="priceEditor" role="presentation" hidden>
@@ -255,7 +254,10 @@ const localDate=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.ge
 const currMonth=()=>localDate().slice(0,7);
 const fmtDate=d=>String(d??'').slice(0,10);
 let toastTimer;function toast(txt){const el=$('toast');el.textContent=txt;el.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('on'),2600)}
-function tab(to){document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===to));document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));if(to==='history')renderHistory();if(to==='settings')renderSettings();if(to==='compare'){renderQuotes();renderReferenceTable();}window.scrollTo({top:0,behavior:'smooth'})}
+const ACTIVE_TAB_KEY='xiaobao_active_tab_v1';
+const VALID_TABS=new Set(['overview','compare','history','settings']);
+function tab(to,{scroll=true}={}){if(!VALID_TABS.has(to))return;document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===to));document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));try{localStorage.setItem(ACTIVE_TAB_KEY,to)}catch(_){/* UI preference is optional */}if(to==='history')renderHistory();if(to==='settings')renderSettings();if(to==='compare'){renderQuotes();renderReferenceTable();}if(scroll)window.scrollTo({top:0,behavior:'smooth'})}
+function restoreActiveTab(){let savedTab='overview';try{savedTab=localStorage.getItem(ACTIVE_TAB_KEY)||'overview'}catch(_){/* Storage unavailable: default to overview */}if(VALID_TABS.has(savedTab)&&savedTab!=='overview')tab(savedTab,{scroll:false})}
 function dateInfo(){const deadline=state.birthDate||state.dueDate;if(!deadline)return;const diff=Math.ceil((new Date(deadline+'T00:00:00').getTime()-new Date(localDate()+'T00:00:00').getTime())/86400000);if(state.birthDate){const day=-diff;$('dueTitle').textContent='宝宝已出生';$('dueValue').textContent=day>=0?`${day+1} 天`:'日期待确认';$('dueSub').textContent='出生 '+state.birthDate}else{$('dueTitle').textContent='距离预产期';$('dueValue').textContent=diff>0?`${diff} 天`:diff===0?'就是今天':`已过 ${-diff} 天`;$('dueSub').textContent='预产期 '+state.dueDate}}
 function stageStock(size){return Math.max(0,Math.round(num(state.inventory[size])))}
 function stockDays(size){const days=clamp(num(state.daily[size],1),1,30);return stageStock(size)/days}
@@ -415,6 +417,7 @@ $('importFile').addEventListener('change',e=>{if(e.target.files?.[0])importData(
 $('resetAll').addEventListener('click',()=>{if(!confirm('此操作会删除本浏览器的全部库存、候选价、购买与消耗记录。确定继续？'))return;state=defaults();save();renderAll();toast('已恢复初始状态')});
 updateSeriesPicks();
 renderAll();
+restoreActiveTab();
 })();
 </script>
 <script src="./pwa.js" defer></script>
