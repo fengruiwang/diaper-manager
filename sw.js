@@ -1,8 +1,8 @@
-/* 小宝纸尿裤管家 PWA v1.0.2 — cache ONLY app shell, never cached user data. */
+/* 小宝纸尿裤管家 PWA v1.1.0 — cache ONLY app shell, never cached user data. */
 'use strict';
-const CACHE_NAME = 'xiaobao-shell-v1.0.2';
+const CACHE_NAME = 'xiaobao-shell-v1.1.0';
 const CACHE_PREFIX = 'xiaobao-shell-';
-const SHELL = ['./index.html','./pwa.js','./manifest.webmanifest',
+const SHELL = ['./index.html','./pwa.js','./growth.js','./manifest.webmanifest',
   './icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png'];
 const SHELL_URLS = SHELL.map(path => new URL(path, self.registration.scope).href);

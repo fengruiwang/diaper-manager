@@ -24,7 +24,7 @@ function boot(legacy,chosenTab){
   const classes=new Set(id==='overview'||id==='tab-overview'?['active']:[]);
   return {id,hidden:false,value:'',innerHTML:'',textContent:'',style:{},dataset:{},files:null,disabled:false,
    classList:{contains:x=>classes.has(x),toggle:(x,on)=>{if(on)classes.add(x);else classes.delete(x)},add:x=>classes.add(x),remove:x=>classes.delete(x)},
-   addEventListener(){},focus(){},select(){},scrollIntoView(){},setAttribute(){},getAttribute(){return null},closest(){return null}};
+   handlers:{},addEventListener(type,cb){this.handlers[type]=cb},focus(){},select(){},scrollIntoView(){},setAttribute(){},getAttribute(){return null},closest(){return null}};
  }
  const tabs=['overview','compare','history','growth','settings'].map(id=>{const e=elements('tab-'+id);e.dataset.tab=id;return e});
  const panels=['overview','compare','history','growth','settings'].map(elements);
@@ -48,7 +48,7 @@ function boot(legacy,chosenTab){
   window:{scrollTo(){},location:{},addEventListener(){}},
   console,Date,JSON,Math,Number,String,Object,Array,Set,Map,Intl,
   setTimeout(){return 1},clearTimeout(){},confirm(){return true},
-  FileReader:function(){},Blob:function(){},URL:{createObjectURL(){},revokeObjectURL(){}},
+  FileReader:function(){this.readAsText=file=>{this.result=file.json;this.onload()}},Blob:function(){},URL:{createObjectURL(){},revokeObjectURL(){}},
  };
  vm.runInNewContext(script,context,{timeout:5000,filename:'index-app.js'});
  return {elements,store,tabs,panels};
@@ -92,4 +92,26 @@ test('post-birth automatic weight chooses current size, not hardcoded NB/S',()=>
  assert.match(elements('sizeCards').innerHTML,/M · 正在用/);
  assert.match(elements('shoppingPlan').innerHTML,/M/);
  assert.doesNotMatch(elements('shoppingPlan').innerHTML,/新生儿首批试用/);
+});
+
+test('new-format JSON backups restore growth records, profile and reference price',()=>{
+ const {elements,store}=boot(fixture());
+ const data={...fixture(),babyProfile:{name:'宝宝',sex:'女',birthTime:'07:02:09',birthWeight:3.25,birthLength:50},weightRecords:[{id:'w1',date:'2025-02-01',time:'09:30',weight:4.2,note:'儿保'}],sizeMode:'auto',autoSize:'S'};
+ const box=elements('importFile');box.files=[{json:JSON.stringify({app:'xiaobao-diapers',version:1,data})}];
+ box.handlers.change({target:box});
+ const restored=JSON.parse(store.get('xiaobao_diaper_planner_v1'));
+ assert.equal(restored.babyProfile.birthTime,'07:02:09');
+ assert.equal(restored.weightRecords.length,1);
+ assert.equal(restored.weightRecords[0].weight,4.2);
+ assert.deepEqual(restored.referenceOverrides,data.referenceOverrides);
+ assert.deepEqual(restored.inventory,data.inventory);
+ assert.deepEqual(restored.transactions,data.transactions);
+});
+test('v1.1.0 app shell precaches new growth module without changing user storage',()=>{
+ const sw=fs.readFileSync(path.join(__dirname,'../sw.js'),'utf8');
+ const version=JSON.parse(fs.readFileSync(path.join(__dirname,'../version.json'),'utf8'));
+ assert.match(sw,/xiaobao-shell-v1\.1\.0/);
+ assert.match(sw,/\.\/growth\.js/);
+ assert.equal(version.version,'1.1.0');
+ assert.match(source,/const KEY='xiaobao_diaper_planner_v1'/);
 });
