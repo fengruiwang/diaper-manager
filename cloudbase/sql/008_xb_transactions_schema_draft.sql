@@ -11,7 +11,7 @@ BEGIN
 END $$;
 
 -- Enables a child/size-consistent composite reference to the inventory event.
-DO $
+DO $$
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_constraint
   WHERE conrelid='public.xb_inventory_operations'::regclass
@@ -20,7 +20,7 @@ BEGIN
    ADD CONSTRAINT xb_inventory_operation_scope_unique
    UNIQUE(family_id,operation_id,child_id,size);
  END IF;
-END $;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.xb_transactions(
  family_id uuid NOT NULL,
