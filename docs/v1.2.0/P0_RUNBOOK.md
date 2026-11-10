@@ -41,3 +41,14 @@
 - **简记权限仍未授予任何成员**。
 
 所有测试先用虚拟用户和虚拟数据。真实历史记录只在 P3 并由用户确认后迁移。
+
+
+## P0-5：基础建表后只读核对
+
+待 P0-1 检查全 true 且 SQL 脚本经审阅后，使用 cloudbase/sql/001_shared_foundation.sql 在 PostgreSQL SQL 编辑器执行基础建表。执行方式必须保证每条 DDL 正确执行：CloudBase ExecutePGSql 接口可能限制一次一条语句；控制台若拒绝多语句，停止并反馈原始错误，不要盲目拆分重试。基础表尚无用户数据，SQL 不涉及现有 Edge 本机记录。
+
+完成后运行 cloudbase/sql/002_foundation_postflight_readonly.sql，只反馈检查项 true/false 和错误文本。此脚本不写数据，核对 4 表、4 表 RLS、3 RPC 和匿名不可查看邀请表。**SQL 编辑器管理员身份不能证明真实网页登录的 RLS 隔离**；后续必须使用真实用户 token 做负向测试。
+
+## 本地不依赖云服务要求
+
+已将 docs/v1.2.0/OFFLINE_RECOVERY.md 纳入发布闸门：离线仍能录入、关闭 App 重启不丢、同 ID 补传不双加、绝对盘点需 revision 冲突检查、跨家庭队列隔离。当前仅有纯函数合同及回归测试；尚未开发 IndexedDB 原子事务和云端 RPC。

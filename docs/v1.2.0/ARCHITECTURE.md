@@ -57,6 +57,10 @@ https://docs.cloudbase.net/database/postgresql/data-permission
 
 ## 4. 本地兼容层
 
+**不可撤销的产品要求**：CloudBase 服务停止、套餐到期或网络断开时，本地仍可继续运行、关机重开后恢复缓存，云服务重新开通后重试旧 operation_id 并进行冲突检查。详细故障状态、持久队列要求和双设备补传验收参见 docs/v1.2.0/OFFLINE_RECOVERY.md。正式发布前必须完成该文件全部 P3/P4 验收项；当前基础 outbox 合同测试不代表服务端、浏览器持久化与双手机链路已实现。
+
+
+
 - **原键** \`xiaobao_diaper_planner_v1\`：保留完整业务缓存及旧版兼容导入。
 - **新独立 IndexedDB**：待同步队列、操作唯一键、云端修订号、上次拉取游标、只读迁移快照。
 - 无网络时仍可本地录入，界面显式展示待同步条数；不宣称未确认的操作已到达云端。
