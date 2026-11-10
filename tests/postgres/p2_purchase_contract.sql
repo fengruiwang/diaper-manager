@@ -171,4 +171,64 @@ SELECT public.xb_test_assert((SELECT quantity=60 FROM public.xb_inventory WHERE 
  'stock unchanged after rejected stranger');
 SELECT public.xb_test_assert((SELECT count(*)=4 FROM public.xb_inventory_operations),
  'exact count of successful inventory events');
+-- Inject a failure AFTER stock has been updated, at the financial INSERT.
+-- PostgreSQL transaction atomicity must undo stock + op receipt + purchase.
+RESET ROLE;
+CREATE FUNCTION public.xb_test_reject_purchase() RETURNS trigger
+ LANGUAGE plpgsql AS $$
+BEGIN
+ RAISE EXCEPTION 'injected_purchase_insert_failure' USING ERRCODE='23514';
+END;
+$$;
+CREATE TRIGGER xb_test_reject_purchase_trigger
+ BEFORE INSERT ON public.xb_transactions
+ FOR EACH ROW EXECUTE FUNCTION public.xb_test_reject_purchase();
+
+SET ROLE authenticated;
+SELECT set_config('xb.test.role','authenticated',false);
+SELECT set_config('xb.test.uid','test-dad',false);
+DO $$
+BEGIN
+ BEGIN
+  PERFORM public.xb_apply_inventory_operation(
+   '29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',
+   '6b3d0e45-bf18-4c95-889c-6f19731a8ae5',
+   'fa6536c7-4f68-4471-89e2-11cc4e50b483',
+   'buy','S',5,NULL,NULL,'2026-11-10T09:45:00Z',
+   '{"brand":"测试品牌","series":"模拟系列","total_fen":500,"purchase_date":"2026-11-10"}'::jsonb);
+  RAISE EXCEPTION 'expected deliberately injected transaction failure';
+ EXCEPTION WHEN SQLSTATE '23514' THEN NULL;
+ END;
+END $$;
+SELECT public.xb_test_assert(
+ (SELECT quantity=60 FROM public.xb_inventory WHERE size='S'),
+ 'purchase insert failure rolls back stock');
+SELECT public.xb_test_assert(
+ (SELECT count(*)=4 FROM public.xb_inventory_operations),
+ 'purchase insert failure rolls back event receipt');
+SELECT public.xb_test_assert(
+ (SELECT count(*)=2 FROM public.xb_transactions),
+ 'purchase insert failure leaves financial rows unchanged');
+
+-- Second independent reversal of an already reversed purchase is forbidden.
+DO $$
+BEGIN
+ BEGIN
+  PERFORM public.xb_apply_inventory_operation(
+   '29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',
+   '6b3d0e45-bf18-4c95-889c-6f19731a8ae5',
+   'bfa6d76f-dd16-4e83-ae8d-848bfa28fb16',
+   'reverse','S',NULL,NULL,'397b1791-b8d0-4d63-82d6-c5b829240f42',
+   '2026-11-10T09:50:00Z',NULL);
+  RAISE EXCEPTION 'expected double reversal failure';
+ EXCEPTION WHEN SQLSTATE '23505' THEN NULL;
+ END;
+END $$;
+SELECT public.xb_test_assert(
+ (SELECT quantity=60 FROM public.xb_inventory WHERE size='S'),
+ 'double reversal failure leaves inventory unchanged');
+RESET ROLE;
+DROP TRIGGER xb_test_reject_purchase_trigger ON public.xb_transactions;
+DROP FUNCTION public.xb_test_reject_purchase();
+
 \echo P2 PostgreSQL contract passed
