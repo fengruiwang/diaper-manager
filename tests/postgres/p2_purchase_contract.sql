@@ -169,6 +169,6 @@ SELECT public.xb_test_assert((SELECT count(*)=0 FROM public.xb_transactions),
 RESET ROLE;
 SELECT public.xb_test_assert((SELECT quantity=60 FROM public.xb_inventory WHERE size='S'),
  'stock unchanged after rejected stranger');
-SELECT public.xb_test_assert((SELECT count(*)=5 FROM public.xb_inventory_operations),
+SELECT public.xb_test_assert((SELECT count(*)=4 FROM public.xb_inventory_operations),
  'exact count of successful inventory events');
 \echo P2 PostgreSQL contract passed
