@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>小宝管家 · CloudBase P1 登录测试</title>
+<style>
+:root{color-scheme:light;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;color:#233044;background:#f4f6fb}
+*{box-sizing:border-box}body{max-width:700px;margin:0 auto;padding:24px 15px 55px;line-height:1.55}
+main{background:white;padding:24px;border:1px solid #e7eaf3;border-radius:18px;box-shadow:0 12px 45px #13234809}
+h1{margin:0 0 5px;font-size:24px}h2{font-size:16px;margin:20px 0 10px}
+p{margin:5px 0 14px;color:#667187}label{display:block;font-size:13px;font-weight:600;margin:10px 0 5px}
+input{display:block;width:100%;border:1px solid #d9dfea;border-radius:10px;padding:12px;font:inherit;color:#172b4d;background:white}
+button{border:0;border-radius:10px;padding:11px 16px;font:inherit;font-weight:600;cursor:pointer;color:white;background:#5367d9;margin:9px 8px 0 0}
+button.secondary{color:#3a4d7a;background:#eef1fe}button:disabled{opacity:.48;cursor:not-allowed}
+.step{border-top:1px solid #e7eaf3;margin-top:18px;padding-top:6px}
+.hint{font-size:12px;color:#768399}#status{background:#f0f3fa;border-radius:12px;padding:13px;white-space:pre-wrap;color:#354868;min-height:65px;font-size:13px}
+code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-size:12px;background:#fffaf0;color:#745628}
+</style>
+</head>
+<body>
+<main>
+<h1>小宝管家 · 云端登录测试</h1>
+<p>仅用于 v1.2.0 P1 连接与权限检查，独立于正式软件。<strong>不会上传、修改或删除任何纸尿裤数据。</strong></p>
+<div class="warn">仅使用「客户端 Publishable Key」。不要输入服务端 API Key、SecretKey、腾讯云账号密码。验证码只在此页输入，不要发送到聊天。</div>
+<div class="step">
+<h2>① 初始化测试客户端</h2>
+<label for="envId">CloudBase 环境 ID（请核对）</label>
+<input id="envId" value="f495637659-d2gnuzz2jf5657da8" spellcheck="false" autocomplete="off">
+<label for="publishable">客户端 Publishable Key（只在当前页面内存中使用）</label>
+<input id="publishable" type="password" placeholder="从 CloudBase 控制台复制" autocomplete="off" spellcheck="false">
+<button type="button" id="connectBtn">连接测试环境</button>
+<p class="hint">本测试页不会把 Publishable Key 写入自己的 localStorage 或上传到 GitHub；CloudBase SDK 仅用它连接对应环境。</p>
+</div>
+<div class="step">
+<h2>② 邮箱验证码登录</h2>
+<label for="email">本人的邮箱</label>
+<input id="email" type="email" autocomplete="email" placeholder="你自己接收验证码的邮箱">
+<button type="button" id="sendBtn" disabled>发送验证码</button>
+<label for="otp">邮箱收到的验证码</label>
+<input id="otp" type="text" inputmode="numeric" maxlength="8" placeholder="只在本页输入，不要分享" autocomplete="one-time-code">
+<button type="button" id="verifyBtn" disabled>验证并登录</button>
+</div>
+<div class="step">
+<h2>③ 登录状态与数据库只读检查</h2>
+<button type="button" id="checkBtn" disabled>检查登录与 RLS 读权限</button>
+<button class="secondary" type="button" id="logoutBtn" disabled>退出测试账号</button>
+<p class="hint">只读取 families 表最多一条记录（不显示任何实际记录），不创建家庭、不发邀请、不写数据库。</p>
+</div>
+<div class="step">
+<h2>测试结果</h2>
+<div id="status" role="status" aria-live="polite">尚未连接。请先填写环境 ID 和 Publishable Key。</div>
+<p class="hint">反馈时只需告诉我「连接成功/验证码收到/登录成功/只读检查结果」或错误码。不要截图包含邮箱、验证码或 Key 的输入框。</p>
+</div>
+</main>
+<script src="https://static.cloudbase.net/cloudbase-js-sdk/3.0.1/cloudbase.full.js"></script>
+<script>
+(()=>{
+ 'use strict';
+ const $=id=>document.getElementById(id);
+ let app=null,verifyOtp=null;
+ function status(message){$('status').textContent=message;}
+ function errCode(error){
+  return String(error?.code||error?.errorCode||error?.category||'NETWORK_OR_SDK_ERROR').slice(0,100);
+ }
+ function failAt(stage,error){status(stage+'失败。错误码：'+errCode(error)+'。请不要分享个人凭证或完整请求日志。');}
+ function busy(button,work){
+  button.disabled=true;
+  Promise.resolve().then(work).catch(e=>failAt('操作',e)).finally(()=>{if(button.id==='connectBtn'||button.id==='checkBtn'||button.id==='logoutBtn')button.disabled=false;
+    if(button.id==='sendBtn'&&app)button.disabled=false;
+    if(button.id==='verifyBtn'&&verifyOtp)button.disabled=false;});
+ }
+ $('connectBtn').onclick=()=>{
+  busy($('connectBtn'),async()=>{
+   const env=$('envId').value.trim(),accessKey=$('publishable').value.trim();
+   if(!env||!accessKey){status('需要填写环境 ID 和 Publishable Key');return;}
+   if(!window.cloudbase||typeof window.cloudbase.init!=='function'){status('CloudBase SDK 未加载；请确认当前网络能访问腾讯云静态资源。');return;}
+   app=window.cloudbase.init({env,accessKey,timeout:15000});
+   $('publishable').value='';
+   $('sendBtn').disabled=false;
+   $('checkBtn').disabled=false;
+   const {data,error}=await app.auth.getSession();
+   if(error)throw error;
+   if(data?.session){
+    status('SDK 初始化成功；检测到已登录的测试会话。可直接点击「检查登录与 RLS 读权限」。');
+    $('logoutBtn').disabled=false;
+   }else status('SDK 初始化成功；当前未登录。接下来发送邮箱验证码。');
+  });
+ };
+ $('sendBtn').onclick=()=>{
+  busy($('sendBtn'),async()=>{
+   if(!app){status('请先连接测试环境');return;}
+   const email=$('email').value.trim();
+   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){status('请输入有效邮箱地址');return;}
+   const {data,error}=await app.auth.signInWithOtp({email,options:{shouldCreateUser:true}});
+   if(error)throw error;
+   if(typeof data?.verifyOtp!=='function'){status('验证码请求已返回，但 SDK 未提供 verifyOtp 回调；请反馈 SDK 兼容性问题。');return;}
+   verifyOtp=data.verifyOtp;
+   $('verifyBtn').disabled=false;
+   status('验证码请求已发送。请查看自己的邮箱，验证码仅在本页输入。');
+  });
+ };
+ $('verifyBtn').onclick=()=>{
+  busy($('verifyBtn'),async()=>{
+   if(!verifyOtp){status('请先发送验证码');return;}
+   const token=$('otp').value.trim();
+   if(!/^\d{4,8}$/.test(token)){status('验证码格式不正确，请检查邮箱收到的数字');return;}
+   const {data,error}=await verifyOtp({token});
+   if(error)throw error;
+   $('otp').value='';
+   verifyOtp=null;
+   $('verifyBtn').disabled=true;
+   const {data:sessionData,error:sessionError}=await app.auth.getSession();
+   if(sessionError)throw sessionError;
+   if(data?.session||sessionData?.session){
+    $('logoutBtn').disabled=false;
+    status('邮箱登录成功，已有用户会话。可以进行只读数据库权限测试。');
+   }else status('验证码校验已返回，但未读取到用户会话。请反馈此状态。');
+  });
+ };
+ $('checkBtn').onclick=()=>{
+  busy($('checkBtn'),async()=>{
+   if(!app){status('未初始化客户端');return;}
+   const {data,error}=await app.auth.getSession();if(error)throw error;
+   if(!data?.session){status('当前尚未登录；请先通过邮箱验证码完成登录。');return;}
+   const db=app.rdb();
+   const response=await db.from('families').select('id').limit(1);
+   if(response.error)throw response.error;
+   if(!Array.isArray(response.data)){status('登录会话存在，但只读查询未返回数组；需检查 SDK/数据库响应。');return;}
+   status('登录状态：通过。\nPostgreSQL 只读请求：通过。\n当前家庭表可见记录数（最多1条）：'+response.data.length+'。\n本页未进行任何数据库写入。');
+  });
+ };
+ $('logoutBtn').onclick=()=>{
+  busy($('logoutBtn'),async()=>{
+   if(!app)return;
+   const {error}=await app.auth.signOut();if(error)throw error;
+   verifyOtp=null;$('otp').value='';$('verifyBtn').disabled=true;
+   $('logoutBtn').disabled=true;
+   status('测试账号已退出。未触碰任何小宝管家本地数据。');
+  });
+ };
+})();
+</script>
+</body></html>
