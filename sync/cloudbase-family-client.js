@@ -16,8 +16,8 @@
   return response.data;
  }
  function create(app){
-  if(!app||typeof app.auth!=='function'||typeof app.rdb!=='function')fail('unsupported_cloudbase_app');
-  const auth=app.auth();
+  if(!app||!app.auth||typeof app.rdb!=='function')fail('unsupported_cloudbase_app');
+  const auth=app.auth;
   const db=app.rdb();
   if(typeof auth.signInWithOtp!=='function'||typeof auth.getSession!=='function'||typeof db.rpc!=='function')
    fail('requires_cloudbase_v3');
@@ -36,7 +36,7 @@
    const normalized=String(email||'').trim().toLowerCase();
    if(normalized.length>254||!emailRx.test(normalized))fail('invalid_email');
    // OTP is sent only by explicit user action, not on page render.
-   const data=unwrap(await auth.signInWithOtp({email:normalized,shouldCreateUser:true}));
+   const data=unwrap(await auth.signInWithOtp({email:normalized,options:{shouldCreateUser:true}}));
    if(!data||typeof data.verifyOtp!=='function')fail('invalid_verifier');
    verifier=data.verifyOtp;
    pendingEmail=normalized;

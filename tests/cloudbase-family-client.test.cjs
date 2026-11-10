@@ -14,13 +14,14 @@ function stub({allowed=true,failRpc=false}={}){
   async signOut(){signedIn=false;calls.push('signOut');return {data:{},error:null}}
  };
  const db={async rpc(name,params){calls.push({name,params});return failRpc?{data:null,error:{message:'sensitive backend details'}}:{data:{ok:true,name},error:null}}};
- return {app:{auth:()=>auth,rdb:()=>db},calls};
+ return {app:{auth,rdb:()=>db},calls};
 }
 test('request OTP and confirm use CloudBase v3 closure path, not raw tokens',async()=>{
  const {app,calls}=stub({allowed:false});const x=create(app);
  assert.equal((await x.session()),null);
  await x.requestCode(' Parent@Example.COM ');
  assert.equal(calls[1].otp.email,'parent@example.com');
+ assert.deepEqual(calls[1].otp.options,{shouldCreateUser:true});
  await assert.rejects(()=>x.confirmCode('abc'),/invalid_verification_code/);
  assert.deepEqual(await x.confirmCode('123456'),{authenticated:true});
  assert.ok(await x.session());
@@ -59,5 +60,19 @@ test('server errors do not leak SDK response, email or token in thrown messages'
 });
 test('SDK is never initialized implicitly by importing adapter',()=>{
  assert.throws(()=>create({}),/unsupported_cloudbase_app/);
- assert.throws(()=>create({auth(){return {}},rdb(){return {}}}),/requires_cloudbase_v3/);
+ assert.throws(()=>create({auth:{},rdb(){return {}}}),/requires_cloudbase_v3/);
+});
+
+test('CloudBase v3 official auth is a property rather than a factory method',()=>{
+ const {app}=stub();
+ assert.equal(typeof app.auth,'object');
+ assert.equal(typeof app.rdb,'function');
+ assert.equal(typeof create(app).requestCode,'function');
+});
+test('a verifier can retry a mistyped OTP without restarting login',async()=>{
+ const {app}=stub({allowed:false}), client=create(app);
+ await client.requestCode('person@example.com');
+ await assert.rejects(()=>client.confirmCode('xyz'),/invalid_verification_code/);
+ await client.confirmCode('123456');
+ assert.ok(await client.session());
 });
