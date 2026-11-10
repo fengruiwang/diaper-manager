@@ -21,6 +21,27 @@
    if(response?.error)fail('session_unavailable');
    if(!response?.data?.session)fail('login_required');
   }
+  function purchasePayload(purchase){
+   if(!purchase||typeof purchase!=='object'||Array.isArray(purchase))
+    fail('purchase_details_required');
+   const rawKeys=Object.keys(purchase).sort();
+   if(rawKeys.join(',')!=='brand,purchaseDate,series,totalFen')
+    fail('invalid_purchase_details');
+   if(typeof purchase.brand!=='string'||typeof purchase.series!=='string')
+    fail('invalid_purchase_details');
+   const brand=purchase.brand.trim(),series=purchase.series.trim();
+   if(!brand||!series||Array.from(brand).length>120||Array.from(series).length>120
+     ||/[\u0000-\u001f\u007f]/u.test(brand+series))fail('invalid_purchase_details');
+   if(!Number.isSafeInteger(purchase.totalFen)||purchase.totalFen<1||purchase.totalFen>10000000)
+    fail('invalid_purchase_amount');
+   const date=purchase.purchaseDate;
+   if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    fail('invalid_purchase_date');
+   const parsed=new Date(date+'T00:00:00.000Z');
+   if(!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==date)
+    fail('invalid_purchase_date');
+   return Object.freeze({brand,series,total_fen:purchase.totalFen,purchase_date:date});
+  }
   function normalizeOperation(input){
    if(!input||typeof input!=='object')fail('invalid_operation');
    const familyId=id(input.familyId,'family_id');
@@ -47,11 +68,13 @@
     reversed=id(input.reversesOperationId,'reverses_operation_id');
     if(operationId===reversed)fail('cannot_reverse_self');
    }
+   const purchase=input.kind==='buy'?purchasePayload(input.purchase):null;
+   if(input.kind!=='buy'&&input.purchase!=null)fail('unexpected_purchase_details');
    return Object.freeze({
     p_family_id:familyId,p_child_id:childId,p_operation_id:operationId,
     p_kind:input.kind,p_size:input.size,p_amount:amount,
     p_expected_revision:revision,p_reverses_operation_id:reversed,
-    p_occurred_at:occurredAt
+    p_occurred_at:occurredAt,p_purchase:purchase
    });
   }
   function safeRpcError(error){
@@ -80,6 +103,27 @@
     duplicate:result.duplicate===true
    });
   }
+  async function readPurchases({familyId,childId}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   await checkSession();
+   const response=await db.from('xb_transactions')
+     .select('operation_id,brand,series,size,pieces,total_fen,purchase_date,reversed_by_operation_id,created_by')
+     .eq('family_id',family).eq('child_id',child);
+   if(response?.error)safeRpcError(response.error);
+   if(!Array.isArray(response?.data))fail('invalid_purchase_rows');
+   return response.data.map(row=>{
+    if(!UUID.test(String(row.operation_id))||!SIZES.has(row.size)
+       ||!Number.isSafeInteger(row.pieces)||row.pieces<1
+       ||!Number.isSafeInteger(row.total_fen)||row.total_fen<1)
+      fail('invalid_purchase_rows');
+    return {
+     operationId:row.operation_id,brand:row.brand,series:row.series,
+     size:row.size,pieces:row.pieces,totalFen:row.total_fen,
+     purchaseDate:row.purchase_date,
+     reversed:row.reversed_by_operation_id!=null,actorUid:row.created_by
+    };
+   });
+  }
   async function readInventory({familyId,childId}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
    await checkSession();
@@ -96,7 +140,7 @@
      updatedAt:row.updated_at};
    });
   }
-  return Object.freeze({normalizeOperation,applyOperation,readInventory});
+  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases});
  }
  const api=Object.freeze({create});
  if(root)root.XBInventoryClient=api;

@@ -10,7 +10,9 @@ const make=(kind='buy',rest={})=>({
  familyId:F,childId:C,operationId:O,kind,size:'S',occurredAt:t,
  amount:kind==='reverse'?null:kind==='stocktake'?25:60,
  expectedRevision:kind==='stocktake'?0:null,
- reversesOperationId:kind==='reverse'?OR:null,...rest
+ reversesOperationId:kind==='reverse'?OR:null,
+ purchase:kind==='buy'?{brand:'好奇',series:'小森林',totalFen:2999,purchaseDate:'2026-11-10'}:null,
+ ...rest
 });
 function fixture({signedIn=true,error=null}={}){
  const calls=[];
@@ -58,6 +60,7 @@ test('buy operation calls only the privileged inventory RPC with stable caller U
  assert.equal(call[2].p_occurred_at,'2026-11-10T08:30:00.000Z');
  assert.equal(call[2].p_amount,60);
  assert.equal(call[2].p_expected_revision,null);
+ assert.deepEqual(call[2].p_purchase,{brand:'好奇',series:'小森林',total_fen:2999,purchase_date:'2026-11-10'});
  assert.deepEqual(calls.map(x=>x[0]),['session','rpc']);
 });
 test('stocktake and reverse create distinct, validated server params',()=>{
@@ -66,6 +69,7 @@ test('stocktake and reverse create distinct, validated server params',()=>{
  assert.equal(stock.p_amount,150);assert.equal(stock.p_expected_revision,5);
  const reverse=c.normalizeOperation(make('reverse',{operationId:O,reversesOperationId:OR}));
  assert.equal(reverse.p_amount,null);assert.equal(reverse.p_reverses_operation_id,OR);
+ assert.equal(reverse.p_purchase,null);
  assert.throws(()=>c.normalizeOperation(make('reverse',{reversesOperationId:O})),/cannot_reverse_self/);
 });
 test('invalid operation or missing ID never reaches network',async()=>{
@@ -108,4 +112,49 @@ test('adapter load never initiates network or creates a replacement operation ID
  assert.equal(typeof c.normalizeOperation,'function');
  assert.equal(typeof c.applyOperation,'function');
  assert.equal(typeof c.readInventory,'function');
+});
+
+test('reject incomplete or invalid purchase metadata before any network call',async()=>{
+ const {c,calls}=fixture();
+ await assert.rejects(()=>c.applyOperation(make('buy',{purchase:null})),/purchase_details_required/);
+ await assert.rejects(()=>c.applyOperation(make('buy',{purchase:{
+  brand:'好奇',series:'小森林',totalFen:100.5,purchaseDate:'2026-11-10'
+ }})),/invalid_purchase_amount/);
+ await assert.rejects(()=>c.applyOperation(make('buy',{purchase:{
+  brand:'好奇',series:'小森林',totalFen:1000,purchaseDate:'2026-02-30'
+ }})),/invalid_purchase_date/);
+ await assert.rejects(()=>c.applyOperation(make('use',{purchase:{
+  brand:'好奇',series:'小森林',totalFen:1000,purchaseDate:'2026-11-10'
+ }})),/unexpected_purchase_details/);
+ assert.equal(calls.length,0);
+});
+test('purchase order payload participates in RPC and preserves exact price cents',async()=>{
+ const {c,calls}=fixture();
+ const operation=make('buy',{purchase:{
+  brand:' Babycare ',series:' 皇室Pro ',totalFen:1386,purchaseDate:'2026-11-09'
+ }});
+ await c.applyOperation(operation);
+ const params=calls.find(x=>x[0]==='rpc')[2];
+ assert.deepEqual(params.p_purchase,{
+  brand:'Babycare',series:'皇室Pro',total_fen:1386,purchase_date:'2026-11-09'
+ });
+ assert.equal(params.p_amount,60);
+ assert.equal(params.p_size,'S');
+});
+test('SQL final purchase RPC removes old 9-parameter signature and rejects orphan buys',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const rpc=fs.readFileSync(path.join(__dirname,'../cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql'),'utf8');
+ const schema=fs.readFileSync(path.join(__dirname,'../cloudbase/sql/008_xb_transactions_schema_draft.sql'),'utf8');
+ for(const term of ["DROP FUNCTION IF EXISTS public.xb_apply_inventory_operation",
+  'p_purchase jsonb','purchase_details_required',
+  "INSERT INTO public.xb_transactions",
+  'UPDATE public.xb_transactions',
+  'v_purchase_json','purchase_receipt_missing'])
+  assert.ok(rpc.includes(term),term);
+ assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS public.xb_transactions"));
+ assert.match(schema,/xb_private\.can_use_app\(family_id,'xb'\)/);
+ assert.doesNotMatch(rpc,/DO \$\n/);
+ assert.doesNotMatch(schema,/DO \$\n/);
+ assert.equal((rpc.match(/\bCOMMIT;/g)||[]).length,1);
+ assert.equal((rpc.match(/CREATE OR REPLACE FUNCTION public\.xb_apply_inventory_operation/g)||[]).length,1);
 });
