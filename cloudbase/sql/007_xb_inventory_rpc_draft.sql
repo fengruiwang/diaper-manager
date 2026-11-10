@@ -1,0 +1,211 @@
+-- XiaoBao P2 v1.2.0: inventory atomic operation RPC DRAFT, NOT YET DEPLOYED.
+-- Requires 005_xb_core_schema_draft.sql; do not execute on CloudBase before review.
+-- This migration creates functions/indexes only: NO child, inventory, or historical rows inserted.
+BEGIN;
+
+DO $$
+BEGIN
+ IF to_regclass('public.xb_inventory') IS NULL
+    OR to_regclass('public.xb_inventory_operations') IS NULL
+    OR to_regclass('public.xb_children') IS NULL
+    OR to_regprocedure('xb_private.can_use_app(uuid,text)') IS NULL THEN
+   RAISE EXCEPTION 'xb_p2_inventory_schema_missing';
+ END IF;
+ IF to_regprocedure('pg_catalog.sha256(bytea)') IS NULL THEN
+   RAISE EXCEPTION 'xb_p2_sha256_function_required';
+ END IF;
+END $$;
+
+-- Prevent two independent reverse operation IDs from undoing the same purchase.
+CREATE UNIQUE INDEX IF NOT EXISTS xb_inventory_one_reverse_per_source
+ ON public.xb_inventory_operations(family_id,reverses_operation_id)
+ WHERE reverses_operation_id IS NOT NULL;
+
+DO $$
+BEGIN
+ IF NOT EXISTS(
+  SELECT 1 FROM pg_constraint
+   WHERE conrelid='public.xb_inventory_operations'::regclass
+     AND conname='xb_inventory_reverse_reference_consistent'
+ ) THEN
+  ALTER TABLE public.xb_inventory_operations
+   ADD CONSTRAINT xb_inventory_reverse_reference_consistent
+    CHECK ((kind='reverse') = (reverses_operation_id IS NOT NULL));
+ END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.xb_apply_inventory_operation(
+ p_family_id uuid, p_child_id uuid, p_operation_id uuid,
+ p_kind text, p_size text, p_amount integer,
+ p_expected_revision bigint, p_reverses_operation_id uuid,
+ p_occurred_at timestamptz
+)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,public,pg_temp
+AS $$
+DECLARE
+ v_actor text;
+ v_hash text;
+ v_prior public.xb_inventory_operations%ROWTYPE;
+ v_reversed public.xb_inventory_operations%ROWTYPE;
+ v_stock public.xb_inventory%ROWTYPE;
+ v_delta integer;
+ v_after integer;
+ v_revision bigint;
+BEGIN
+ -- Grant EXECUTE is not the security boundary in CloudBase RPC: validate here.
+ IF COALESCE(auth.role(),'')<>'authenticated'
+    OR NULLIF(auth.uid(),'') IS NULL THEN
+  RAISE EXCEPTION 'authentication_required' USING ERRCODE='42501';
+ END IF;
+ v_actor:=auth.uid();
+ IF p_family_id IS NULL OR p_child_id IS NULL OR p_operation_id IS NULL
+    OR p_occurred_at IS NULL
+    OR p_kind IS NULL OR p_kind NOT IN ('buy','use','stocktake','reverse')
+    OR p_size IS NULL OR p_size NOT IN ('NB','S','M','L','XL','XXL') THEN
+  RAISE EXCEPTION 'invalid_inventory_operation' USING ERRCODE='22023';
+ END IF;
+
+ IF p_kind IN ('buy','use') THEN
+  IF p_amount IS NULL OR p_amount<1 OR p_amount>100000
+     OR p_expected_revision IS NOT NULL OR p_reverses_operation_id IS NOT NULL THEN
+   RAISE EXCEPTION 'invalid_inventory_delta' USING ERRCODE='22023';
+  END IF;
+ ELSIF p_kind='stocktake' THEN
+  IF p_amount IS NULL OR p_amount<0 OR p_amount>100000
+     OR p_expected_revision IS NULL OR p_expected_revision<0
+     OR p_reverses_operation_id IS NOT NULL THEN
+   RAISE EXCEPTION 'invalid_stocktake_request' USING ERRCODE='22023';
+  END IF;
+ ELSE
+  IF p_amount IS NOT NULL OR p_expected_revision IS NOT NULL
+     OR p_reverses_operation_id IS NULL
+     OR p_reverses_operation_id=p_operation_id THEN
+   RAISE EXCEPTION 'invalid_reverse_request' USING ERRCODE='22023';
+  END IF;
+ END IF;
+
+ IF NOT xb_private.can_use_app(p_family_id,'xb') THEN
+  RAISE EXCEPTION 'permission_denied' USING ERRCODE='42501';
+ END IF;
+
+ -- Normalizing typed arguments and UTC timestamp makes retry fingerprints stable
+ -- across JSON field order and client timezone string formatting.
+ -- A digest computed by the server prevents clients from forging payload_sha256.
+ v_hash:=encode(sha256(convert_to(
+   jsonb_build_array('xb.inventory.v1',p_family_id,p_child_id,p_kind,
+    p_size,p_amount,p_expected_revision,p_reverses_operation_id,
+    to_char(p_occurred_at AT TIME ZONE 'UTC',
+     'YYYY-MM-DD"T"HH24:MI:SS.US'),v_actor)::text,'UTF8')),'hex');
+
+ -- Serialize operation receipts and stock writes within one small household.
+ -- A 64-bit advisory-key hash collision would only cause extra serialization,
+ -- never expose or mix data because every query also filters by family_id.
+ PERFORM pg_advisory_xact_lock(
+   hashtextextended('xb.inventory.family:'||p_family_id::text,0)
+ );
+
+ -- Look up the receipt BEFORE checking current stock revision. Retrying an ACK
+ -- lost in transit returns its previous result; it cannot apply a second time.
+ SELECT * INTO v_prior FROM public.xb_inventory_operations
+  WHERE family_id=p_family_id AND operation_id=p_operation_id;
+ IF FOUND THEN
+  IF v_prior.payload_sha256<>v_hash OR v_prior.actor_uid<>v_actor THEN
+   RAISE EXCEPTION 'inventory_operation_id_reused_with_different_payload'
+    USING ERRCODE='23505';
+  END IF;
+  RETURN jsonb_build_object(
+   'accepted',true,'duplicate',true,
+   'operation_id',v_prior.operation_id,'child_id',v_prior.child_id,
+   'size',v_prior.size,'result_quantity',v_prior.new_quantity,
+   'result_revision',v_prior.resulting_revision,
+   'committed_at',v_prior.committed_at);
+ END IF;
+
+ -- New work is allowed only on an active child owned by this family.
+ IF NOT EXISTS(
+   SELECT 1 FROM public.xb_children
+    WHERE family_id=p_family_id AND id=p_child_id AND deleted_at IS NULL
+ ) THEN
+  RAISE EXCEPTION 'child_unavailable' USING ERRCODE='42501';
+ END IF;
+
+ IF p_kind='reverse' THEN
+  SELECT * INTO v_reversed FROM public.xb_inventory_operations
+   WHERE family_id=p_family_id
+     AND operation_id=p_reverses_operation_id
+     AND child_id=p_child_id AND size=p_size
+     AND kind IN ('buy','use');
+  IF NOT FOUND THEN
+   RAISE EXCEPTION 'reverse_target_unavailable' USING ERRCODE='22023';
+  END IF;
+  IF EXISTS(
+    SELECT 1 FROM public.xb_inventory_operations
+     WHERE family_id=p_family_id AND reverses_operation_id=p_reverses_operation_id
+  ) THEN
+   RAISE EXCEPTION 'inventory_already_reversed' USING ERRCODE='23505';
+  END IF;
+  v_delta:=-v_reversed.delta;
+ ELSIF p_kind='buy' THEN
+  v_delta:=p_amount;
+ ELSIF p_kind='use' THEN
+  v_delta:=-p_amount;
+ ELSE
+  v_delta:=NULL;
+ END IF;
+
+ -- For a newly created baby, first 0-stock row may not exist yet.
+ INSERT INTO public.xb_inventory(
+  family_id,child_id,size,quantity,revision,updated_by
+ ) VALUES(p_family_id,p_child_id,p_size,0,0,v_actor)
+ ON CONFLICT(family_id,child_id,size) DO NOTHING;
+
+ SELECT * INTO STRICT v_stock FROM public.xb_inventory
+  WHERE family_id=p_family_id AND child_id=p_child_id AND size=p_size
+  FOR UPDATE;
+
+ IF p_kind='stocktake' THEN
+  IF v_stock.revision<>p_expected_revision THEN
+   RAISE EXCEPTION 'inventory_revision_conflict' USING ERRCODE='40001';
+  END IF;
+  v_after:=p_amount;
+ ELSE
+  v_after:=v_stock.quantity+v_delta;
+ END IF;
+
+ -- Never silently clamp negative stock or exceed the existing 100000 limit.
+ IF v_after<0 OR v_after>100000 THEN
+  RAISE EXCEPTION 'inventory_out_of_bounds' USING ERRCODE='23514';
+ END IF;
+
+ v_revision:=v_stock.revision+1;
+ UPDATE public.xb_inventory
+    SET quantity=v_after,revision=v_revision,
+        updated_by=v_actor,updated_at=now()
+  WHERE family_id=p_family_id AND child_id=p_child_id AND size=p_size;
+
+ INSERT INTO public.xb_inventory_operations(
+  family_id,operation_id,child_id,size,kind,delta,
+  old_quantity,new_quantity,expected_revision,resulting_revision,
+  payload_sha256,actor_uid,reverses_operation_id,occurred_at
+ ) VALUES(
+  p_family_id,p_operation_id,p_child_id,p_size,p_kind,v_delta,
+  v_stock.quantity,v_after,p_expected_revision,v_revision,
+  v_hash,v_actor,p_reverses_operation_id,p_occurred_at
+ );
+
+ RETURN jsonb_build_object(
+  'accepted',true,'duplicate',false,
+  'operation_id',p_operation_id,'child_id',p_child_id,
+  'size',p_size,'result_quantity',v_after,
+  'result_revision',v_revision,'committed_at',now());
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.xb_apply_inventory_operation(
+ uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.xb_apply_inventory_operation(
+ uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz) TO authenticated;
+
+COMMIT;
