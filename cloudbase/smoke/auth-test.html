@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>小宝管家 · CloudBase P1 登录测试（诊断版 2）</title>
+<title>小宝管家 · CloudBase P1 登录与家庭权限测试（诊断版 3）</title>
 <style>
 :root{color-scheme:light;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;color:#233044;background:#f4f6fb}
 *{box-sizing:border-box}body{max-width:700px;margin:0 auto;padding:24px 15px 55px;line-height:1.55}
@@ -32,7 +32,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
 <label for="publishable">客户端 Publishable Key（只在当前页面内存中使用）</label>
 <input id="publishable" type="password" placeholder="从 CloudBase 控制台复制" autocomplete="off" spellcheck="false">
 <button type="button" id="connectBtn">连接测试环境</button>
-<p class="hint">诊断版 2：按钮上方会直接显示 SDK 加载、初始化及连接错误。</p>
+<p class="hint">诊断版 3：按钮上方会直接显示 SDK 加载、初始化及连接错误。</p>
 <p class="hint">本测试页不会把 Publishable Key 写入自己的 localStorage 或上传到 GitHub；CloudBase SDK 仅用它连接对应环境。</p>
 </div>
 <div class="step">
@@ -50,6 +50,23 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
 <button class="secondary" type="button" id="logoutBtn" disabled>退出测试账号</button>
 <p class="hint">只读取 families 表最多一条记录（不显示任何实际记录），不创建家庭、不发邀请、不写数据库。</p>
 </div>
+<div class="step" id="familyTest">
+<h2>④ 家庭权限测试（需要你主动操作）</h2>
+<p>只有点击对应按钮才会写入基础家庭表，不会迁移任何纸尿裤、采购或体重数据。<strong>创建的家庭会保留，可直接用于之后的正式家庭共享。</strong></p>
+<label for="familyName">家庭名称</label>
+<input id="familyName" value="小宝家庭" autocomplete="off" maxlength="80">
+<button type="button" id="createFamilyBtn" disabled>创建家庭（写入基础表）</button>
+<button type="button" id="listFamiliesBtn" class="secondary" disabled>查看我有权限的家庭</button>
+<label for="familyId">当前家庭 ID</label>
+<input id="familyId" readonly placeholder="创建或查看家庭后自动填写" autocomplete="off">
+<button type="button" id="createInviteBtn" disabled>为家庭生成一次性邀请码</button>
+<p class="hint">只有家庭管理员可以生成；邀请码有效期 24 小时、仅可使用一次。请通过私人渠道发送给另一位成员，勿公开截图。</p>
+<label for="inviteToken">邀请码（保密；只在此页面内存中显示）</label>
+<input id="inviteToken" type="password" placeholder="生成后自动填写，另一位成员可粘贴收到的邀请码" autocomplete="off" spellcheck="false">
+<button type="button" id="acceptInviteBtn" disabled>使用邀请码加入家庭</button>
+<button type="button" id="clearInviteBtn" class="secondary">清空邀请码</button>
+<p class="hint">接受邀请码必须使用<strong>另一个邮箱账号</strong>。如果在同一浏览器测试，请先退出账号，再用另一个邮箱登录。不要把邀请码发送给 ChatGPT。</p>
+</div>
 <div class="step">
 <h2>测试结果</h2>
 <div id="status" role="status" aria-live="polite">尚未连接。请先填写环境 ID 和 Publishable Key。</div>
@@ -61,6 +78,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
  'use strict';
  const $=id=>document.getElementById(id);
  let app=null,verifyOtp=null;
+ const uuidRx=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  function status(message){$('instantStatus').textContent=message;$('status').textContent=message;}
  function errCode(error){
   if(/^SDK_[A-Z_]+$/.test(String(error?.message||'')))return error.message;
@@ -96,6 +114,35 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
   return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('SDK_SESSION_TIMEOUT')),ms);})])
    .finally(()=>clearTimeout(timer));
  }
+ function enableFamilyControls(active){
+  for(const id of ['createFamilyBtn','listFamiliesBtn','createInviteBtn','acceptInviteBtn'])
+   $(id).disabled=!active;
+ }
+ function showRpcError(prefix,error){
+  const code=String(error?.code||error?.errorCode||'UNKNOWN_RPC_ERROR').slice(0,60);
+  status(prefix+'：请求未通过。错误码 '+code+'。如果是权限拒绝，请只反馈错误码，不提供 Token 或邀请码。');
+ }
+ function getDb(){
+  if(!app||typeof app.rdb!=='function')throw new Error('SDK_DB_MISSING');
+  return app.rdb();
+ }
+ async function requireSession(){
+  if(!app||!app.auth)throw new Error('SDK_AUTH_MISSING');
+  const {data,error}=await app.auth.getSession();
+  if(error)throw error;
+  if(!data?.session)throw new Error('LOGIN_REQUIRED');
+ }
+ async function readMyFamilies(){
+  await requireSession();
+  const {data,error}=await getDb().from('families').select('id,display_name').limit(10);
+  if(error)throw error;
+  if(!Array.isArray(data))throw new Error('INVALID_FAMILY_RESPONSE');
+  if(data.length===1&&uuidRx.test(data[0].id))$('familyId').value=data[0].id;
+  else if(data.length===0)$('familyId').value='';
+  status('RLS 查询通过：当前登录账号有权限查看 '+data.length+' 个家庭。'+
+   (data.length===1?'已填入当前家庭 ID。':''));
+  return data;
+ }
  function busy(button,work){
   button.disabled=true;
   Promise.resolve().then(work).catch(e=>failAt('操作',e)).finally(()=>{if(button.id==='connectBtn'||button.id==='checkBtn'||button.id==='logoutBtn')button.disabled=false;
@@ -119,7 +166,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
    try{
     const {data,error}=await deadline(app.auth.getSession(),9000);
     if(error)throw error;
-    if(data?.session){$('logoutBtn').disabled=false;status('SDK 初始化成功，已有登录会话。');}
+    if(data?.session){$('logoutBtn').disabled=false;enableFamilyControls(true);status('SDK 初始化成功，已有登录会话。');}
     else status('SDK 初始化成功；现在可以点击「发送验证码」。');
    }catch(error){
     status('SDK 已初始化，验证码按钮可用；登录状态检查暂未完成：'+errCode(error)+'。');
@@ -152,8 +199,8 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
    const {data:sessionData,error:sessionError}=await app.auth.getSession();
    if(sessionError)throw sessionError;
    if(data?.session||sessionData?.session){
-    $('logoutBtn').disabled=false;
-    status('邮箱登录成功，已有用户会话。可以进行只读数据库权限测试。');
+    $('logoutBtn').disabled=false;enableFamilyControls(true);
+    status('邮箱登录成功，已有用户会话。可以进行只读数据库权限测试和家庭操作。');
    }else status('验证码校验已返回，但未读取到用户会话。请反馈此状态。');
   });
  };
@@ -174,11 +221,62 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
    if(!app)return;
    const {error}=await app.auth.signOut();if(error)throw error;
    verifyOtp=null;$('otp').value='';$('verifyBtn').disabled=true;
-   $('logoutBtn').disabled=true;
+   $('logoutBtn').disabled=true;enableFamilyControls(false);$('familyId').value='';$('inviteToken').value='';
    status('测试账号已退出。未触碰任何小宝管家本地数据。');
   });
  };
- status('诊断版 2 脚本已经运行。请点击「连接测试环境」。');
+ $('listFamiliesBtn').onclick=()=>{
+  busy($('listFamiliesBtn'),async()=>{
+   try{await readMyFamilies();}catch(error){showRpcError('读取家庭失败',error);}
+  });
+ };
+ $('createFamilyBtn').onclick=()=>{
+  busy($('createFamilyBtn'),async()=>{
+   await requireSession();
+   const name=$('familyName').value.trim();
+   if(name.length<1||name.length>80){status('请填写 1–80 字符的家庭名称。');return;}
+   if(!window.confirm('确定创建家庭「'+name+'」吗？一个账号在小宝管家中只能加入一个家庭。创建后会作为未来共享的正式家庭使用。'))return;
+   const {data,error}=await getDb().rpc('xb_create_family',{p_name:name});
+   if(error){showRpcError('创建家庭失败',error);return;}
+   const result=Array.isArray(data)?data[0]:data;
+   if(!uuidRx.test(String(result?.family_id||'')))throw new Error('INVALID_FAMILY_RESPONSE');
+   $('familyId').value=result.family_id;
+   status('家庭创建成功。已填入家庭 ID，可继续生成一次性邀请。没有上传任何旧版数据。');
+  });
+ };
+ $('createInviteBtn').onclick=()=>{
+  busy($('createInviteBtn'),async()=>{
+   await requireSession();
+   const familyId=$('familyId').value.trim();
+   if(!uuidRx.test(familyId)){status('请先点击「查看我有权限的家庭」以获取家庭 ID。');return;}
+   if(!window.confirm('确定为这个家庭创建一次性邀请码吗？邀请码有效期 24 小时。'))return;
+   const {data,error}=await getDb().rpc('xb_create_invite',{p_family_id:familyId});
+   if(error){showRpcError('创建邀请失败',error);return;}
+   const result=Array.isArray(data)?data[0]:data;
+   if(!uuidRx.test(String(result?.invite_token||'')))throw new Error('INVALID_INVITE_RESPONSE');
+   $('inviteToken').value=result.invite_token;
+   status('邀请码已生成。请自行通过私人渠道转给另一位家庭成员；切勿在聊天中发送或截图。');
+  });
+ };
+ $('acceptInviteBtn').onclick=()=>{
+  busy($('acceptInviteBtn'),async()=>{
+   await requireSession();
+   const token=$('inviteToken').value.trim();
+   if(!uuidRx.test(token)){status('请输入收到的有效 UUID 格式邀请码。');return;}
+   if(!window.confirm('确认使用当前登录的邮箱账号加入此家庭？此邀请码只能使用一次。'))return;
+   const {data,error}=await getDb().rpc('xb_accept_invite',{p_token:token});
+   if(error){showRpcError('接受邀请失败',error);return;}
+   const result=Array.isArray(data)?data[0]:data;
+   if(!uuidRx.test(String(result?.family_id||'')))throw new Error('INVALID_ACCEPT_RESPONSE');
+   $('familyId').value=result.family_id;
+   $('inviteToken').value='';
+   status('已加入家庭，邀请码已从页面清空。可点击「查看我有权限的家庭」确认 RLS 访问结果。');
+  });
+ };
+ $('clearInviteBtn').onclick=()=>{
+  $('inviteToken').value='';status('已清空页面中的邀请码。');
+ };
+ status('诊断版 3 脚本已经运行。请点击「连接测试环境」。');
 })();
 </script>
 </body></html>
