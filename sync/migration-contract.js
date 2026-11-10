@@ -50,13 +50,20 @@
   function count(state) {
     verifyLegacyState(state);
     const types = {buy:0,use:0,other:0};
-    let purchasesCents=0;
+    let purchasesCents=0, purchasePrecisionIssueCount=0;
     let purchasedPieces=0,consumedPieces=0;
     for (const t of state.transactions) {
       if(t.type==='buy'){
         types.buy++;
         purchasedPieces+=Number(t.pieces)||0;
-        purchasesCents+=Math.round((Number(t.price)||0)*100);
+        // This is a display summary, not a migration authorization.
+        // Do not silently round a real third decimal of the purchase total.
+        const money=t.price,scaled=money*100;
+        if(typeof money==='number'&&Number.isFinite(money)&&money>0
+          &&money<=100000&&Number.isSafeInteger(Math.round(scaled))
+          &&Math.abs(scaled-Math.round(scaled))<=1e-7)
+         purchasesCents+=Math.round(scaled);
+        else purchasePrecisionIssueCount++;
       }else if(t.type==='use'){
         types.use++;consumedPieces+=Number(t.pieces)||0;
       }else types.other++;
@@ -67,7 +74,8 @@
       transactionCount:state.transactions.length,
       purchaseCount:types.buy, consumptionCount:types.use, otherTransactionCount:types.other,
       purchasedPieces,consumedPieces,
-      totalPurchaseCents:purchasesCents,
+      totalPurchaseCents:purchasePrecisionIssueCount?null:purchasesCents,
+      purchasePrecisionIssueCount,
       quoteCount:state.quotes.length,
       weightRecordCount:(state.weightRecords||[]).length,
       referenceOverrideCount:Object.keys(state.referenceOverrides).length,
