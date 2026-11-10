@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>小宝管家 · CloudBase P1 登录测试</title>
+<title>小宝管家 · CloudBase P1 登录测试（诊断版 2）</title>
 <style>
 :root{color-scheme:light;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;color:#233044;background:#f4f6fb}
 *{box-sizing:border-box}body{max-width:700px;margin:0 auto;padding:24px 15px 55px;line-height:1.55}
@@ -15,13 +15,14 @@ input{display:block;width:100%;border:1px solid #d9dfea;border-radius:10px;paddi
 button{border:0;border-radius:10px;padding:11px 16px;font:inherit;font-weight:600;cursor:pointer;color:white;background:#5367d9;margin:9px 8px 0 0}
 button.secondary{color:#3a4d7a;background:#eef1fe}button:disabled{opacity:.48;cursor:not-allowed}
 .step{border-top:1px solid #e7eaf3;margin-top:18px;padding-top:6px}
-.hint{font-size:12px;color:#768399}#status{background:#f0f3fa;border-radius:12px;padding:13px;white-space:pre-wrap;color:#354868;min-height:65px;font-size:13px}
+.hint{font-size:12px;color:#768399}#status,#instantStatus{background:#f0f3fa;border-radius:12px;padding:13px;white-space:pre-wrap;color:#354868;min-height:65px;font-size:13px}
 code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-size:12px;background:#fffaf0;color:#745628}
 </style>
 </head>
 <body>
 <main>
 <h1>小宝管家 · 云端登录测试</h1>
+<div id="instantStatus" role="status" aria-live="polite">页面正在初始化……</div>
 <p>仅用于 v1.2.0 P1 连接与权限检查，独立于正式软件。<strong>不会上传、修改或删除任何纸尿裤数据。</strong></p>
 <div class="warn">仅使用「客户端 Publishable Key」。不要输入服务端 API Key、SecretKey、腾讯云账号密码。验证码只在此页输入，不要发送到聊天。</div>
 <div class="step">
@@ -31,6 +32,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
 <label for="publishable">客户端 Publishable Key（只在当前页面内存中使用）</label>
 <input id="publishable" type="password" placeholder="从 CloudBase 控制台复制" autocomplete="off" spellcheck="false">
 <button type="button" id="connectBtn">连接测试环境</button>
+<p class="hint">诊断版 2：按钮上方会直接显示 SDK 加载、初始化及连接错误。</p>
 <p class="hint">本测试页不会把 Publishable Key 写入自己的 localStorage 或上传到 GitHub；CloudBase SDK 仅用它连接对应环境。</p>
 </div>
 <div class="step">
@@ -54,17 +56,44 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
 <p class="hint">反馈时只需告诉我「连接成功/验证码收到/登录成功/只读检查结果」或错误码。不要截图包含邮箱、验证码或 Key 的输入框。</p>
 </div>
 </main>
-<script src="https://static.cloudbase.net/cloudbase-js-sdk/3.0.1/cloudbase.full.js"></script>
 <script>
 (()=>{
  'use strict';
  const $=id=>document.getElementById(id);
  let app=null,verifyOtp=null;
- function status(message){$('status').textContent=message;}
+ function status(message){$('instantStatus').textContent=message;$('status').textContent=message;}
  function errCode(error){
-  return String(error?.code||error?.errorCode||error?.category||'NETWORK_OR_SDK_ERROR').slice(0,100);
+  if(/^SDK_[A-Z_]+$/.test(String(error?.message||'')))return error.message;
+   return String(error?.code||error?.errorCode||error?.category||'NETWORK_OR_SDK_ERROR').slice(0,100);
  }
  function failAt(stage,error){status(stage+'失败。错误码：'+errCode(error)+'。请不要分享个人凭证或完整请求日志。');}
+ function scriptLoad(url){
+  return new Promise((resolve,reject)=>{
+   const script=document.createElement('script');let finished=false;
+   const done=(error)=>{if(finished)return;finished=true;clearTimeout(timer);if(error){script.remove();reject(error);}else resolve();};
+   const timer=setTimeout(()=>done(new Error('SDK_LOAD_TIMEOUT')),12000);
+   script.async=true;script.src=url;
+   script.onload=()=>done(window.cloudbase&&typeof window.cloudbase.init==='function'?null:new Error('SDK_GLOBAL_MISSING'));
+   script.onerror=()=>done(new Error('SDK_CDN_UNREACHABLE'));
+   document.head.appendChild(script);
+  });
+ }
+ async function ensureSdk(){
+  if(window.cloudbase&&typeof window.cloudbase.init==='function')return;
+  const addresses=[
+   'https://static.cloudbase.net/cloudbase-js-sdk/3.0.1/cloudbase.full.js',
+   'https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js'
+  ];
+  let last=null;
+  for(let i=0;i<addresses.length;i++){
+   status('正在加载 SDK（来源 '+(i+1)+'/2）……');
+   try{await scriptLoad(addresses[i]);return;}catch(e){last=e;}
+  }
+  throw last||new Error('SDK_CDN_UNREACHABLE');
+ }
+ function deadline(promise,ms){
+  return Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('SDK_SESSION_TIMEOUT')),ms))]);
+ }
  function busy(button,work){
   button.disabled=true;
   Promise.resolve().then(work).catch(e=>failAt('操作',e)).finally(()=>{if(button.id==='connectBtn'||button.id==='checkBtn'||button.id==='logoutBtn')button.disabled=false;
@@ -72,20 +101,27 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
     if(button.id==='verifyBtn'&&verifyOtp)button.disabled=false;});
  }
  $('connectBtn').onclick=()=>{
+  status('已收到点击，开始加载客户端……');
   busy($('connectBtn'),async()=>{
    const env=$('envId').value.trim(),accessKey=$('publishable').value.trim();
-   if(!env||!accessKey){status('需要填写环境 ID 和 Publishable Key');return;}
-   if(!window.cloudbase||typeof window.cloudbase.init!=='function'){status('CloudBase SDK 未加载；请确认当前网络能访问腾讯云静态资源。');return;}
+   if(!env||!accessKey){status('请先填写环境 ID 和客户端 Publishable Key。');return;}
+   await ensureSdk();
+   status('SDK 加载成功，正在初始化……');
    app=window.cloudbase.init({env,accessKey,timeout:15000});
+   if(!app||!app.auth||typeof app.auth.getSession!=='function'){
+    app=null;throw new Error('SDK_AUTH_MODULE_MISSING');
+   }
    $('publishable').value='';
-   $('sendBtn').disabled=false;
-   $('checkBtn').disabled=false;
-   const {data,error}=await app.auth.getSession();
-   if(error)throw error;
-   if(data?.session){
-    status('SDK 初始化成功；检测到已登录的测试会话。可直接点击「检查登录与 RLS 读权限」。');
-    $('logoutBtn').disabled=false;
-   }else status('SDK 初始化成功；当前未登录。接下来发送邮箱验证码。');
+   $('sendBtn').disabled=false;$('checkBtn').disabled=false;
+   status('SDK 初始化成功，验证码按钮已启用；正在检查登录状态……');
+   try{
+    const {data,error}=await deadline(app.auth.getSession(),9000);
+    if(error)throw error;
+    if(data?.session){$('logoutBtn').disabled=false;status('SDK 初始化成功，已有登录会话。');}
+    else status('SDK 初始化成功；现在可以点击「发送验证码」。');
+   }catch(error){
+    status('SDK 已初始化，验证码按钮可用；登录状态检查暂未完成：'+errCode(error)+'。');
+   }
   });
  };
  $('sendBtn').onclick=()=>{
@@ -140,6 +176,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
    status('测试账号已退出。未触碰任何小宝管家本地数据。');
   });
  };
+ status('诊断版 2 脚本已经运行。请点击「连接测试环境」。');
 })();
 </script>
 </body></html>
