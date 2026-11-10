@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>小宝管家 · CloudBase P1 登录与家庭权限测试（诊断版 4）</title>
+<title>小宝管家 · CloudBase P1 登录与家庭权限测试（诊断版 5）</title>
 <style>
 :root{color-scheme:light;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;color:#233044;background:#f4f6fb}
 *{box-sizing:border-box}body{max-width:700px;margin:0 auto;padding:24px 15px 55px;line-height:1.55}
@@ -32,7 +32,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
 <label for="publishable">客户端 Publishable Key（只在当前页面内存中使用）</label>
 <input id="publishable" type="password" placeholder="从 CloudBase 控制台复制" autocomplete="off" spellcheck="false">
 <button type="button" id="connectBtn">连接测试环境</button>
-<p class="hint">诊断版 4：按钮上方会直接显示 SDK 加载、初始化及连接错误。</p>
+<p class="hint">诊断版 5：按钮上方会直接显示 SDK 加载、初始化及连接错误。</p>
 <p class="hint">本测试页不会把 Publishable Key 写入自己的 localStorage 或上传到 GitHub；CloudBase SDK 仅用它连接对应环境。</p>
 </div>
 <div class="step">
@@ -70,6 +70,17 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
 <button type="button" id="clearInviteBtn" class="secondary">清空邀请码</button>
 <p class="hint">接受邀请码必须使用<strong>另一个邮箱账号</strong>。如果在同一浏览器测试，请先退出账号，再用另一个邮箱登录。不要把邀请码发送给 ChatGPT。</p>
 </div>
+<div class="step" id="memberAliasTest">
+<h2>⑤ 家庭成员备注（需先完成 003 数据库增量脚本）</h2>
+<p>原始 UID 仍用于身份识别，备注只影响界面称呼，不影响权限和历史操作。</p>
+<button type="button" id="loadAliasesBtn" disabled>查看家庭成员昵称</button>
+<label for="aliasMemberSelect">选择家庭成员</label>
+<select id="aliasMemberSelect" style="width:100%;padding:11px;border:1px solid #d9dfea;border-radius:10px;background:white" disabled></select>
+<label for="aliasValue">成员备注名</label>
+<input id="aliasValue" maxlength="24" placeholder="例如：我、老婆；留空恢复默认称呼" autocomplete="off">
+<button type="button" id="saveAliasBtn" disabled>保存成员备注（写入数据库）</button>
+<p class="hint">此处不会显示技术 UID。普通成员越权修改其他成员将由数据库拒绝。</p>
+</div>
 <div class="step">
 <h2>测试结果</h2>
 <div id="status" role="status" aria-live="polite">尚未连接。请先填写环境 ID 和 Publishable Key。</div>
@@ -80,7 +91,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
 (()=>{
  'use strict';
  const $=id=>document.getElementById(id);
- let app=null,verifyOtp=null;
+ let app=null,verifyOtp=null,memberAliasRows=[];
  const uuidRx=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  function status(message){$('instantStatus').textContent=message;$('status').textContent=message;}
  function errCode(error){
@@ -118,7 +129,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
    .finally(()=>clearTimeout(timer));
  }
  function enableFamilyControls(active){
-  for(const id of ['createFamilyBtn','listFamiliesBtn','createInviteBtn','acceptInviteBtn'])
+  for(const id of ['createFamilyBtn','listFamiliesBtn','createInviteBtn','acceptInviteBtn','loadAliasesBtn'])
    $(id).disabled=!active;
  }
  function showRpcError(prefix,error){
@@ -145,6 +156,33 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
   status('RLS 查询通过：当前登录账号有权限查看 '+data.length+' 个家庭。'+
    (data.length===1?'已填入当前家庭 ID。':''));
   return data;
+ }
+ function aliasLabel(row){
+  const alias=typeof row.member_alias==='string'?row.member_alias.trim():'';
+  const role=row.member_role==='owner'?'管理员':'家庭成员';
+  return (alias||role)+' · '+role;
+ }
+ function selectedAliasMember(){
+  const n=Number($('aliasMemberSelect').value);
+  return Number.isInteger(n)&&n>=0&&n<memberAliasRows.length?memberAliasRows[n]:null;
+ }
+ function updateAliasEditor(){
+  const member=selectedAliasMember();
+  $('aliasValue').value=member?.member_alias||'';
+  $('saveAliasBtn').disabled=!member;
+ }
+ function renderMemberAliases(){
+  const select=$('aliasMemberSelect');
+  select.innerHTML='';
+  memberAliasRows.forEach((row,i)=>{
+   const option=document.createElement('option');
+   option.value=String(i);
+   option.textContent=aliasLabel(row);
+   select.appendChild(option);
+  });
+  select.disabled=memberAliasRows.length===0;
+  select.value=memberAliasRows.length?'0':'';
+  updateAliasEditor();
  }
  function busy(button,work){
   button.disabled=true;
@@ -226,6 +264,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
    verifyOtp=null;$('otp').value='';$('verifyBtn').disabled=true;
    $('logoutBtn').disabled=true;enableFamilyControls(false);$('familyId').value='';$('inviteToken').value='';
    $('inviteToken').type='password';$('toggleInviteBtn').textContent='显示邀请码';
+   memberAliasRows=[];renderMemberAliases();
    status('测试账号已退出。未触碰任何小宝管家本地数据。');
   });
  };
@@ -312,7 +351,57 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
   $('toggleInviteBtn').textContent='显示邀请码';
   status('已清空页面中的邀请码。');
  };
- status('诊断版 4 脚本已经运行。请点击「连接测试环境」。');
+ $('loadAliasesBtn').onclick=()=>{
+  busy($('loadAliasesBtn'),async()=>{
+   await requireSession();
+   const familyId=$('familyId').value.trim();
+   if(!uuidRx.test(familyId)){status('请先点击「查看我有权限的家庭」获取家庭 ID。');return;}
+   const {data,error}=await getDb().from('family_members')
+    .select('user_uid,member_role,member_alias,alias_revision')
+    .eq('family_id',familyId);
+   if(error){showRpcError('读取成员昵称失败',error);return;}
+   if(!Array.isArray(data))throw new Error('INVALID_ALIAS_LIST');
+   memberAliasRows=data.map(row=>({
+    user_uid:row.user_uid,
+    member_role:row.member_role,
+    member_alias:row.member_alias??null,
+    alias_revision:row.alias_revision
+   }));
+   renderMemberAliases();
+   status('已读取 '+memberAliasRows.length+' 位家庭成员。成员列表未显示原始 UID。');
+  });
+ };
+ $('aliasMemberSelect').onchange=updateAliasEditor;
+ $('saveAliasBtn').onclick=()=>{
+  busy($('saveAliasBtn'),async()=>{
+   await requireSession();
+   const familyId=$('familyId').value.trim();
+   const member=selectedAliasMember(),alias=$('aliasValue').value.trim();
+   if(!uuidRx.test(familyId)||!member){status('请先加载家庭成员。');return;}
+   if(Array.from(alias).length>24||/[\u0000-\u001f\u007f]/u.test(alias)){
+    status('备注名无效：最多24个字符，不能包含控制字符。');return;
+   }
+   if(!Number.isInteger(member.alias_revision)||member.alias_revision<0){
+    status('成员备注版本无效，请重新读取成员列表。');return;
+   }
+   if(!window.confirm('确认将此成员的备注改为「'+(alias||'默认角色称呼')+'」？'))return;
+   const {data,error}=await getDb().rpc('xb_set_member_alias',{
+    p_family_id:familyId,p_member_uid:member.user_uid,
+    p_alias:alias,p_expected_revision:member.alias_revision
+   });
+   if(error){showRpcError('更新成员备注失败',error);return;}
+   const ack=Array.isArray(data)?data[0]:data;
+   if(!ack?.saved||!Number.isInteger(ack.alias_revision))throw new Error('INVALID_ALIAS_ACK');
+   const at=memberAliasRows.indexOf(member);
+   memberAliasRows[at]={...member,member_alias:ack.member_alias??null,
+    alias_revision:ack.alias_revision};
+   renderMemberAliases();
+   $('aliasMemberSelect').value=String(at);
+   updateAliasEditor();
+   status('备注保存成功：'+aliasLabel(memberAliasRows[at])+'；不改变原账号和权限。');
+  });
+ };
+ status('诊断版 5 脚本已经运行。请点击「连接测试环境」。');
 })();
 </script>
 </body></html>
