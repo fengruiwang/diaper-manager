@@ -52,3 +52,4 @@ sync/cloudbase-family-client.js 是**隔离的 SDK 适配层**，不与 index.ht
 重要：不要在聊天里发送实际邮箱、登录 token、Publishable Key 输入截图、邀请码。若出现 42501 或 PGRST 错误，反馈不含个人敏感内容的错误码即可。
 
 **P1 最低成功标准**：A 账户看到自己的家庭 1 条，B 账户接受邀请后看到同一家庭 1 条；第三方 C 用户尝试读取家庭返回 0，无法创建邀请码。管理员、非管理员权限隔离必须单独验证，不能只凭 A/B 读成功宣布全部 RLS 测试通过。
+\n\n## 家庭成员备注名及扩展性要求（待实现）\n\n当前 public.family_members 没有备注字段。下一步在安全审查后使用 ALTER TABLE 增量添加 member_alias（可空），不重建既有 owner/member 关系。管理员可编辑成员备注，成员可编辑本人备注；经服务端鉴权 RPC 写入，权限不能只靠前端按钮。界面主要显示「我」「老婆」等备注及管理员/成员角色，而非原始 user_uid；后台审计保留稳定 ID。实现设计及验收清单参见 docs/v1.2.0/EXTENSIBILITY_AND_MEMBER_LABELS.md。\n
