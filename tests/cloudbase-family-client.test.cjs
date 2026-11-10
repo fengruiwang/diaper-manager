@@ -76,3 +76,56 @@ test('a verifier can retry a mistyped OTP without restarting login',async()=>{
  await client.confirmCode('123456');
  assert.ok(await client.session());
 });
+
+test('family member list only reads the family scoped RLS table',async()=>{
+ const calls=[],uuid='9dc2dd1a-2043-4a7b-bdfa-74eac91cfe19';
+ const auth={getSession:async()=>({data:{session:{access_token:'fake'}},error:null}),
+  signInWithOtp:async()=>({data:{verifyOtp:async()=>{}},error:null})};
+ const db={rpc:async()=>({data:{saved:true,alias_revision:1},error:null}),
+  from(table){
+   calls.push(['from',table]);
+   return {select(columns){
+    calls.push(['select',columns]);
+    return {eq:async(column,value)=>{
+     calls.push(['eq',column,value]);
+     return {data:[{user_uid:'uid-one',member_alias:'老婆',member_role:'member',alias_revision:3}],error:null};
+    }};
+   }};
+  }};
+ const c=create({auth,rdb:()=>db});
+ const result=await c.listMembers(uuid);
+ assert.deepEqual(result,[{user_uid:'uid-one',member_alias:'老婆',member_role:'member',alias_revision:3}]);
+ assert.deepEqual(calls,[['from','family_members'],['select','user_uid,member_role,member_alias,alias_revision'],['eq','family_id',uuid]]);
+});
+test('rename RPC carries expected revision and never writes directly to member table',async()=>{
+ const calls=[],uuid='9dc2dd1a-2043-4a7b-bdfa-74eac91cfe19';
+ const auth={getSession:async()=>({data:{session:{access_token:'fake'}},error:null}),
+  signInWithOtp:async()=>({data:{verifyOtp:async()=>{}},error:null})};
+ const db={rpc:async(name,params)=>{
+   calls.push({name,params});
+   return {data:{saved:true,changed:true,member_alias:'老婆',alias_revision:4},error:null};
+  }};
+ const c=create({auth,rdb:()=>db});
+ const updated=await c.setMemberAlias({familyId:uuid,memberUid:'uid-one',alias:' 老婆 ',expectedRevision:3});
+ assert.deepEqual(updated,{saved:true,changed:true,member_alias:'老婆',alias_revision:4});
+ assert.equal(calls.length,1);
+ assert.deepEqual(calls[0],{name:'xb_set_member_alias',params:{
+  p_family_id:uuid,p_member_uid:'uid-one',p_alias:'老婆',p_expected_revision:3}});
+});
+test('alias edit rejects unsafe input and shows safe SQLSTATE without backend secrets',async()=>{
+ const calls=[],uuid='9dc2dd1a-2043-4a7b-bdfa-74eac91cfe19';
+ const auth={getSession:async()=>({data:{session:{}},error:null}),signInWithOtp:async()=>({data:{},error:null})};
+ const db={rpc:async(name,params)=>{
+   calls.push(params);
+   return {error:{code:'DATABASE_42501',message:'Sensitive database detail'},data:null};
+  }};
+ const c=create({auth,rdb:()=>db});
+ await assert.rejects(()=>c.setMemberAlias({familyId:uuid,memberUid:'uid',alias:'x'.repeat(25),expectedRevision:0}),/invalid_alias/);
+ await assert.rejects(()=>c.setMemberAlias({familyId:uuid,memberUid:'uid',alias:'ok',expectedRevision:-1}),/invalid_alias_revision/);
+ await assert.rejects(()=>c.setMemberAlias({familyId:uuid,memberUid:'uid',alias:'老婆',expectedRevision:0}),e=>{
+  assert.match(e.message,/alias_update_failed_DATABASE_42501/);
+  assert.doesNotMatch(e.message,/Sensitive/);
+  return true;
+ });
+ assert.equal(calls.length,1);
+});
