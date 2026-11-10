@@ -6,6 +6,7 @@ on:
       - feature/growth-v1.1.0
       - feature/replenishment-v1.1.1
       - feature/weight-auto-stock-v1.1.2
+      - feature/cloudbase-sync-v1.2.0
   pull_request:
 permissions:
   contents: read
