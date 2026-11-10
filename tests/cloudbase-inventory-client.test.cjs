@@ -19,16 +19,29 @@ function fixture({signedIn=true,error=null}={}){
    accepted:true,duplicate:false,operation_id:p.p_operation_id,child_id:p.p_child_id,
    size:p.p_size,result_quantity:60,result_revision:1
   },error:null}},
-  from(table){calls.push(['from',table]);return {
-   select(columns){calls.push(['select',columns]);return {
-    eq(field,value){calls.push(['eq',field,value]);return {
-     eq:async(k,v)=>{calls.push(['eq',k,v]);return {data:[
-       {size:'S',quantity:60,revision:1,updated_at:'2026-11-10T16:30:00Z'}],error:null}}
-    }}}
-   }}
-  }}
+  from(table){
+   calls.push(['from',table]);
+   return {
+    select(columns){
+     calls.push(['select',columns]);
+     return {
+      eq(field,value){
+       calls.push(['eq',field,value]);
+       return {
+        async eq(k,v){
+         calls.push(['eq',k,v]);
+         return {data:[
+          {size:'S',quantity:60,revision:1,updated_at:'2026-11-10T16:30:00Z'}
+         ],error:null};
+        }
+       };
+      }
+     };
+    }
+   };
+  }
  };
- const auth={async getSession(){calls.push(['session']);return {data:{session:signedIn?{token:'hidden'}:null},error:null}}};
+  const auth={async getSession(){calls.push(['session']);return {data:{session:signedIn?{token:'hidden'}:null},error:null}}};
  const c=create({auth,rdb:()=>db});
  return {c,calls};
 }
