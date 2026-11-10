@@ -92,7 +92,9 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
   throw last||new Error('SDK_CDN_UNREACHABLE');
  }
  function deadline(promise,ms){
-  return Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('SDK_SESSION_TIMEOUT')),ms))]);
+  let timer=null;
+  return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('SDK_SESSION_TIMEOUT')),ms);})])
+   .finally(()=>clearTimeout(timer));
  }
  function busy(button,work){
   button.disabled=true;
