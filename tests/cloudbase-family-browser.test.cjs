@@ -13,7 +13,8 @@ function boot({loggedIn=true,grant=true}={}){
   getElementById(id){
    if(!elements.has(id))elements.set(id,{
     id,disabled:id!=='connectBtn',value:id==='envId'?'env-demo':id==='publishable'?'publish-demo':'',
-    textContent:'',onclick:null
+    textContent:'',onclick:null,type:id==='inviteToken'?'password':'text',
+    focus(){this.focused=true},select(){this.selected=true}
    });
    return elements.get(id);
   },
@@ -39,16 +40,18 @@ function boot({loggedIn=true,grant=true}={}){
    return {data,error:null};
   }
  };
+ const copied=[];
+ const navigator={clipboard:{writeText:async token=>{copied.push(token);}}};
  const window={cloudbase:{init:()=>({auth,rdb:()=>db})},confirm:()=>true};
  assert.ok(js);
- vm.runInNewContext(js,{document:doc,window,Promise,setTimeout,clearTimeout});
+ vm.runInNewContext(js,{document:doc,window,navigator,Promise,setTimeout,clearTimeout});
  const get=id=>doc.getElementById(id);
  async function click(id){
   assert.equal(typeof get(id).onclick,'function');
   get(id).onclick();
   for(let i=0;i<15;i++)await new Promise(resolve=>setImmediate(resolve));
  }
- return {get,calls,click,window};
+ return {get,calls,click,window,copied};
 }
 test('family functions are never called on load or SDK connect',async()=>{
  const x=boot();
@@ -102,4 +105,38 @@ test('read own family uses RLS with SELECT and no table-write calls',async()=>{
  await x.click('listFamiliesBtn');
  assert.deepEqual(x.calls.map(y=>y[0]),['read']);
  assert.equal(x.get('familyId').value,UUID);
+});
+
+test('copy invitation from masked field without revealing it or leaking in status',async()=>{
+ const x=boot();
+ await x.click('connectBtn');
+ x.get('familyId').value=UUID;
+ await x.click('createInviteBtn');
+ assert.equal(x.get('inviteToken').type,'password');
+ await x.click('copyInviteBtn');
+ assert.deepEqual(x.copied,[INVITE]);
+ assert.equal(x.get('inviteToken').type,'password');
+ assert.match(x.get('instantStatus').textContent,/已复制到剪贴板/);
+ assert.doesNotMatch(x.get('instantStatus').textContent,new RegExp(INVITE));
+});
+test('show/hide/clear invitation keeps secret masked by default',async()=>{
+ const x=boot();
+ await x.click('connectBtn');
+ x.get('familyId').value=UUID;
+ await x.click('createInviteBtn');
+ await x.click('toggleInviteBtn');
+ assert.equal(x.get('inviteToken').type,'text');
+ assert.equal(x.get('toggleInviteBtn').textContent,'隐藏邀请码');
+ await x.click('toggleInviteBtn');
+ assert.equal(x.get('inviteToken').type,'password');
+ await x.click('clearInviteBtn');
+ assert.equal(x.get('inviteToken').value,'');
+ assert.equal(x.get('inviteToken').type,'password');
+});
+test('clipboard copy with no token never invokes writeText',async()=>{
+ const x=boot();
+ await x.click('connectBtn');
+ await x.click('copyInviteBtn');
+ assert.equal(x.copied.length,0);
+ assert.match(x.get('instantStatus').textContent,/请先生成或输入有效邀请码/);
 });

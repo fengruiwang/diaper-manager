@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>小宝管家 · CloudBase P1 登录与家庭权限测试（诊断版 3）</title>
+<title>小宝管家 · CloudBase P1 登录与家庭权限测试（诊断版 4）</title>
 <style>
 :root{color-scheme:light;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;color:#233044;background:#f4f6fb}
 *{box-sizing:border-box}body{max-width:700px;margin:0 auto;padding:24px 15px 55px;line-height:1.55}
@@ -32,7 +32,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
 <label for="publishable">客户端 Publishable Key（只在当前页面内存中使用）</label>
 <input id="publishable" type="password" placeholder="从 CloudBase 控制台复制" autocomplete="off" spellcheck="false">
 <button type="button" id="connectBtn">连接测试环境</button>
-<p class="hint">诊断版 3：按钮上方会直接显示 SDK 加载、初始化及连接错误。</p>
+<p class="hint">诊断版 4：按钮上方会直接显示 SDK 加载、初始化及连接错误。</p>
 <p class="hint">本测试页不会把 Publishable Key 写入自己的 localStorage 或上传到 GitHub；CloudBase SDK 仅用它连接对应环境。</p>
 </div>
 <div class="step">
@@ -63,6 +63,9 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
 <p class="hint">只有家庭管理员可以生成；邀请码有效期 24 小时、仅可使用一次。请通过私人渠道发送给另一位成员，勿公开截图。</p>
 <label for="inviteToken">邀请码（保密；只在此页面内存中显示）</label>
 <input id="inviteToken" type="password" placeholder="生成后自动填写，另一位成员可粘贴收到的邀请码" autocomplete="off" spellcheck="false">
+<button type="button" id="copyInviteBtn" class="secondary">复制邀请码</button>
+<button type="button" id="toggleInviteBtn" class="secondary">显示邀请码</button>
+<p class="hint">复制后可直接粘贴到微信私聊，发给另一位成员。有效期 24 小时、只能用一次；避免发到群聊或截图公开。若自动复制被浏览器禁止，可显示并手动选择复制。</p>
 <button type="button" id="acceptInviteBtn" disabled>使用邀请码加入家庭</button>
 <button type="button" id="clearInviteBtn" class="secondary">清空邀请码</button>
 <p class="hint">接受邀请码必须使用<strong>另一个邮箱账号</strong>。如果在同一浏览器测试，请先退出账号，再用另一个邮箱登录。不要把邀请码发送给 ChatGPT。</p>
@@ -222,6 +225,7 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
    const {error}=await app.auth.signOut();if(error)throw error;
    verifyOtp=null;$('otp').value='';$('verifyBtn').disabled=true;
    $('logoutBtn').disabled=true;enableFamilyControls(false);$('familyId').value='';$('inviteToken').value='';
+   $('inviteToken').type='password';$('toggleInviteBtn').textContent='显示邀请码';
    status('测试账号已退出。未触碰任何小宝管家本地数据。');
   });
  };
@@ -255,7 +259,9 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
    const result=Array.isArray(data)?data[0]:data;
    if(!uuidRx.test(String(result?.invite_token||'')))throw new Error('INVALID_INVITE_RESPONSE');
    $('inviteToken').value=result.invite_token;
-   status('邀请码已生成。请自行通过私人渠道转给另一位家庭成员；切勿在聊天中发送或截图。');
+   $('inviteToken').type='password';
+   $('toggleInviteBtn').textContent='显示邀请码';
+   status('邀请码已生成。点击「复制邀请码」后通过私人渠道发送给另一位家庭成员；不要公开分享。');
   });
  };
  $('acceptInviteBtn').onclick=()=>{
@@ -270,13 +276,43 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
    if(!uuidRx.test(String(result?.family_id||'')))throw new Error('INVALID_ACCEPT_RESPONSE');
    $('familyId').value=result.family_id;
    $('inviteToken').value='';
+   $('inviteToken').type='password';
+   $('toggleInviteBtn').textContent='显示邀请码';
    status('已加入家庭，邀请码已从页面清空。可点击「查看我有权限的家庭」确认 RLS 访问结果。');
   });
  };
- $('clearInviteBtn').onclick=()=>{
-  $('inviteToken').value='';status('已清空页面中的邀请码。');
+ $('copyInviteBtn').onclick=()=>{
+  busy($('copyInviteBtn'),async()=>{
+   const token=$('inviteToken').value.trim();
+   if(!uuidRx.test(token)){status('请先生成或输入有效邀请码，再点击复制。');return;}
+   try{
+    if(typeof navigator==='undefined'||!navigator.clipboard||typeof navigator.clipboard.writeText!=='function')
+      throw new Error('CLIPBOARD_NOT_AVAILABLE');
+    await navigator.clipboard.writeText(token);
+    status('邀请码已复制到剪贴板。可以粘贴到与家人的私聊中；切勿公开发送。');
+   }catch(error){
+    // Some managed browsers disallow clipboard writes. Keep the token usable.
+    $('inviteToken').type='text';
+    $('toggleInviteBtn').textContent='隐藏邀请码';
+    if(typeof $('inviteToken').focus==='function')$('inviteToken').focus();
+    if(typeof $('inviteToken').select==='function')$('inviteToken').select();
+    status('浏览器限制自动复制。已显示并尝试选中邀请码，可按 Ctrl+C（或手机长按复制）手动复制。');
+   }
+  });
  };
- status('诊断版 3 脚本已经运行。请点击「连接测试环境」。');
+ $('toggleInviteBtn').onclick=()=>{
+  const field=$('inviteToken');
+  field.type=field.type==='password'?'text':'password';
+  $('toggleInviteBtn').textContent=field.type==='password'?'显示邀请码':'隐藏邀请码';
+  status(field.type==='password'?'邀请码已隐藏。':'邀请码已显示，请勿截图或公开分享。');
+ };
+ $('clearInviteBtn').onclick=()=>{
+  $('inviteToken').value='';
+  $('inviteToken').type='password';
+  $('toggleInviteBtn').textContent='显示邀请码';
+  status('已清空页面中的邀请码。');
+ };
+ status('诊断版 4 脚本已经运行。请点击「连接测试环境」。');
 })();
 </script>
 </body></html>
