@@ -38,7 +38,7 @@ test('click initializes SDK and enables OTP using a fake SDK without network',as
   }}
  };
  vm.runInNewContext(match[1],{document,window,Promise,setTimeout,clearTimeout});
- assert.match(getElementById('instantStatus').textContent,/诊断版 3/);
+ assert.match(getElementById('instantStatus').textContent,/诊断版 4/);
  assert.equal(typeof getElementById('connectBtn').onclick,'function');
  getElementById('connectBtn').onclick();
  for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));
