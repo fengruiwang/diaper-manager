@@ -188,7 +188,9 @@ code{font-size:12px}.warn{border-left:3px solid #e3af39;padding-left:11px;font-s
   button.disabled=true;
   Promise.resolve().then(work).catch(e=>failAt('操作',e)).finally(()=>{if(button.id==='connectBtn'||button.id==='checkBtn'||button.id==='logoutBtn')button.disabled=false;
     if(button.id==='sendBtn'&&app)button.disabled=false;
-    if(button.id==='verifyBtn'&&verifyOtp)button.disabled=false;});
+    if(button.id==='verifyBtn'&&verifyOtp)button.disabled=false;
+    if(button.id==='loadAliasesBtn'&&app)button.disabled=false;
+    if(button.id==='saveAliasBtn'&&memberAliasRows.length)button.disabled=false;});
  }
  $('connectBtn').onclick=()=>{
   status('已收到点击，开始加载客户端……');
