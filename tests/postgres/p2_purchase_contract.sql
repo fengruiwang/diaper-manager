@@ -17,8 +17,8 @@ BEGIN
 END;
 $$;
 
+\i cloudbase/sql/001_shared_foundation.sql
 \i cloudbase/sql/005_xb_core_schema_draft.sql
-\i cloudbase/sql/007_xb_inventory_rpc_draft.sql
 \i cloudbase/sql/008_xb_transactions_schema_draft.sql
 \i cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql
 

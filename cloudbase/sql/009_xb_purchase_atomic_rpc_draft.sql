@@ -1,5 +1,5 @@
 -- XiaoBao P2 v1.2.0: full-purchase inventory RPC DRAFT; not deployed.
--- Requires 005_xb_core_schema_draft.sql; do not execute on CloudBase before review.
+-- Requires 005_xb_core_schema_draft.sql and 008_xb_transactions_schema_draft.sql. SQL 007 is NOT deployed.
 -- This migration creates functions/indexes only: NO child, inventory, or historical rows inserted.
 BEGIN;
 
