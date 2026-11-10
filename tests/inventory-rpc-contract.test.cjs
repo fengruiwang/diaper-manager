@@ -93,8 +93,8 @@ test('separate child and family have no mixed inventory',()=>{
  let s=S.addChild(base(),F,C2);
  s=step(s,cmd('buy',O1)).state;
  s=step(s,cmd('buy',O2,{childId:C2,amount:20})).state;
- assert.equal(qty(s,C),60);
- assert.equal(qty(s,C2),20);
+ assert.equal(qty(s,C).quantity,60);
+ assert.equal(qty(s,C2).quantity,20);
  assert.throws(()=>step(s,cmd('buy',O3,{familyId:X})),/permission_denied/);
 });
 test('bad stocktake revision and zero or huge amount are rejected',()=>{
