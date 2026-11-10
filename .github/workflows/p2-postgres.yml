@@ -1,0 +1,34 @@
+name: XiaoBao P2 isolated PostgreSQL contract
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postgres-contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test-only-ephemeral
+          POSTGRES_DB: xb_p2_contract
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d xb_p2_contract"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute P2 SQL and account/RLS/atomicity contracts in disposable PostgreSQL
+        run: |
+          docker run --rm --network host \
+            -e PGPASSWORD=test-only-ephemeral \
+            -v "$GITHUB_WORKSPACE:/work:ro" -w /work \
+            postgres:16 \
+            psql -X -h 127.0.0.1 -U postgres -d xb_p2_contract \
+              -v ON_ERROR_STOP=1 -f tests/postgres/p2_purchase_contract.sql
