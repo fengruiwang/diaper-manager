@@ -63,7 +63,7 @@
       ||data.rows.length>limit)
     fail('invalid_history_page');
    if(data.has_more!==(offset+data.rows.length<data.total)
-      ||offset<data.total&&data.rows.length!==Math.min(limit,data.total-offset))
+      ||data.rows.length!==Math.min(limit,Math.max(0,data.total-offset)))
     fail('history_page_incomplete');
    let prevKey='',prevOrdinal=0,prevId='',seen=new Set();
    const rows=data.rows.map(row=>{
