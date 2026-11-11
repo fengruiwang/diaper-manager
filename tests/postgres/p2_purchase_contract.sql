@@ -261,7 +261,7 @@ SELECT public.xb_test_assert(
    ) AS r) AS checked),
   'member receipt check cannot see owner receipt');
 SELECT set_config('xb.test.uid','test-stranger',false);
-DO $
+DO $$
 BEGIN
  BEGIN
   PERFORM public.xb_read_inventory_reconciliation(
@@ -271,6 +271,6 @@ BEGIN
   RAISE EXCEPTION 'expected stranger inventory read denial';
  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
  END;
-END $;
+END $$;
 RESET ROLE;
 \echo P2 PostgreSQL contract passed
