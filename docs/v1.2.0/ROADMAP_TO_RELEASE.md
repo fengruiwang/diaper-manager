@@ -39,6 +39,13 @@
 - 隔离 Node 新增 15 组测试，开发分支 JavaScript **284/284 PASS**，PostgreSQL 原隔离合同仍通过。当前真实 CloudBase 尚无测试宝宝，因此本轮不要求用户再上传网页或反复做“空表”测试。
 - 审查文档：`docs/v1.2.0/P2_3D_BASELINE_INSPECTION_REVIEW.md`。下一阶段不是直接把 `initialized` 设为 true，而是先设计与已保存 v1.1.2 历史兼容的**权威云端初始基线握手 + 原子 IDB 提交 + 检查后 revision 复核**。真实数据库写测试宝宝/采购及迁移仍须单独授权。
 
+## P2-3E 受控首次本地基线写入（2026-11-11）
+
+- 已新增 `sync/inventory-bootstrap-coordinator.js` 和 17 组直接合同测试，并将 3 组**真实 IndexedDB 合成事务**回归加入 `tests/idb-atomic-inventory.test.cjs`：经过源端双次库存+revision 核对，在模拟历史迁移收据已核验且明确开启隔离开关的条件下，IDB 原子保存初始库存；重复初始化、已有或临时插入队列阻止覆盖；第三次云端读取发现变化则等待复核。
+- **正式开发环境默认不能本地初始化**：服务端真实历史迁移凭证/备份校验接口尚不存在，`permitIsolatedLocalSeed` 默认为 false；所有分支 `uploadAllowed:false`，不得把本轮测试模拟凭证、`source:'verified-server'` 字符串或布尔设置当生产权限。
+- JS 自动化 **304/304 PASS**，PG16 隔离合同 PASS；未在真实 CloudBase 写入或修改正式 PWA。详细阻断项见 `docs/v1.2.0/P2_3E_ATOMIC_BOOTSTRAP_REVIEW.md`。
+- **下一步**：独立审查旧版历史格式、备份可恢复性与权威迁移收据，限制底层 `initializeInventory` 直接调用路径；如果要先进行真实云端虚拟宝宝采购，则需要独立的仅测试身份路径以及用户对 019/020 安装和业务测试记录写入的**另行明确批准**。
+
 ## 采购编辑（正式版必备）
 
 详细需求见 `PURCHASE_EDIT_CORRECTION_REQUIREMENTS.md`。当前 009 RPC 仅支持 `buy/use/stocktake/reverse`，未实现编辑。页面应提供普通「编辑购买记录」，服务端按字段类型选择不变库存的元数据变更或原子差量库存更新，必须记录修改历史、修改人和时间。
