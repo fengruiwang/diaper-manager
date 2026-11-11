@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>小宝管家 · 历史备份校验与恢复预览（仅本机）</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;background:#f5f7fb;color:#28384f}
+*{box-sizing:border-box}body{max-width:710px;margin:auto;padding:20px 13px 40px}
+main{background:white;border-radius:18px;border:1px solid #e0e5ee;padding:23px}
+h1{font-size:22px;margin:0 0 8px}h2{font-size:17px;margin:24px 0 7px}
+p{font-size:14px;line-height:1.7;color:#586980}
+.notice{border-left:4px solid #b38b38;background:#fff9ed;color:#7b602b;padding:12px;border-radius:6px}
+input[type=file]{display:block;width:100%;padding:11px;border:1px solid #dbe2ee;border-radius:11px;background:#fafcff}
+button{font:inherit;padding:11px 15px;border:0;border-radius:10px;background:#4b62c8;color:#fff;font-weight:600;margin:10px 8px 8px 0}
+button.secondary{background:#e7ebfa;color:#345084}button:disabled{background:#e5e9f0;color:#8190a5}
+.section{border-top:1px solid #e7ebf3;padding-top:3px;margin-top:22px}
+#report{white-space:pre-wrap;overflow-wrap:anywhere;background:#eff3f9;padding:13px;border-radius:10px;font-size:13px;line-height:1.65}
+small{color:#78869b;line-height:1.6}
+</style>
+</head>
+<body><main>
+<h1>历史备份校验与恢复预览</h1>
+<p class="notice"><strong>仅在当前浏览器本地处理文件。</strong> 本页面的网络连接被安全策略禁止，不登录账号、不上传备份、不读取浏览器原有记账数据，也不执行真正的数据恢复。导入正式软件仍会替换当前数据，请不要在这里尝试恢复。</p>
+<div class="section">
+<h2>① 选择原有 v1.1.2 JSON 备份</h2>
+<p>先到当前正在使用的「小宝管家 → 数据备份与恢复 → 导出 JSON 备份」，得到一个备份文件；然后在此选择它。</p>
+<input id="sourceFile" type="file" accept=".json,application/json">
+<button id="protect" type="button">检查并生成保护副本</button>
+<button id="downloadBundle" type="button" disabled>下载保护副本</button>
+</div>
+<div class="section">
+<h2>② 重新选择下载后的保护副本</h2>
+<p>重新打开刚保存的保护副本，验证其校验值及原始备份是否可以一字不差恢复；不会把内容写回小宝管家。</p>
+<input id="bundleFile" type="file" accept=".json,application/json">
+<button id="verify" type="button">验证保护副本</button>
+<button id="downloadOriginal" type="button" class="secondary" disabled>下载验证后的原始备份</button>
+</div>
+<div class="section">
+<h2>③ 安全检查结果</h2>
+<div id="report" role="status" aria-live="polite">等待选择文件。本页不会上传任何内容。</div>
+<p><small>只报告状态和校验是否成功，不展示购买内容、品牌、金额、宝宝信息或校验文件原文。SHA-256 可检测意外修改，不是文件来源的数字签名。请妥善保管两个 JSON 文件，不要将它们发给开发对话或任何陌生网站。</small></p>
+</div>
+</main>
+<script src="./legacy-backup-vault.js"></script>
+<script src="./legacy-backup-check.js"></script>
+</body></html>
