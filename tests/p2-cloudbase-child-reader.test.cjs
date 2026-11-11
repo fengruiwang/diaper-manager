@@ -12,7 +12,7 @@ const smoke={id:id(2),family_id:FAMILY,display_name:'虚拟测试宝宝',legacy_
 const retired={id:id(3),family_id:FAMILY,display_name:'已停用宝宝',legacy_slot:null,deleted_at:'2026-11-11T00:00:00Z',revision:1};
 const ordinary={id:id(4),family_id:FAMILY,display_name:'第二个正式宝宝',legacy_slot:null,deleted_at:null,revision:1};
 function mock({
- session=true,grant=true,familyVisible=true,
+ session=true,grant=true,grantCount=2,familyVisible=true,
  rows=[primary,smoke,retired,ordinary],throwSdk=false
 }={}){
  const calls=[];
@@ -28,7 +28,7 @@ function mock({
      calls.push({kind:'limit',table,filters:filters.map(([key])=>key),n});
      if(throwSdk)throw Error('Backend body contains hidden token: NEVER LOG');
      if(table==='families')return {data:familyVisible?[{id:FAMILY}]:[]};
-     if(table==='family_app_access')return {data:grant?[{app_code:'xb'},{app_code:'xb'}]:[]};
+     if(table==='family_app_access')return {data:grant?Array.from({length:grantCount},()=>({app_code:'xb'})):[]};
      if(table==='xb_children'){
       return {data:rows.filter(row=>filters.every(([k,v])=>row[k]===v)).slice(0,n)};
      }
@@ -68,6 +68,11 @@ test('migration target is explicit active primary only, never auto-imports histo
   ()=>reader.create(mock({rows:[{...primary,deleted_at:'2026-11-11T02:00:00Z'}]}).app,guard)
    .inspectLegacyTarget({familyId:FAMILY}),
   /legacy_primary_unavailable/);
+});
+test('future family expansion beyond two members must remain compatible',async()=>{
+ const x=reader.create(mock({grantCount:3}).app,guard);
+ const result=await x.listActiveChildren({familyId:FAMILY});
+ assert.equal(result.activeChildren.length,2);
 });
 test('missing server child classification fields aborts instead of displaying unknown row',async()=>{
  const broken={...primary};
