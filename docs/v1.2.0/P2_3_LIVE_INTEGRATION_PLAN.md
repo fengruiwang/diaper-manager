@@ -89,6 +89,14 @@
 - 019 新函数使用 `CREATE FUNCTION` 而非 `CREATE OR REPLACE FUNCTION`，避免误安装时覆盖同签名函数。
 - 纯内存手机演练页面已交付，且设计了 fail-closed 的测试宝宝筛选守卫，但**不是真实 CloudBase 双端同步，也未接入正式 UI**。未来必须在单独授权后进行真实创建/采购/幂等/并发、并核实正式宝宝列表与历史迁移排除测试标识。
 
+### 2026-11-11 P2-3C 上传前置安全检查（仅 RLS 只读，真机待验收）
+
+- 新增 `sync/cloudbase-access-preflight.js`：用实际 CloudBase `getSession()` 的 UID 对齐 actorUid，并通过 RLS 的家庭、成员、本人的 xb grant 的只读 SELECT 验证。不会自动登录、不会读取或修改旧版本地数据。
+- 与现有 Outbox runner 和 InventorySyncReader 的合成联调保证：`initialized:false`（**未证明持久库存基线**）时即使请求开启同步也**零业务写入**，返回 `family-not-initialized`。不允许仅凭登录/授权判断数据已初始化。
+- 独立真实 CloudBase 只读测试工具：`cloudbase/smoke/p2-upload-readiness.html` + `p2-upload-readiness-bridge.js` + `sync/cloudbase-access-preflight.js`（三个文件上传至同一 `xb-test/`）。预期 A 和 B 各返回 `AUTH_PASS_UPLOAD_BLOCKED`，四项身份/家庭授权 PASS、上传闸门 BLOCKED。**这不是上传失败，是尚未授权真实写入的正确状态。**
+- 测试方法、完整三文件链接、预期安全状态和脱敏反馈见 `docs/v1.2.0/P2_3C_UPLOAD_READINESS_RUNBOOK.md`；用户要求同样步骤必须在对话中发出。
+- 目前没有对真实 CloudBase 执行上述 P2-3C 浏览器检查，也没有部署虚拟宝宝 SQL 019/020 或修改生产 PWA。真实库存初始化、A/B 采购、购买记录编辑和安全迁移仍是后续独立任务。
+
 ## P2-3 当前下一动作
 
 **P2-3B 的 SQL 草案、PG16 隔离合同测试以及手机可操作的纯内存演练页面均已完成**。下一个发布前门槛是独立安全审查、真实测试宝宝与正式迁移的过滤设计，以及单独授权真实 CloudBase 测试数据写入；在获得许可前不运行 019/020、不创建宝宝或真实模拟采购。匿名读取 RPC 拒绝来源仍待独立核验。
