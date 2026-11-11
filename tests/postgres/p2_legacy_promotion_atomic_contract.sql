@@ -130,7 +130,10 @@ SELECT public.xb_test_assert(
  AND (SELECT count(*)=1 FROM public.xb_migrations
   WHERE family_id='9b8d0e45-bf18-4c95-889c-6f19731a8ae5'
    AND counts->>'archiveVerified'='true'
-   AND counts->>'purchaseHistoryReplayed'='false'),
+   AND counts->>'purchaseHistoryReplayed'='false'
+   AND (counts->>'historicalPurchaseFen')::bigint=2999
+   AND (counts->>'historicalBoughtPieces')::bigint=60
+   AND (counts->>'historicalUsedPieces')::bigint=5),
  'history/price/profile/native-weight and final digest receipt all present');
 
 -- Readability is family-grant scoped and NOT migration-writable by client.
