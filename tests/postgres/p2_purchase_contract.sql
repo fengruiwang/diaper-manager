@@ -398,4 +398,7 @@ RESET ROLE;
 -- P2-4E-B1 atomic archive-only DRAFT, synthetic owner/history ONLY.
 \i cloudbase/sql/022_xb_legacy_archive_atomic_STAGE_DRAFT_DO_NOT_DEPLOY.sql
 \i tests/postgres/p2_legacy_archive_atomic_contract.sql
+-- P2-4E-B2 isolated synthetic full history+baseline promotion, NEVER LIVE.
+\i cloudbase/sql/023_xb_legacy_promotion_atomic_DRAFT_DO_NOT_DEPLOY.sql
+\i tests/postgres/p2_legacy_promotion_atomic_contract.sql
 \echo P2 PostgreSQL contract passed
