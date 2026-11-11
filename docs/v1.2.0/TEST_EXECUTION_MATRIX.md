@@ -14,7 +14,7 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | P2-4D 增加 **18 项**旧备份来源/版本校验、业务字段与金额精度、未知字段及隐性数据修改阻断测试后，完整 **356/356 PASS**；隔离 PG16 合同 PASS；仍无真实手机/CloudBase 迁移写入 |
+| JavaScript 回归 | PASS_AUTOMATED | P2-4E-A 迁移收据只读客户端增加 **8 项** Mock SDK 场景，完整 **364/364 PASS**；PostgreSQL 16 唯一收据/权限合同与两个独立连接并发竞争均 PASS；真实 CloudBase 021 未安装，未运行云端历史写入 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
@@ -30,6 +30,7 @@
 | P2-4B 旧版导入内存差异审计 | SYNTHETIC_PROJECTION_PASS_REAL_IMPORT_NOT_RUN | 新增 legacy-restore-projection.js：在内存模拟正式 index.html 导入默认值、六尺码修正及 XBGrowth.extras 处理，对原 JSON 逐字段比对；补字段、库存舍入、体重记录过滤、未知嵌套字段丢失均标记需审核，输出只有类别/差异计数不含个人资料。10 组合成测试 PASS，总 326/326。**不在用户手机运行真实导入，不代表真正恢复无损** |
 | P2-4C 旧版真实导入器隔离执行 | REAL_IMPORT_FUNCTION_IN_SYNTHETIC_VM_PASS_USER_DATA_UNTOUCHED | 从正式 index.html 提取**原样 importData/save/load** 代码，用一次性 Node VM、合成 FileReader/Map localStorage 执行导入及重载；12 项测试验证规范数据/购买和参考价保留、取消不写、库存修正、缺省/体重/未知字段变化、版本号未校验；完整 JS 338/338 PASS。**不是用户真实 3265 字节备份的正式导入，也不是 CloudBase 数据迁移** |
 | P2-4D 历史迁移严格预检及差异策略 | CODE_AND_ISOLATED_TEST_PASS_REAL_MIGRATION_FORBIDDEN | 新增 strict-migration-gate.js，严格校验 v1 JSON 外层来源/版本/时间、旧数据全字段、六尺码、采购/比价金额、参考价 0.001 元、宝宝资料/体重/未知扩展字段；仅 preset 缺失单列人工审核，阻断旧导入器静默修改。18 组合成测试通过，总 JS 356/356 PASS。**全部结果 canUpload=false，没有真实迁移收据/云端写入权限** |
+| P2-4E-A 私有迁移收据唯一性/只读预检 | SYNTHETIC_PG_DUAL_SESSION_PASS_REAL_DDL_UNAUTHORIZED | SQL 021 草案新增 xb_migrations 每宝宝首次迁移与同家庭源摘要唯一约束，owner-only 严格身份的只读预检 RPC；单独 Postgres16 合同测试涵盖正常/重试/冲突、匿名/成员/陌生人拒绝、事务失败回滚；独立两连接同时插入不同迁移 ID，**只有一笔提交成功**。JS SDK 8 项 Mock，全部返回 canCommit=false/canUpload=false；完整回归 364/364 PASS。**正式 CloudBase 未安装 021，完整原子数据迁移 RPC 尚未实现** |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -308,6 +309,15 @@
 - `tests/strict-migration-gate.test.cjs` 18 项隔离样本覆盖错误版本、时间、未知顶层/嵌套字段、非法尺码/参考键、金额精度、重复采购、成长记录失效、危险数据改变和脱敏输出。JavaScript CI **356/356 PASS**，隔离 PostgreSQL 合同 PASS。
 - `docs/v1.2.0/P2_4D_STRICT_MIGRATION_GATE_REVIEW.md` 明确历史 `inventory` 是现存库存基线，`transactions` 是独立历史，不得把旧采购重新相加导致重复入库。下一阶段需设计服务器幂等收据与事务隔离，再按用户明确授权启动真实写入；P2-4D 不要求用户重复测试或发送历史 JSON。
 - `main`、正式 v1.1.2 `localStorage['xiaobao_diaper_planner_v1']`、CloudBase 账号/家庭以及真实业务数据未修改。
+
+### B.28 2026-11-11 P2-4E-A 迁移收据去重与多连接竞争合同
+
+- 新增**未授权真实安装**的 SQL 021 草案：为既有私有 `xb_migrations` 增加两个唯一索引，一宝宝一次 `xiaobao-diapers:v1` 初始迁移、同家庭一源摘要只落一个宝宝；另有 owner + xb 授权限定的 `xb_preview_legacy_migration_receipt` 只读预览 RPC。登录/owner 既在 SQL ACL 也在 SECURITY DEFINER 函数体内验证，不能只依赖 CloudBase HTTP 网关。
+- `tests/postgres/p2_migration_receipt_preflight_contract.sql` 在**一次性 PG16 测试库**用合成家庭和收据验证：不同 ID 重试/不同摘要/误选宝宝、目标已有库存、匿名强行获得 EXECUTE、普通成员和陌生用户均不能绕过；一次模拟失败的 SQL 子事务不能留下孤儿库存行。此文件会写合成测试行，只允许 CI 执行，绝不能在真实库手动运行。
+- `tests/postgres/p2_migration_receipt_concurrency.sh` 在同一一次性 PostgreSQL 中启动两个独立连接、使用与 009 相同的家庭锁域、竞争写入相同宝宝但不同 migration ID/source hash：最终**仅 1 笔收据 COMMIT，另 1 笔被 UNIQUE 拒绝**。测试是真实数据库并发，但只覆盖私有收据行，不等于完整历史业务迁移原子成功。
+- 新增 `sync/cloudbase-migration-receipt-preview.js`：SDK 单次只读 RPC 客户端，没有自动调用、登录/无效 ID/服务端错误均失败关闭，返回 `canUpload:false,canCommit:false,canReplaceLocalState:false,receiptCommitted:false`，8 项合成 SDK 场景通过。
+- 全部 JavaScript **364/364 PASS**，隔离 PostgreSQL 主合同 + 双连接竞争 **PASS**。正式 `xiaobao-family` **未安装 021**、没有迁移任何数据、不触碰正式 `main` 或用户手机。当前 P2-4E 只完成 **A：收据索引和只读规划**，未来 **B：完整业务原子迁移、服务器端源内容验签/校验与收据最后落库** 仍是阻断。
+- 交付说明：`docs/v1.2.0/P2_4E_A_RECEIPT_IDEMPOTENCY_REVIEW.md`；目前无需用户上传文件、执行 SQL 或重新测试。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
