@@ -30,7 +30,7 @@
 
 这不等于授权部署。即便 11 + 7 项全部通过，仍须取得用户对 005/008/009/010 数据库 DDL 的**明确同意**。
 
-## P2-1 — 005/006、008/014 已通过；009/015 的 EXECUTE 权限检查异常（暂停）
+## P2-1 — 005/006 与 008/014 已通过；009 ACL 待 017 最小修复与复验（暂停 010）
 
 2026-11-11 用户明确授权：**仅在现有 `xiaobao-family` PostgreSQL 执行 005/008/009/010 的空业务表、RLS、2 个 RPC，并执行 006/012 核验**。明确禁止真实历史数据迁移、虚拟/真实宝宝创建、向 main/develop 合并、生产发布。**授权不意味着现在可执行 DDL：用户要求先证实备份与恢复能力。2026-11-11 截图已确认 BACKUP_GATE=BLOCKED_SHARED_INSTANCE。**
 
@@ -117,6 +117,20 @@
 - 016 会展示是否确实有 authenticated 的显式 EXECUTE ACL、authenticated 对 public schema 的 USAGE、当前有效 EXECUTE、与已验证可用的别名 RPC 权限对比，以及函数所有者是否为 `cloudbase_postgres`。只返回布尔元数据，不读取家庭记录或隐私值。
 - 如果 016 有异常，先提供字段名和值。后续只有确认根因之后才可制定**最小范围、仅针对该 RPC**的修复；不能直接重跑 009，不能修改任何已有家庭或身份系统对象，不修改整 schema 的授权。
 - 官方文档提醒 CloudBase HTTP RPC 网关可能不严格依照 PG 函数 EXECUTE ACL 拦截请求；即使修复 GRANT，仍需后续以实际 SDK 负面测试确认函数体的身份和家庭权限检查。参考：https://docs.cloudbase.net/database/postgresql/rpc
+
+### 016 实测回报与最小范围 ACL 修复 017（当前）
+
+**2026-11-11 016 真机诊断**：`authenticated` 的有效 EXECUTE 和显式 GRANT **都是 true**；`anon` 的有效 EXECUTE 和显式 GRANT 也**都是 true**。两者均能使用 public schema；`PUBLIC` 通用 EXECUTE=false。前一次 015 曾报 authenticated EXECUTE=false、anon EXECUTE=false，存在时序差异；不能据此归因 CloudBase 权限自动变化。
+
+**修复动机**：已在真实库发现对 `anon` 有显式授权，而原 009 只撤销 `PUBLIC` 默认执行权限。最小回收方式是仅针对这一份已存在的 10 参数采购 RPC 显式从 `anon` 撤销 EXECUTE。
+
+1. 在原 `xiaobao-family` PostgreSQL SQL 编辑器中，从 Feature 分支复制 `cloudbase/sql/017_xb_p2_purchase_rpc_acl_repair.sql` 的**完整 SQL**（含 BEGIN / COMMIT），只执行一次。这个脚本检查精确函数签名，且只操作它的 EXECUTE ACL：`REVOKE FROM PUBLIC, anon`、`GRANT TO authenticated`。不会更改任何业务表、函数定义、家庭或用户资料。
+2. 执行成功后**立刻重跑 015 只读 SQL**：预计 21/21 true，其中 `authenticated_can_execute_purchase_rpc=true` 与 `anonymous_cannot_execute_purchase_rpc=true` 为重点。
+3. 随后再执行 `016_xb_p2_rpc_acl_diagnostic_readonly.sql` 只读 SQL：预期 `effective_authenticated_execute=true`，`explicit_authenticated_execute_grant=true`，`effective_anon_execute=false`，`explicit_anon_execute_grant=false`，`public_execute_grant_present=false`。其余列有 true/false 都可能符合环境，不要求 11/11 true。
+4. 若 017 报错、015 非 21/21 true 或 016 仍见 anon EXECUTE=true：**立即停止**，不重跑 009/017，也不运行 010。将脱敏结果发送至开发对话检查数据库授权是否被平台规则改变。不要操作函数所有者或更改 schema 级权限。
+5. 如果通过，仅能证明数据库授权元数据符合预期；**CloudBase 官方 RPC 网关可能忽略函数 EXECUTE ACL**，后续实际匿名/越权调用的拒绝仍需 SDK 负面测试。`009` 函数体已经显式校验 auth.role、auth.uid 和家庭 xb 权限，但未经真实联调不可标记云端权限完成。
+
+**隔离回归证据**：PG16 里人为给 anon 授予 RPC EXECUTE，再运行 017、检查 anon=false/authenticated=true 并复查 015；只读权限修复的结构测试已加入 GitHub 回归。**这一步不触发任何真实数据写入**（除 017 对这一 RPC 的 ACL 变更）。
 
 ### P2-1 具体授权边界与中止条件
 
