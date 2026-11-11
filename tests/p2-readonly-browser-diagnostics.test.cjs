@@ -7,7 +7,7 @@ const page=fs.readFileSync(path.join(__dirname,'../cloudbase/smoke/p2-readonly-t
 const script=fs.readFileSync(path.join(__dirname,'../cloudbase/smoke/p2-readonly-diag.js'),'utf8');
 const FAMILY='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5'; // synthetic only
 const fakeSession={user:{id:'fake-user-only'}};
-function makeApp({session=null,rpcMode='reject',leakFamily=false,unclassified=false}={}){
+function makeApp({session=null,rpcMode='reject',leakFamily=false,unclassified=false,readDeniedTable=null}={}){
  const calls=[];
  const guard=()=>{throw Error('DIRECT_WRITE_FORBIDDEN')};
  const app={
@@ -27,6 +27,7 @@ function makeApp({session=null,rpcMode='reject',leakFamily=false,unclassified=fa
       if(!session){
        return {data:leakFamily&&table==='families'?[{id:FAMILY}]:[]};
       }
+      if(table===readDeniedTable)return {error:{code:'DATABASE_42501',message:'permission_denied'}};
       if(table==='families')return {data:[{id:FAMILY}]};
       if(table==='family_members')return {data:[{member_role:'owner'},{member_role:'member'}]};
       if(table==='family_app_access')return {data:[{app_code:'xb'},{app_code:'xb'}]};
@@ -91,6 +92,12 @@ test('unexpected successful RPC is FAIL and unclassified transport error is INCO
  assert.equal(accepted.steps.find(x=>x.name==='other_family_rejected').status,'FAIL');
  const network=await helper.create(makeApp({session:fakeSession,unclassified:true}).app).runAuthenticated();
  assert.equal(network.status,'INCONCLUSIVE');
+});
+test('member table permission error is inconclusive, not a false PASS',async()=>{
+ const {app}=makeApp({session:fakeSession,readDeniedTable:'xb_inventory'});
+ const result=await helper.create(app).runAuthenticated();
+ assert.equal(result.status,'INCONCLUSIVE');
+ assert.equal(result.steps.find(x=>x.name==='authenticated_xb_inventory').status,'INCONCLUSIVE');
 });
 test('anonymous leaked family row triggers FAIL',async()=>{
  const leaked=await helper.create(makeApp({leakFamily:true}).app).runAnonymous();
