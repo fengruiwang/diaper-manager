@@ -93,6 +93,15 @@
 - 下一阶段 **P2-4E-B2**：必须把保留的完整历史映射为真正可查询/可编辑的云端业务记录，在单一数据库事务中初始化旧版现存库存六尺码（不重放历史购买）、核对价格/记录/修订号，最后落正式私有迁移收据。之后才能真正进行 P2-3E 安全初始化、A/B 双设备同步和正式 PWA 升级。
 - B1 的完整源文件包含私人家庭历史，未来真实上传须经过单独的数据库安装、备份保护/隐私和写入授权。现在不要求用户上传 JSON、执行 SQL、重新测试或修改正式手机。详见 `docs/v1.2.0/P2_4E_B1_ATOMIC_ARCHIVE_STAGE_REVIEW.md`。
 
+## P2-4E-B2 原子推广：库存基线 + 历史账本 + 完成收据（2026-11-11）
+
+- **已完成合成 PG16 事务原型，尚未真实部署。** `cloudbase/sql/023_xb_legacy_promotion_atomic_DRAFT_DO_NOT_DEPLOY.sql` 将 022 完整暂存归档通过同一数据库事务迁入业务记录：六尺码原样库存、六条 `migration_baseline` 非增量事件、宝宝资料、原生体重、独立历史交易/比价/成长与设置/参考价格。
+- 由于既有 `xb_transactions` 与当前实时库存操作存在强外键关系，旧版历史购买被严格放到新的 `xb_legacy_history_entries`（家人 xb RLS 可读）中，不调用普通 buy RPC；避免“现存库存 + 旧购买历史”重复计数。新 `xb_legacy_settings` 保留参考价 0.001 元精度、目标/日用量、补货和其它设置；旧完整原文本由私有 B1 归档保存。
+- 最后写入 `xb_migrations` 之前，重新核验源 SHA256、历史明细逐条匹配、六尺码总量、记录数、历史购买总价分及买入/使用件数。**模拟在最后收据 INSERT 失败时，完整库存、历史、设置和成长全部回滚**，保存 B1 归档等待重试。
+- `tests/postgres/p2_legacy_promotion_atomic_contract.sql` 及 `tests/postgres/p2_legacy_promotion_concurrency.sh` 在临时 PG16 通过：两个独立数据库会话竞争同一归档，最终仅一份完成收据、6 库存/6 baseline、4 历史、0 旧购买实时重放。Node 回归 **364/364 PASS**，PG16 完整测试 PASS。用户真实 xiaobao-family **未安装 021、022、023**。
+- **下阶段重点**：为新历史表接入正式 SDK 安全分页读取及双账号浏览，然后设计经过审计的采购记录修改/撤销与库存冲正，完善 P2-3E 服务器证明和本地 IndexedDB 原子初始化、离线重试、两设备一致性及正式发布。原 B2 完成收据不等于立即允许旧手机 outbox 上传。
+- 不运行任何真实 SQL、不上传真实备份、不触碰生产 main、v1.1.2 本地数据或现有 CloudBase 业务表。详情：`docs/v1.2.0/P2_4E_B2_ATOMIC_PROMOTION_REVIEW.md`。
+
 ## 采购编辑（正式版必备）
 
 详细需求见 `PURCHASE_EDIT_CORRECTION_REQUIREMENTS.md`。当前 009 RPC 仅支持 `buy/use/stocktake/reverse`，未实现编辑。页面应提供普通「编辑购买记录」，服务端按字段类型选择不变库存的元数据变更或原子差量库存更新，必须记录修改历史、修改人和时间。
