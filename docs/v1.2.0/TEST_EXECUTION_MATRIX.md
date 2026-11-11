@@ -14,7 +14,7 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | P2-3C 账号/家庭授权前置检查、Outbox 仍保持禁止上传、独立浏览器测试页加入后，**269/269 PASS**；PG16 隔离合同 PASS；不代表 CloudBase 真实写入授权 |
+| JavaScript 回归 | PASS_AUTOMATED | P2-3D 15 组库存基线核验与现有 CloudBase 客户端只读集成测试加入后，**284/284 PASS**；隔离 PG16 合同另行通过；尚未开展 P2-3D CloudBase 真机测试 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
@@ -24,6 +24,7 @@
 | P2-3A 独立只读云端联调 | A_B_BOTH_PASS_ANON_RPC_ORIGIN_INCONCLUSIVE | 真实管理员 A 10/10 PASS；用户反馈老婆以自己的账号运行检查项全部 PASS，按 B 已登录 10/10 PASS 存档（未逐项抄录）；手机新浏览器的匿名 6/7 PASS，剩余只读 RPC 为 DENIED_UNCLASSIFIED，证明请求被拒绝但拒绝来源未确认；未写入宝宝、库存和采购 |
 | P2-3B 虚拟宝宝受控初始化 | MEMORY_BROWSER_12_OF_12_PASS_REAL_CLOUD_UNTOUCHED | 用户 2026-11-11 反馈已在真实网页端测试 p2-smoke-preview 的全部 12 步，全部 PASS（未逐项转录）；该结果仅为真实浏览器内存模拟，**不代表真实云端购买/库存**。019/020 仍仅隔离 PG16 18/18 true，未在 CloudBase 安装、未写宝宝/库存/采购，尚无 P2-3B 写入授权 |
 | P2-3C 库存上传前置检查 | PC_AND_PHONE_READONLY_PASS_UPLOAD_BLOCKED | 用户提供真实浏览器截图：session PASS(SESSION_PRESENT)、family PASS(ONE_VISIBLE_FAMILY)、member PASS(MEMBERSHIP_VERIFIED)、grant PASS(XB_GRANT_VERIFIED)、upload_gate BLOCKED(DURABLE_BASELINE_NOT_VERIFIED)，总体 AUTH_PASS_UPLOAD_BLOCKED；用户反馈手机侧相同。两端均存在已有 SDK 登录会话，无需本页重新登录；未显示账号角色，因此不能仅由两端同结果断言是不同 UID。未上传库存/历史或安装 019/020 |
+| P2-3D 首次库存基线核验 | CODE_AND_MOCK_PASS_LIVE_NOT_RUN | 新增只读 sync/inventory-baseline-inspector.js：受控读取真实家庭/非测试宝宝、当前设备 IDB 含 ACK 的完整队列、云端六尺码库存和操作回执；对未迁移历史、待同步、错 ID、已 ACK 回执消失、六尺码缺失/版本不同等全部拒绝自动上传。**所有结果 uploadAllowed=false、localUnchanged=true**。15 组合成安全测试已加入 Node 回归；真实 CloudBase 未跑该核验、无测试宝宝或库存写入 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -244,6 +245,14 @@
 - **区分身份**：此前 P2-3A 已分别得到夫妻 A/B 两账号 10/10 PASS，但本轮新页面仅报告权限结果，不显示角色或 UID。因此“电脑与手机结果相同”本身不能独立证明本轮是在两种不同身份下执行；下一版诊断可仅展示 `owner/member` 角色而不泄漏 UID，避免用户为了证明身份再执行无意义登录。
 - 用户不需要重测本轮 P2-3C、不需要再传任何文件或运行 SQL。真实 CloudBase 仍不允许未经新授权写入虚拟宝宝、采购和历史迁移；不改正式 `main` 与 v1.1.2 本地存储。
 - 接下来准备**服务器库存六尺码与 IndexedDB outbox 的安全初始基线握手**，必须能拒绝既有待同步操作、不一致 revision、错误家庭/child 或过期权限，不能人为把 `initialized` 改成 true 来放行真实上传。
+
+### B.21 2026-11-11 P2-3D 库存初始化基线只读验证（代码与模拟测试完成）
+
+- `sync/inventory-baseline-inspector.js` 实现独立的**显式触发、全结果禁上传、永不更新本地库存/ACK**的 P2-3D 只读核验：先核查 SDK 登录与家庭 xb 授权，再核查当前非测试、未停用宝宝；随后只读本设备按家庭/actor 的含 ACK 队列和 snapshot；最后使用现有 `xb_read_inventory_reconciliation` 检查服务器六尺码及每条操作回执。
+- 拦截缺失/重复尺码、负库存、版本不合法、服务端 actor/family/child 不一致、回执集合不全、已 ACK 操作在云端消失、队列待补传/冲突/blocked、IDB snapshot 不可信/与服务器不同、超过 50 条回执请求上限。所有状态 `uploadAllowed:false` 和 `localUnchanged:true`，**不存在初始化、采购、清理、IDB ACK 或真实上传调用**。IDB adapter 第一次被打开可能建空 schema，但不会改库存/旧版 localStorage。
+- `tests/p2-inventory-baseline-inspector.test.cjs` 新增 **15 组用例**，含复用真实 Access / ChildReader / InventoryClient 适配器与合成 SDK 的端到端只读 RPC 演练。完整 JS CI **284/284 PASS**，PG16 隔离合同 PASS；并不代表当前真实 CloudBase 已进行库存基线检查。
+- 文件 `docs/v1.2.0/P2_3D_BASELINE_INSPECTION_REVIEW.md` 说明“云端空库不等于旧版手机零库存”、不同结果码及下一阶段安全基线初始化、历史兼容与权限重新核查要求。下次如需用户测试，务必在对话直接发文件、上传位置与步骤。
+- 本轮不要求用户手动测试：真实 CloudBase 仍无测试宝宝，空表检查不能证明双端同步；不执行 019/020、没有新数据库业务写入、不修改正式 main / 既有 v1.1.2 历史数据。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
