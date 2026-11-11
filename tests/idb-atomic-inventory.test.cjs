@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const Outbox=require('../sync/idb-outbox.js');
 const Contract=require('../sync/outbox-contract.js');
 const Projection=require('../sync/inventory-local-projection.js');
+const Reconciler=require('../sync/inventory-reconciler.js');
 const FAMILY='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='6b3d0e45-bf18-4c95-889c-6f19731a8ae5';
 const O1='397b1791-b8d0-4d63-82d6-c5b829240f42';
@@ -24,11 +25,12 @@ function event(id=O1,more={}){
 }
 function idbFake(){
  const databases=new Map();
- let failNextOperationAdd=false;
+ let failNextOperationAdd=false,failNextOperationPut=false;
  function indexedDBRecord(name){return databases.get(name)}
  return {
   _db:indexedDBRecord,
   failOperationAdd(){failNextOperationAdd=true},
+  failOperationPut(){failNextOperationPut=true},
   open(name,version){
    const request={onupgradeneeded:null,onerror:null,onsuccess:null,onblocked:null,result:null,error:null};
    queueMicrotask(()=>{
@@ -88,6 +90,9 @@ function idbFake(){
        const get=id=>requestFor(()=>rows.get(id));
        const put=value=>requestFor(()=>{
         if(mode!=='readwrite')throw Error('readonly');
+        if(name==='operations'&&failNextOperationPut){
+         failNextOperationPut=false;throw Error('QuotaExceededError');
+        }
         rows.set(value[schema.keyPath],deep(value));
         return value[schema.keyPath];
        });
@@ -124,7 +129,7 @@ function idbFake(){
  };
 }
 const make=(idb,name='atomic-v2')=>Outbox.create({
- indexedDB:idb,contract:Contract,projection:Projection,dbName:name
+ indexedDB:idb,contract:Contract,projection:Projection,reconciler:Reconciler,dbName:name
 });
 async function seeded({scope=dad,s=0,db=null,name='atomic-v2'}={}){
  const idb=db||idbFake(),store=make(idb,name);
@@ -251,4 +256,99 @@ test('50 independent offline purchases remain durable with matching stock and ev
  assert.equal(snapshot.inventory.S,50);
  assert.equal(snapshot.transactions.length,50);
  assert.equal((await reopened.ready(dad)).length,50);
+});
+
+const SIZES=['NB','S','M','L','XL','XXL'];
+function server({ids=[],seen=[],qty=0,rev=0,actor='test-dad',family=FAMILY}={}){
+ return {familyId:family,childId:CHILD,actorUid:actor,
+  complete:true,checkedOperationIds:ids,seenOperationIds:seen,
+  rows:SIZES.map(size=>({size,quantity:size==='S'?qty:0,revision:size==='S'?rev:0}))};
+}
+test('ACK lost after server commit: reconciliation confirms purchase but NEVER double-adds it',async()=>{
+ const {idb,store}=await seeded();
+ await store.commitInventory(dad,event(O1)); // local 60
+ const ids=await store.reconciliationIds(dad,CHILD);
+ assert.deepEqual(ids,[O1]);
+ const result=await store.reconcileInventory(dad,CHILD,server({ids,seen:[O1],qty:60,rev:1}));
+ assert.equal(result.snapshot.inventory.S,60);
+ assert.equal(result.pendingCount,0);
+ assert.deepEqual(result.acknowledgedIds,[O1]);
+ assert.equal((await store.ready(dad)).length,0);
+ const reopened=make(idb);
+ assert.equal((await reopened.readInventory(dad,CHILD)).inventory.S,60);
+ assert.equal((await reopened.get(dad,O1)).status,'acked');
+});
+test('remote mom purchase plus local dad pending buy: 80 + 60 = provisional 140',async()=>{
+ const {store}=await seeded();
+ await store.commitInventory(dad,event(O1));
+ const ids=await store.reconciliationIds(dad,CHILD);
+ const result=await store.reconcileInventory(dad,CHILD,server({ids,seen:[],qty:80,rev:1}));
+ assert.equal(result.snapshot.inventory.S,140);
+ assert.equal(result.pendingCount,1);
+ assert.equal(result.status,'local-pending');
+ assert.equal((await store.ready(dad)).length,1);
+ assert.equal((await store.readInventory(dad,CHILD)).serverRevisions.S,1);
+});
+test('changed local queue during remote read causes atomic rejection with no data loss',async()=>{
+ const {store}=await seeded();
+ await store.commitInventory(dad,event(O1));
+ const before=await store.readInventory(dad,CHILD);
+ await assert.rejects(()=>store.reconcileInventory(dad,CHILD,
+  server({ids:[],seen:[],qty:50,rev:1})),/stale_checked_set/);
+ assert.deepEqual(await store.readInventory(dad,CHILD),before);
+ assert.equal((await store.ready(dad)).length,1);
+});
+test('receipt ACK IDB write fails: server baseline and ACK are both rolled back',async()=>{
+ const {idb,store}=await seeded();
+ await store.commitInventory(dad,event(O1));
+ idb.failOperationPut();
+ await assert.rejects(()=>store.reconcileInventory(dad,CHILD,
+  server({ids:[O1],seen:[O1],qty:60,rev:1})),/receipt_write_failed/);
+ assert.equal((await store.readInventory(dad,CHILD)).serverRevisions.S,0);
+ assert.equal((await store.readInventory(dad,CHILD)).inventory.S,60);
+ assert.equal((await store.get(dad,O1)).status,'pending');
+});
+test('pending stocktake is not blindly rebased over remote purchase',async()=>{
+ const {store}=await seeded();
+ const count=event(O1,{type:'inventory.count',expectedRevision:0,
+  payload:{size:'S',count:10,purchase:null}});
+ await store.commitInventory(dad,count);
+ await assert.rejects(()=>store.reconcileInventory(dad,CHILD,
+  server({ids:[O1],seen:[],qty:25,rev:1})),/needs_manual_or_sequential_rebase/);
+ assert.equal((await store.readInventory(dad,CHILD)).inventory.S,10);
+ assert.equal((await store.get(dad,O1)).status,'pending');
+});
+test('remote loss of previously ACKed event blocks automatic overwrite',async()=>{
+ const {store}=await seeded();
+ await store.commitInventory(dad,event(O1));
+ await store.recordResult(dad,O1,{kind:'accepted',receiptId:O1});
+ await assert.rejects(()=>store.reconcileInventory(dad,CHILD,
+  server({ids:[O1],seen:[],qty:0,rev:1})),/confirmed_operation_missing_server/);
+ assert.equal((await store.readInventory(dad,CHILD)).inventory.S,60);
+ assert.equal((await store.get(dad,O1)).status,'acked');
+});
+test('reconciliation refuses cross-actor cloud response and does not ack dad events',async()=>{
+ const {store}=await seeded();
+ await store.commitInventory(dad,event(O1));
+ await assert.rejects(()=>store.reconcileInventory(dad,CHILD,
+  server({ids:[O1],seen:[O1],qty:60,rev:1,actor:'test-mom'})),/unverified_scope/);
+ assert.equal((await store.get(dad,O1)).status,'pending');
+});
+test('more than 50 outstanding or acked IDs is explicit pagination blocker',async()=>{
+ const {store}=await seeded();
+ for(let i=0;i<51;i++){
+  const id='00000000-0000-4000-8000-'+String(i+1).padStart(12,'0');
+  await store.commitInventory(dad,event(id,{payload:{amount:1}}));
+ }
+ await assert.rejects(()=>store.reconciliationIds(dad,CHILD),/reconciliation_requires_pagination/);
+ assert.equal((await store.readInventory(dad,CHILD)).inventory.S,51);
+ assert.equal((await store.ready(dad)).length,51);
+});
+test('verified server read for empty queue can update local baseline without submitting anything',async()=>{
+ const {store}=await seeded();
+ const r=await store.reconcileInventory(dad,CHILD,
+  server({ids:[],seen:[],qty:75,rev:3}));
+ assert.equal(r.snapshot.inventory.S,75);
+ assert.equal(r.pendingCount,0);
+ assert.equal((await store.ready(dad)).length,0);
 });
