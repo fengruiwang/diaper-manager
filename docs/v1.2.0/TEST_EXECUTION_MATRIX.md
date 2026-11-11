@@ -6,7 +6,7 @@
 
 - 开发、测试仅限 `feature/cloudbase-sync-v1.2.0`；未经用户明确同意，不合并 `main` 或 `develop`，不更新正式 GitHub Pages。
 - 既有 v1.1.2 `localStorage['xiaobao_diaper_planner_v1']`、旧 JSON 备份、手机 PWA 不得被自动清除/覆盖。
-- 本阶段绝不直接迁移历史库存，不直接在真实 CloudBase 部署 005/008/009/010；数据库 DDL 和真实数据迁移必须单独征得用户同意。
+- P2-1 安装范围已获用户限定授权，并在真实 CloudBase 完成；后续 **不得重复执行 005/008/009/010/017**。继续禁止历史库存迁移、虚拟宝宝/采购测试写入、正式发布，除非获得对应阶段明确授权。
 - 不要在聊天、截图、GitHub 中展示邮箱地址、Publishable Key 原值、OTP、邀请码、会话 Token 或真实家庭 UUID。
 - 三种证据分开：自动化测试、CloudBase 真实 SDK/SQL 测试、真实双手机端到端测试。任何一类失败都不能视为整体验收完成。
 
@@ -14,13 +14,13 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | 220/220 PASS（截至 017 最小权限修复后；018 门槛测试加入后另以最新 CI 为准） |
+| JavaScript 回归 | PASS_AUTOMATED | 最近完成的开发分支 GitHub Actions 回归 221/221 PASS；最新结果以对应提交 CI 为准 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
 | CloudBase 既有 A/B 双账号与成员权限 | PASS_REAL_6_OF_6 | 用户 2026-11-11 实际验证 A、B1、B2、B3、B4、C 全部通过；不得要求重复创建家庭 |
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
-| P2 真实 CloudBase 业务结构 | STAGE_009_017_015_016_PASS_REAL_010_PENDING | 005→006 19/19、008→014 15/15 通过；用户执行 017 并反馈 015 21/21 true，016 authenticated EXECUTE=true/显式授权=true、anon EXECUTE=false/显式授权=false，009 权限修复通过。010/018/012 待执行 |
+| P2 真实 CloudBase 业务结构 | P2_1_SCHEMA_PASS_REAL | 011/013 真实预检 18/18；005→006 19/19、008→014 15/15、009→017→015 21/21 + 016 安全 ACL、010→018 20/20、012 12/12 均通过。7 张表全部空、RLS 生效、2 个 RPC 已安装；未开展真机业务调用 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -38,8 +38,8 @@
 - D2a 断网录入、D2b 离线刷新和重开、D2c 模拟云端确认：PASS_REAL（用户反馈全部正常）。这是离线本地验证，不是 CloudBase 真实补传。
 - 研发措施：新增独立作用域的 `cloudbase/smoke/idb-offline-sw.js` 和页面缓存状态提示，已完成测试页重新部署与真实复测；该 D2 阻塞已关闭，不需要重复验收。
 - P1 第三方 C 账号与成员撤权仍未实测；不撤销当前家庭的两名成员。
-- P2 正式业务表、真实双手机、全业务同步、历史迁移仍然未通过。
-- 2026-11-11：011 真实 CloudBase 11/11、013 真实 CloudBase 7/7 true；用户已在接受无可用备份的 P2-1 有限风险后执行 005，并反馈 006 真实 19/19 true。008 及后续仍未执行。
+- P2 正式业务表已于本日完成结构验收；真实双手机、云端实际调用、全业务同步与历史迁移仍未通过。
+- 2026-11-11：011 真实 CloudBase 11/11、013 真实 CloudBase 7/7 true；依序完成 P2-1 全部数据库结构安装和验收，见下文 B.10。历史中间阶段各条“待执行”状态不代表最新状态。
 
 ## B.2 P2 下一验收节点（2026-11-11）
 
@@ -135,6 +135,21 @@
 - 已准备 `018_xb_p2_reconciliation_postflight_readonly.sql`：010 安装后的 20 项只读检查，额外确认新的读取 RPC 对 anon 未授权、authenticated 授权有效、函数自身限制读取本人 ACK、库存与原家庭均保持不变。隔离 PG16 **20/20 true**。
 - 接下来仅执行 `010_xb_inventory_reconcile_rpc_draft.sql`（创建读取 RPC）→`018`（20/20 true）→`012`（12/12 true），先检查 018 通过再执行 012。如中途有错误或 false 必须停止。
 - 任何核验通过只证明静态数据库结构与授权，不等于真实 CloudBase SDK、双端同步及离线补传已经通过。没有创建测试宝宝、没有迁移历史业务、没有合并 main/develop。
+
+### B.10 2026-11-11 P2-1 CloudBase 首次安装最终验收（最新状态）
+
+**状态：P2_1_SCHEMA_PASS_REAL。** 用户已在现有 `xiaobao-family` PostgreSQL 17.11 共享集群执行 `010_xb_inventory_reconcile_rpc_draft.sql`，随后回传：
+- `018_xb_p2_reconciliation_postflight_readonly.sql`：**20/20 true**。读取 RPC 已安装，`SECURITY DEFINER`、STABLE、返回 JSONB、固定 search_path，`authenticated` 有有效和显式执行授权，`anon` 无授权；库存、采购、宝宝记录为空，原采购 RPC 授权仍正确，原家庭 1 / 成员 2 / xb 授权 2 不变。
+- `012_xb_p2_postdeploy_readonly.sql`：**12/12 true**。七张新业务表、七张 RLS、两套 RPC、客户端表权限和原家庭记录均符合预期；七张表无任何业务数据；既有成员备注 RPC 保留。
+
+**完整真实 SQL 验收轨迹**：011 11/11 → 013 7/7 → 005/006 19/19 → 008/014 15/15 → 009/017/015 21/21 + 016 角色 ACL 复核 → 010/018 20/20 → 012 12/12。
+
+**界限与后续闸门**：
+- P2-1 是**结构与静态权限**验收，不等于 CloudBase HTTP/SDK 实际匿名权限、两成员跨设备同步、采购幂等或断网补传验收。
+- 原有家庭、成员、两份 xb 授权保持；历史 v1.1.2 localStorage 和 JSON 未迁移，未创建测试宝宝或库存。**不要重跑任何已完成 DDL。**
+- 当前下一阶段为 **P2-3 真实业务联调的准备**：先在开发分支完成只读端点鉴权测试设计和**独立虚拟宝宝创建入口的权限设计**，在隔离测试环境验证并审查数据隔离/回收方案。未获得用户对向真实 CloudBase **新增虚拟宝宝/模拟采购**的单独授权前，不实际创建数据，不打开业务写入测试开关。
+- 用户已明确知情接受共享 PostgreSQL 无用户可验证备份能力的**仅 P2-1 空结构部署风险**；本授权**不自动延伸到任何真实数据迁移或测试业务写入**。
+- GitHub 开发仅限 `feature/cloudbase-sync-v1.2.0`；不修改 main/develop，不发布正式 v1.1.2。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
