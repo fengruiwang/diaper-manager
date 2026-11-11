@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小宝管家 P3 离线持久化诊断页</title><style>*{box-sizing:border-box}body{font-family:system-ui,"Microsoft YaHei",sans-serif;margin:0;background:#f5f7fc;color:#20304b}main{max-width:670px;margin:22px auto;padding:0 15px}h1{font-size:23px}h2{font-size:17px;margin:0 0 12px}.intro{color:#50617e;line-height:1.7}.panel{background:white;border:1px solid #d9e1ed;border-radius:13px;padding:18px;margin:16px 0;box-shadow:0 1px 7px #14345d0a}button{padding:10px 14px;border:1px solid #abb9cc;background:#eef4ff;color:#174d85;font-size:14px;font-weight:650;border-radius:9px;cursor:pointer;margin:5px 6px 5px 0;min-height:42px}button:focus{outline:2px solid #2762a3}button:disabled{opacity:.45;cursor:not-allowed}.warn{border-left:4px solid #c98523;padding:8px 12px;background:#fff8e9;line-height:1.6;border-radius:6px}.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stat{background:#eef4fb;padding:14px;border-radius:10px}.num{font-weight:700;font-size:23px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#172a42;color:#e0eeff;padding:13px;border-radius:10px;min-height:95px;font-size:12px;line-height:1.5}small{color:#64748b}</style></head><body>
+<main><h1>小宝管家 · P3 浏览器离线测试</h1>
+<p class="intro">仅用于验证 Edge / 手机浏览器的 IndexedDB 持久化和库存回执模拟。无需账号、验证码或 Node.js。</p>
+<div class="warn"><strong>完全独立的虚拟数据。</strong>不连接腾讯云，不读取或修改正式版小宝管家的库存、账号、历史购买、体重或 localStorage。操作只影响测试库 <code>xiaobao-p3-browser-test-only-v1</code>。</div>
+<div class="panel"><h2>虚拟家庭</h2><p id="account"></p>
+<button id="seed" type="button">① 创建虚拟库存（只执行一次）</button>
+<button id="purchase" type="button">② 离线记录采购 +60 片</button>
+<button id="read" type="button">③ 重新读取并检查</button>
+<button id="confirm" type="button">④ 模拟云端收到全部操作</button>
+<p><small>可在点击②后断网、刷新页面，然后点击③；断网时请确保当前网页仍能打开或已缓存。这里的「模拟云端」不会访问真实 CloudBase。</small></p></div>
+<div class="panel"><h2>本地持久化状态</h2><div class="stats">
+<div class="stat">S 码库存<div class="num" id="quantity">—</div></div>
+<div class="stat">待同步事件<div class="num" id="waiting">—</div></div>
+<div class="stat">全部本地事件<div class="num" id="recordCount">—</div></div>
+<div class="stat">本地修订号<div class="num" id="revision">—</div></div>
+</div></div><div class="panel"><h2>测试结果</h2><pre id="result"></pre></div>
+<p><small>诊断页独立测试库可以留存用于复测，不会被小宝管家正式页面自动读取。超过 50 条记录的合并目前仍需分页支持。</small></p>
+</main>
+<script>
+/* XiaoBao v1.2.0 offline outbox domain, pure functions only.
+   Does not perform persistence or network requests. */
+(function(root){
+ 'use strict';
+ const TYPES=Object.freeze(['inventory.delta','inventory.count','transaction.reverse','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch']);
+ const NEED_REV=new Set(['inventory.count','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch']);
+ const WAITING=new Set(['pending','retry','conflict']);
+ const validString=x=>typeof x==='string'&&x.length>0&&x.length<=160;
+ const isObject=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+ function check(ok,msg){if(!ok)throw Error('outbox_contract: '+msg)}
+ function createOperation({id,type,familyId,actorUid,payload,expectedRevision=null,createdAt}){
+  check(validString(id),'bad_operation_id');
+  check(TYPES.includes(type),'unknown_operation_type');
+  check(validString(familyId)&&validString(actorUid),'bad_identity');
+  check(isObject(payload),'bad_payload');
+  check(typeof createdAt==='string'&&Number.isFinite(Date.parse(createdAt)),'bad_date');
+  if(NEED_REV.has(type))check(Number.isInteger(expectedRevision)&&expectedRevision>=0,'revision_required');
+  return {id,type,familyId,actorUid,payload:JSON.parse(JSON.stringify(payload)),expectedRevision,
+   createdAt,status:'pending',attempts:0,receipt:null,error:null};
+ }
+ function waiting(ops){
+  check(Array.isArray(ops),'queue_not_array');
+  return ops.filter(x=>WAITING.has(x.status)).slice().sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));
+ }
+ function mode({enabled=true,network=true,authenticated=true,serverAvailable=true,conflicts=0,pendingCount=0,permitted=true}={}){
+  if(!enabled)return 'local-only';
+  if(!permitted)return 'permission-denied';
+  if(!authenticated)return 'auth-required';
+  if(!network||!serverAvailable)return 'degraded';
+  if(conflicts>0)return 'conflict';
+  return pendingCount>0?'recovering':'synced';
+ }
+ function applyResult(op,result){
+  check(isObject(op)&&validString(op.id),'bad_operation');
+  check(isObject(result)&&typeof result.kind==='string','bad_result');
+  if(op.status==='acked')return {...op};
+  if(result.kind==='accepted'||result.kind==='duplicate'){
+   check(validString(result.receiptId),'missing_server_receipt');
+   return {...op,status:'acked',receipt:result.receiptId,error:null};
+  }
+  const errorKinds=['conflict','offline','timeout','rate_limited','server_error','auth_expired','forbidden'];
+  check(errorKinds.includes(result.kind),'unsupported_result');
+  const status=result.kind==='conflict'?'conflict':result.kind==='forbidden'?'blocked':'retry';
+  return {...op,status,error:result.kind,attempts:op.attempts+1};
+ }
+ function forFamily(ops,familyId,actorUid){
+  return waiting(ops).filter(x=>x.familyId===familyId&&x.actorUid===actorUid);
+ }
+ function mergeQueue(existing,incoming){
+  check(Array.isArray(existing)&&Array.isArray(incoming),'invalid_queues');
+  const map=new Map();
+  for(const op of [...existing,...incoming]){
+   check(isObject(op)&&validString(op.id),'bad_queued_operation');
+   const previous=map.get(op.id);
+   if(previous){
+    check(JSON.stringify([previous.familyId,previous.actorUid,previous.type,previous.payload,previous.expectedRevision])===
+     JSON.stringify([op.familyId,op.actorUid,op.type,op.payload,op.expectedRevision]),'same_id_different_payload');
+    if(previous.status==='acked')continue;
+    if(op.status==='acked'||op.attempts>previous.attempts)map.set(op.id,{...op});
+   }else map.set(op.id,{...op});
+  }
+  return [...map.values()];
+ }
+ const api=Object.freeze({TYPES,NEED_REV,createOperation,waiting,mode,applyResult,forFamily,mergeQueue});
+ if(root)root.XBOutboxContract=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* XiaoBao v1.2.0 P3 - deterministic, immutable local diaper projection.
+ * Works on new IndexedDB snapshots; does not read or modify legacy localStorage.
+ * A historical/cloud baseline must be explicitly verified before initialization.
+ * No I/O. Server revisions are not guessed from local pending operations.
+ */
+(function(root){
+ 'use strict';
+ const SIZES=Object.freeze(['NB','S','M','L','XL','XXL']);
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ function fail(code){throw new Error('inventory_projection:'+code);}
+ function uuid(x){return typeof x==='string'&&UUID.test(x);}
+ function integer(n,minimum=0){return Number.isSafeInteger(n)&&n>=minimum&&n<=100000;}
+ function dateOK(x){
+  if(typeof x!=='string'||!/^\d{4}-\d\d-\d\d$/.test(x))return false;
+  const dt=new Date(x+'T00:00:00.000Z');
+  return Number.isFinite(dt.getTime())&&dt.toISOString().slice(0,10)===x;
+ }
+ function inventoryOf(source){
+  if(!source||typeof source!=='object'||Array.isArray(source)
+    ||Object.keys(source).length!==SIZES.length
+    ||!SIZES.every(size=>integer(source[size])))fail('invalid_inventory_baseline');
+  return Object.fromEntries(SIZES.map(size=>[size,source[size]]));
+ }
+ function serverRevisionsOf(raw={}){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))fail('invalid_server_revisions');
+  if(Object.keys(raw).some(x=>!SIZES.includes(x)))fail('invalid_server_revisions');
+  return Object.fromEntries(SIZES.map(size=>{
+   const n=raw[size]??0;
+   if(!Number.isSafeInteger(n)||n<0)fail('invalid_server_revisions');
+   return [size,n];
+  }));
+ }
+ function createSnapshot({familyId,actorUid,childId,inventory,serverRevisions={},source}={}){
+  if(!uuid(familyId)||!uuid(childId)||typeof actorUid!=='string'
+     ||!actorUid||actorUid.length>128)fail('invalid_identity');
+  if(source!=='test-fixture'&&source!=='verified-server')
+   fail('unverified_initial_baseline');
+  return {
+   familyId,actorUid,childId,
+   inventory:inventoryOf(inventory),
+   serverRevisions:serverRevisionsOf(serverRevisions),
+   transactions:[],localRevision:0,source
+  };
+ }
+ function checkPurchase(p){
+  if(!p||typeof p!=='object'||Array.isArray(p))fail('purchase_required');
+  const keys=Object.keys(p).sort().join(',');
+  if(keys!=='brand,purchaseDate,series,totalFen')fail('invalid_purchase');
+  for(const k of ['brand','series']){
+   if(typeof p[k]!=='string'||!p[k].trim()
+    ||Array.from(p[k].trim()).length>120||/[\u0000-\u001f\u007f]/u.test(p[k]))
+     fail('invalid_purchase');
+  }
+  if(!Number.isSafeInteger(p.totalFen)||p.totalFen<1||p.totalFen>10000000
+    ||!dateOK(p.purchaseDate))fail('invalid_purchase');
+  return {brand:p.brand.trim(),series:p.series.trim(),
+   totalFen:p.totalFen,purchaseDate:p.purchaseDate};
+ }
+ function apply(snapshot,operation){
+  if(!snapshot||!operation||!uuid(operation.id)
+    ||snapshot.familyId!==operation.familyId
+    ||snapshot.actorUid!==operation.actorUid
+    ||snapshot.childId!==operation.payload?.childId)
+   fail('identity_mismatch');
+  if(!SIZES.includes(operation.payload.size))fail('invalid_size');
+  if(!Number.isSafeInteger(snapshot.localRevision)||snapshot.localRevision<0
+     ||!Array.isArray(snapshot.transactions))fail('invalid_snapshot');
+  const size=operation.payload.size,p=operation.payload,kind=operation.type;
+  if(snapshot.transactions.some(t=>t.id===operation.id))fail('operation_already_applied');
+  const inventory=inventoryOf(snapshot.inventory),history=snapshot.transactions.map(x=>({...x}));
+  const before=inventory[size];
+  let after,entry;
+  if(kind==='inventory.delta'){
+   if(!['buy','use'].includes(p.kind)||!integer(p.amount,1))fail('invalid_delta');
+   const purchase=p.kind==='buy'?checkPurchase(p.purchase):null;
+   if(p.kind==='use'&&p.purchase!=null)fail('unexpected_purchase');
+   after=before+(p.kind==='buy'?p.amount:-p.amount);
+   entry={
+    id:operation.id,kind:p.kind,size,pieces:p.amount,
+    occurredAt:p.occurredAt||operation.createdAt,reversedBy:null,
+    ...(purchase||{})
+   };
+  }else if(kind==='inventory.count'){
+   if(!integer(p.count)||!Number.isSafeInteger(operation.expectedRevision)
+      ||operation.expectedRevision<0)fail('invalid_stocktake');
+   after=p.count;
+   entry={id:operation.id,kind:'stocktake',size,count:p.count,
+    expectedRevision:operation.expectedRevision,occurredAt:p.occurredAt||operation.createdAt};
+  }else if(kind==='transaction.reverse'){
+   if(!uuid(p.reversesOperationId)||p.reversesOperationId===operation.id)
+    fail('invalid_reverse');
+   const target=history.find(t=>t.id===p.reversesOperationId);
+   if(!target||!['buy','use'].includes(target.kind)||target.size!==size)
+    fail('reverse_target_missing');
+   if(target.reversedBy)fail('already_reversed');
+   after=before+(target.kind==='buy'?-target.pieces:target.pieces);
+   target.reversedBy=operation.id;
+   entry={id:operation.id,kind:'reverse',size,
+    reversesOperationId:target.id,occurredAt:p.occurredAt||operation.createdAt};
+  }else{
+   fail('unsupported_operation_type');
+  }
+  if(!integer(after))fail('inventory_out_of_bounds');
+  inventory[size]=after;
+  history.push(entry);
+  return {
+   ...snapshot,inventory,transactions:history,
+   localRevision:snapshot.localRevision+1
+  };
+ }
+ const api=Object.freeze({SIZES,createSnapshot,apply});
+ if(root)root.XBInventoryProjection=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* XiaoBao P3: inventory reconciliation plan.
+ * Pure and fail-closed. Server quantities are authoritative; only LOCAL
+ * operations verified absent on the server may be overlaid for offline UX.
+ * This is not the complete cross-device purchase-history merge.
+ */
+(function(root){
+ 'use strict';
+ const SIZES=Object.freeze(['NB','S','M','L','XL','XXL']);
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const ACTIVE=new Set(['pending','retry']);
+ const ALL=new Set(['pending','retry','conflict','blocked','acked']);
+ function fail(code){throw new Error('inventory_reconcile:'+code);}
+ function number(n){return Number.isSafeInteger(n)&&n>=0&&n<=100000;}
+ function safeRev(n){return Number.isSafeInteger(n)&&n>=0;}
+ function distinctIds(input,code){
+  if(!Array.isArray(input)||input.length>50)fail(code);
+  const seen=new Set();
+  for(const id of input){
+   if(typeof id!=='string'||!UUID.test(id)||seen.has(id))fail(code);
+   seen.add(id);
+  }
+  return seen;
+ }
+ function build({snapshot,operations,response}={}){
+  if(!snapshot||!Array.isArray(operations)||!response
+    ||response.complete!==true
+    ||snapshot.familyId!==response.familyId||snapshot.childId!==response.childId
+    ||snapshot.actorUid!==response.actorUid)
+   fail('unverified_scope');
+  const checked=distinctIds(response.checkedOperationIds,'invalid_checked_ids');
+  const seen=distinctIds(response.seenOperationIds,'invalid_seen_ids');
+  const scoped=operations.filter(op=>op?.payload?.childId===snapshot.childId);
+  if(scoped.length>50)fail('too_many_operations_for_one_snapshot');
+  const actual=new Set();
+  for(const op of scoped){
+   if(op.familyId!==snapshot.familyId||op.actorUid!==snapshot.actorUid
+     ||typeof op.id!=='string'||!UUID.test(op.id)||actual.has(op.id)
+     ||!ALL.has(op.status))fail('invalid_scoped_operation');
+   actual.add(op.id);
+  }
+  // The response must prove it checked exactly the records that are still
+  // queued at commit time. A stale response cannot overwrite newer local work.
+  if(actual.size!==checked.size||[...actual].some(id=>!checked.has(id)))
+   fail('stale_checked_set');
+  if([...seen].some(id=>!checked.has(id)))fail('unrequested_server_receipt');
+
+  if(!Array.isArray(response.rows)||response.rows.length!==6)
+   fail('partial_server_inventory');
+  const qty={},revisions={};
+  for(const row of response.rows){
+   if(!row||!SIZES.includes(row.size)
+     ||Object.hasOwn(qty,row.size)||!number(row.quantity)||!safeRev(row.revision))
+    fail('invalid_server_inventory');
+   qty[row.size]=row.quantity;
+   revisions[row.size]=row.revision;
+  }
+  if(SIZES.some(s=>!Object.hasOwn(qty,s)))fail('partial_server_inventory');
+  for(const size of SIZES){
+   if(!safeRev(snapshot.serverRevisions?.[size])
+      ||revisions[size]<snapshot.serverRevisions[size])
+    fail('server_revision_regressed');
+  }
+
+  const acknowledge=[],unsubmitted=[];
+  for(const op of scoped){
+   if(seen.has(op.id)){acknowledge.push(op.id);continue;}
+   // A server receipt once acknowledged is never allowed to disappear during
+   // silent recovery. This could indicate a deleted/restored cloud database.
+   if(op.status==='acked')fail('confirmed_operation_missing_server');
+   if(!ACTIVE.has(op.status))fail('manual_conflict_or_permission_block');
+   unsubmitted.push(op);
+  }
+  unsubmitted.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));
+  const provisional={...qty};
+  for(const op of unsubmitted){
+   const p=op.payload||{},size=p.size;
+   if(!SIZES.includes(size))fail('invalid_pending_size');
+   // Stocktake and reverse require extra server ordering/history guarantees.
+   // Do not infer safe reconciliation from local counter or a partial history.
+   if(op.type!=='inventory.delta'||!['buy','use'].includes(p.kind)
+      ||!Number.isSafeInteger(p.amount)||p.amount<1||p.amount>100000)
+    fail('needs_manual_or_sequential_rebase');
+   if(p.kind==='buy'){
+    if(!p.purchase||!Number.isSafeInteger(p.purchase.totalFen)
+      ||p.purchase.totalFen<1)fail('invalid_pending_purchase');
+   }else if(p.purchase!=null)fail('invalid_pending_purchase');
+   const after=provisional[size]+(p.kind==='buy'?p.amount:-p.amount);
+   if(!number(after))fail('pending_stock_out_of_bounds');
+   provisional[size]=after;
+  }
+  return {
+   snapshot:{
+    ...snapshot,inventory:provisional,serverRevisions:revisions,
+    // This local-only history cannot be presented as the complete family
+    // purchase ledger. A separate server event synchronization is required.
+    transactions:snapshot.transactions,
+    localRevision:snapshot.localRevision+1
+   },
+   acknowledgedIds:acknowledge,
+   pendingCount:unsubmitted.length,
+   status:unsubmitted.length?'local-pending':'verified-as-of-server-read'
+  };
+ }
+ const api=Object.freeze({build});
+ if(root)root.XBInventoryReconciler=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* XiaoBao v1.2.0 P3. IndexedDB-backed durable outbox, deliberately
+ * NOT imported by v1.1.2 production PWA and NEVER reads legacy localStorage.
+ *
+ * Guarantees only within one browser origin whose storage still exists:
+ * - enlist an immutable operation in a single IndexedDB transaction
+ * - do not return success until the transaction commits
+ * - only ACK a receipt with the original operation ID
+ * - preserve queue across reloads; login + family scopes are enforced locally
+ * - forbid any automatic network calls or implicit upload at import time
+ */
+(function(root){
+ 'use strict';
+ const DB_NAME='xiaobao-family-sync-v1';
+ const DB_VERSION=2;
+ const STORE='operations';
+ const SNAPSHOTS='inventory_snapshots';
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const SENDABLE=new Set(['pending','retry']);
+ const OUTSTANDING=new Set(['pending','retry','conflict','blocked']);
+ function fail(code){throw new Error('outbox_store:'+code);}
+ function id(v,name){if(typeof v!=='string'||!UUID.test(v))fail('invalid_'+name);return v;}
+ function actor(v){if(typeof v!=='string'||!v||v.length>128)fail('invalid_actor');return v;}
+ function scopeOf(scope){
+  if(!scope||typeof scope!=='object')fail('scope_required');
+  return {familyId:id(scope.familyId,'family_id'),actorUid:actor(scope.actorUid)};
+ }
+ function stable(v){
+  if(Array.isArray(v))return '['+v.map(stable).join(',')+']';
+  if(v!==null&&typeof v==='object'){
+   const keys=Object.keys(v).sort();
+   return '{'+keys.map(k=>JSON.stringify(k)+':'+stable(v[k])).join(',')+'}';
+  }
+  const s=JSON.stringify(v);
+  if(s===undefined)fail('unsupported_payload');
+  return s;
+ }
+ function signature(op){
+  return stable({id:op.id,familyId:op.familyId,actorUid:op.actorUid,
+   type:op.type,payload:op.payload,expectedRevision:op.expectedRevision,
+   createdAt:op.createdAt});
+ }
+ function clone(x){return JSON.parse(JSON.stringify(x));}
+ function create({indexedDB:factory,contract,projection=null,reconciler=null,dbName=DB_NAME}={}){
+  if(!factory||typeof factory.open!=='function')fail('indexeddb_unavailable');
+  if(!contract||typeof contract.createOperation!=='function'
+    ||typeof contract.applyResult!=='function')fail('contract_required');
+  if(typeof dbName!=='string'||!dbName.trim())fail('db_name_invalid');
+  let dbPromise=null;
+  function database(){
+   if(dbPromise)return dbPromise;
+   dbPromise=new Promise((resolve,reject)=>{
+    let request;
+    try{request=factory.open(dbName,DB_VERSION);}
+    catch(_){reject(new Error('outbox_store:open_failed'));return;}
+    request.onupgradeneeded=()=>{
+     const db=request.result;
+     if(!db.objectStoreNames.contains(STORE)){
+      const store=db.createObjectStore(STORE,{keyPath:'id'});
+      store.createIndex('by_identity',['familyId','actorUid'],{unique:false});
+     }
+     // Version 1 outbox records are never dropped or rewritten by v2 upgrade.
+     if(!db.objectStoreNames.contains(SNAPSHOTS))
+      db.createObjectStore(SNAPSHOTS,{keyPath:'key'});
+    };
+    request.onblocked=()=>reject(new Error('outbox_store:open_blocked'));
+    request.onerror=()=>reject(new Error('outbox_store:open_failed'));
+    request.onsuccess=()=>{
+     const db=request.result;
+     db.onversionchange=()=>{
+      try{db.close();}catch(_){}
+      dbPromise=null;
+     };
+     resolve(db);
+    };
+   }).catch(e=>{dbPromise=null;throw e;});
+   return dbPromise;
+  }
+  async function run(mode,work,storeNames=[STORE]){
+   const db=await database();
+   return new Promise((resolve,reject)=>{
+    let tx,output,logicalError=null,finished=false;
+    const done=(ok,v)=>{
+     if(finished)return;
+     finished=true;
+     if(ok)resolve(clone(v));
+     else reject(v);
+    };
+    try{tx=db.transaction(storeNames,mode);}catch(_){done(false,new Error('outbox_store:transaction_unavailable'));return;}
+    tx.oncomplete=()=>logicalError?done(false,logicalError):done(true,output);
+    tx.onabort=()=>done(false,logicalError||new Error('outbox_store:transaction_aborted'));
+    tx.onerror=()=>{}; // the abort event is authoritative
+    const succeed=x=>{output=x;};
+    const abort=e=>{
+     logicalError=e instanceof Error?e:new Error('outbox_store:transaction_failed');
+     try{tx.abort();}catch(_){done(false,logicalError);}
+    };
+    try{work(tx.objectStore(storeNames[0]),succeed,abort,tx);}
+    catch(e){abort(e);}
+   });
+  }
+  function validateNewOperation(op){
+   if(!op||typeof op!=='object')fail('operation_required');
+   id(op.id,'operation_id');id(op.familyId,'family_id');actor(op.actorUid);
+   const item=contract.createOperation({
+    id:op.id,type:op.type,familyId:op.familyId,
+    actorUid:op.actorUid,payload:op.payload,
+    expectedRevision:op.expectedRevision??null,createdAt:op.createdAt
+   });
+   return {...item,_signature:signature(item)};
+  }
+  function checkIdentity(item,scope){
+   if(!item||item.familyId!==scope.familyId||item.actorUid!==scope.actorUid)
+    fail('operation_not_in_scope');
+  }
+  async function enqueue(op){
+   const item=validateNewOperation(op);
+   return run('readwrite',(store,complete,abort)=>{
+    const get=store.get(item.id);
+    get.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    get.onsuccess=()=>{
+     const existing=get.result;
+     if(existing){
+      if(existing._signature!==item._signature) {
+       abort(new Error('outbox_store:same_id_different_payload'));return;
+      }
+      complete(existing);
+      return;
+     }
+     const add=store.add(item);
+     add.onerror=()=>abort(new Error('outbox_store:write_failed'));
+     add.onsuccess=()=>complete(item);
+    };
+   });
+  }
+  async function get(scopeInput,operationId){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   return run('readonly',(store,complete,abort)=>{
+    const req=store.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     if(!req.result){complete(null);return;}
+     try{checkIdentity(req.result,scope);complete(req.result);}
+     catch(e){abort(e);}
+    };
+   });
+  }
+  async function list(scopeInput,{includeAcked=false}={}){
+   const scope=scopeOf(scopeInput);
+   return run('readonly',(store,complete,abort)=>{
+    const req=store.index('by_identity').getAll([scope.familyId,scope.actorUid]);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     const rows=(req.result||[])
+      .filter(x=>includeAcked||OUTSTANDING.has(x.status))
+      .sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));
+     complete(rows);
+    };
+   });
+  }
+  async function ready(scopeInput){
+   const rows=await list(scopeInput);
+   return rows.filter(x=>SENDABLE.has(x.status));
+  }
+  async function recordResult(scopeInput,operationId,result){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   if(!result||typeof result!=='object')fail('result_required');
+   if((result.kind==='accepted'||result.kind==='duplicate')&&result.receiptId!==oid)
+    fail('receipt_operation_id_mismatch');
+   return run('readwrite',(store,complete,abort)=>{
+    const req=store.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     let current;
+     try{
+      current=req.result;
+      checkIdentity(current,scope);
+      const updated=contract.applyResult(current,result);
+      if(updated.id!==current.id||updated.familyId!==current.familyId
+        ||updated.actorUid!==current.actorUid||updated._signature!==current._signature)
+       fail('immutable_operation_changed');
+      const put=store.put(updated);
+      put.onerror=()=>abort(new Error('outbox_store:write_failed'));
+      put.onsuccess=()=>complete(updated);
+     }catch(e){abort(e);}
+    };
+   });
+  }
+  async function stats(scopeInput){
+   const rows=await list(scopeInput,{includeAcked:true});
+   const counts={pending:0,retry:0,conflict:0,blocked:0,acked:0};
+   for(const row of rows){
+    if(!Object.prototype.hasOwnProperty.call(counts,row.status))fail('unknown_status');
+    counts[row.status]++;
+   }
+   return {...counts,total:rows.length,outstanding:rows.length-counts.acked};
+  }
+
+  function identityKey(scope,childId){
+   const item=scopeOf(scope);
+   return JSON.stringify([item.familyId,item.actorUid,id(childId,'child_id')]);
+  }
+  function requiredProjection(){
+   if(!projection||typeof projection.createSnapshot!=='function'
+     ||typeof projection.apply!=='function')fail('projection_required');
+  }
+  // Only explicit, already-verified baseline initialization is allowed;
+  // callers must not pass default empty stock for an existing family.
+  async function initializeInventory(scopeInput,{childId,inventory,serverRevisions,source}={}){
+   requiredProjection();
+   const scope=scopeOf(scopeInput),key=identityKey(scope,childId);
+   const initial=projection.createSnapshot({
+    familyId:scope.familyId,actorUid:scope.actorUid,childId,
+    inventory,serverRevisions,source
+   });
+   const record={key,...initial};
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const read=snapshots.get(key);
+    read.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    read.onsuccess=()=>{
+     if(read.result){
+      abort(new Error('outbox_store:snapshot_already_initialized'));return;
+     }
+     // Old v1 outbox operations cannot be silently ignored when a baseline
+     // arrives later. Never overwrite a pending event by seeding a new stock.
+     const queued=operations.index('by_identity').getAll([scope.familyId,scope.actorUid]);
+     queued.onerror=()=>abort(new Error('outbox_store:read_failed'));
+     queued.onsuccess=()=>{
+      if((queued.result||[]).some(x=>x.payload?.childId===childId)){
+       abort(new Error('outbox_store:queue_exists_before_baseline'));return;
+      }
+      const insert=snapshots.add(record);
+      insert.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      insert.onsuccess=()=>complete(record);
+     };
+    };
+   },[STORE,SNAPSHOTS]);
+  }
+  async function readInventory(scopeInput,childId){
+   const scope=scopeOf(scopeInput),key=identityKey(scope,childId);
+   return run('readonly',(snapshots,complete,abort)=>{
+    const req=snapshots.get(key);
+    req.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    req.onsuccess=()=>complete(req.result||null);
+   },[SNAPSHOTS]);
+  }
+  // The local inventory projection and network outbox event must commit
+  // atomically in the SAME IndexedDB transaction. Never mutate old localStorage.
+  async function commitInventory(scopeInput,operation){
+   requiredProjection();
+   const scope=scopeOf(scopeInput),item=validateNewOperation(operation);
+   if(item.familyId!==scope.familyId||item.actorUid!==scope.actorUid)
+    fail('operation_not_in_scope');
+   const childId=id(item.payload?.childId,'child_id');
+   const key=identityKey(scope,childId);
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const snapReq=snapshots.get(key);
+    snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    snapReq.onsuccess=()=>{
+     if(!snapReq.result){
+      abort(new Error('outbox_store:snapshot_not_initialized'));return;
+     }
+     const opReq=operations.get(item.id);
+     opReq.onerror=()=>abort(new Error('outbox_store:read_failed'));
+     opReq.onsuccess=()=>{
+      const existing=opReq.result;
+      if(existing){
+       if(existing._signature!==item._signature){
+        abort(new Error('outbox_store:same_id_different_payload'));return;
+       }
+       if(existing.familyId!==scope.familyId||existing.actorUid!==scope.actorUid)
+        {abort(new Error('outbox_store:operation_not_in_scope'));return;}
+       complete({duplicate:true,operation:existing,snapshot:snapReq.result});
+       return;
+      }
+      let next;
+      try{next=projection.apply(snapReq.result,item);}
+      catch(e){abort(e);return;}
+      if(next.familyId!==scope.familyId||next.actorUid!==scope.actorUid
+        ||next.childId!==childId){
+       abort(new Error('outbox_store:projection_identity_changed'));return;
+      }
+      const stored={...next,key};
+      let writes=0;
+      const finish=()=>{
+       writes++;
+       if(writes===2)complete({duplicate:false,operation:item,snapshot:stored});
+      };
+      const writeSnapshot=snapshots.put(stored);
+      writeSnapshot.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      writeSnapshot.onsuccess=finish;
+      const writeOperation=operations.add(item);
+      writeOperation.onerror=()=>abort(new Error('outbox_store:write_failed'));
+      writeOperation.onsuccess=finish;
+     };
+    };
+   },[STORE,SNAPSHOTS]);
+  }
+
+  function requiredReconciler(){
+   if(!reconciler||typeof reconciler.build!=='function')
+    fail('reconciler_required');
+  }
+  // The caller must request ALL IDs, including already-ACKed IDs, from the
+  // server. Never truncate to 50: that could silently erase evidence that a
+  // previously confirmed cloud operation has disappeared.
+  async function reconciliationIds(scopeInput,childId){
+   const scope=scopeOf(scopeInput),child=id(childId,'child_id');
+   const rows=await list(scope,{includeAcked:true});
+   const matches=rows.filter(row=>row.payload?.childId===child);
+   if(matches.length>50)fail('reconciliation_requires_pagination');
+   return matches.map(row=>row.id);
+  }
+  // Runs only AFTER explicit authenticated server snapshot read.
+  // No legacy localStorage writes; both the local projection and all receipt
+  // ACKs commit or roll back together. A changed local queue after the remote
+  // read causes 'stale_checked_set', not an overwrite of a newer local edit.
+  async function reconcileInventory(scopeInput,childId,response){
+   requiredReconciler();
+   const scope=scopeOf(scopeInput),child=id(childId,'child_id');
+   const key=identityKey(scope,child);
+   return run('readwrite',(opsStore,complete,abort,tx)=>{
+    const snaps=tx.objectStore(SNAPSHOTS);
+    const pendingReq=opsStore.index('by_identity').getAll([scope.familyId,scope.actorUid]);
+    pendingReq.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    pendingReq.onsuccess=()=>{
+     const scoped=(pendingReq.result||[]).filter(op=>op.payload?.childId===child);
+     if(scoped.length>50){
+      abort(new Error('outbox_store:reconciliation_requires_pagination'));return;
+     }
+     const snapReq=snaps.get(key);
+     snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+     snapReq.onsuccess=()=>{
+      if(!snapReq.result){
+       abort(new Error('outbox_store:snapshot_not_initialized'));return;
+      }
+      let plan,updates;
+      try{
+       plan=reconciler.build({snapshot:snapReq.result,operations:scoped,response});
+       const seen=new Set(plan.acknowledgedIds);
+       updates=scoped.filter(op=>seen.has(op.id)).map(op=>{
+        const updated=contract.applyResult(op,{kind:'accepted',receiptId:op.id});
+        if(updated.id!==op.id||updated._signature!==op._signature
+          ||updated.actorUid!==op.actorUid||updated.familyId!==op.familyId)
+         fail('reconcile_operation_identity_changed');
+        return updated;
+       });
+      }catch(e){abort(e);return;}
+      const stored={...plan.snapshot,key};
+      const total=1+updates.length;
+      let completed=0;
+      const success=()=>{
+       completed++;
+       if(completed===total)complete({
+        snapshot:stored,acknowledgedIds:plan.acknowledgedIds,
+        pendingCount:plan.pendingCount,status:plan.status
+       });
+      };
+      const snapshotWrite=snaps.put(stored);
+      snapshotWrite.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      snapshotWrite.onsuccess=success;
+      for(const row of updates){
+       const write=opsStore.put(row);
+       write.onerror=()=>abort(new Error('outbox_store:receipt_write_failed'));
+       write.onsuccess=success;
+      }
+     };
+    };
+   },[STORE,SNAPSHOTS]);
+  }
+  return Object.freeze({enqueue,get,list,ready,recordResult,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
+ }
+ const api=Object.freeze({create,DB_NAME,DB_VERSION});
+ if(root)root.XBDurableOutbox=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+(() => {
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const FAMILY='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
+  const CHILD='6b3d0e45-bf18-4c95-889c-6f19731a8ae5';
+  const SCOPE={familyId:FAMILY,actorUid:'p3-test-account-only'};
+  const DB='xiaobao-p3-browser-test-only-v1';
+  const SIZES=['NB','S','M','L','XL','XXL'];
+  const baseline=Object.fromEntries(SIZES.map(size=>[size,0]));
+  const authName='虚拟测试账号（非 CloudBase 登录）';
+  const store=window.XBDurableOutbox.create({
+    indexedDB:window.indexedDB,contract:window.XBOutboxContract,
+    projection:window.XBInventoryProjection,
+    reconciler:window.XBInventoryReconciler,
+    dbName:DB
+  });
+  function display(msg){$('result').textContent=msg;}
+  function block(button,work){
+    button.disabled=true;
+    Promise.resolve().then(work).catch(e=>{
+      display('操作失败：'+String(e?.message||'unknown error')+
+       '\n如果是原始存储或权限问题，请保留当前状态，不要清除小宝管家站点数据。');
+    }).finally(()=>{button.disabled=false;});
+  }
+  async function show(label){
+    const snap=await store.readInventory(SCOPE,CHILD);
+    const all=await store.list(SCOPE,{includeAcked:true});
+    const pending=all.filter(x=>['pending','retry'].includes(x.status)).length;
+    $('quantity').textContent=snap?String(snap.inventory.S):'未初始化';
+    $('waiting').textContent=String(pending);
+    $('recordCount').textContent=String(all.length);
+    $('revision').textContent=snap?String(snap.localRevision):'—';
+    display(label+'\n本测试仅使用独立 IndexedDB '+DB+
+      '\n未触碰业务 localStorage；未连接 CloudBase。');
+  }
+  $('seed').onclick=()=>block($('seed'),async()=>{
+    await store.initializeInventory(SCOPE,{
+      childId:CHILD,inventory:baseline,source:'test-fixture'
+    });
+    await show('虚拟库存已在 IndexedDB 创建，S 码 0 片。');
+  });
+  $('purchase').onclick=()=>block($('purchase'),async()=>{
+    const uuid=window.crypto?.randomUUID?.();
+    if(!uuid)throw Error('此浏览器不支持 crypto.randomUUID；需 HTTPS');
+    await store.commitInventory(SCOPE,{
+      id:uuid,type:'inventory.delta',familyId:FAMILY,
+      actorUid:SCOPE.actorUid,createdAt:new Date().toISOString(),
+      payload:{childId:CHILD,size:'S',kind:'buy',amount:60,
+       occurredAt:new Date().toISOString(),
+       purchase:{brand:'虚拟品牌',series:'测试系列',totalFen:2999,
+        purchaseDate:new Date().toISOString().slice(0,10)}}
+    });
+    await show('虚拟采购 +60 片，本地快照和待传记录同一事务落盘。');
+  });
+  $('read').onclick=()=>block($('read'),async()=>show('从浏览器持久存储重新读取。刷新页面后再次点击，可检查数据是否保留。'));
+  $('confirm').onclick=()=>block($('confirm'),async()=>{
+    const snap=await store.readInventory(SCOPE,CHILD);
+    if(!snap)throw Error('请先初始化虚拟库存');
+    const all=await store.list(SCOPE,{includeAcked:true});
+    if(all.length>50)throw Error('超过 50 条测试记录，当前需要分页设计');
+    // Explicit simulation ONLY. All local operations are deemed accepted by
+    // a hypothetical server. Never use this in a real client integration.
+    const remote={
+      complete:true,familyId:FAMILY,childId:CHILD,actorUid:SCOPE.actorUid,
+      checkedOperationIds:all.map(x=>x.id),
+      seenOperationIds:all.map(x=>x.id),
+      rows:SIZES.map(size=>({
+        size,quantity:snap.inventory[size],
+        revision:snap.serverRevisions[size]+
+          (all.filter(x=>x.status!=='acked'&&x.payload.size===size).length)
+      }))
+    };
+    await store.reconcileInventory(SCOPE,CHILD,remote);
+    await show('已模拟服务器确认所有本地操作（没有实际云端请求）。');
+  });
+  $('account').textContent=authName;
+  display('准备就绪。先点击「创建虚拟库存」，之后可以刷新浏览器检查持久性。\n该页面不调用任何 CloudBase SDK，也不会请求验证码。');
+})();
+</script>
+</body></html>
