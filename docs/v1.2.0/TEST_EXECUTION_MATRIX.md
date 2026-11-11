@@ -14,13 +14,14 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | 最近完成的开发分支 GitHub Actions 回归 221/221 PASS；最新结果以对应提交 CI 为准 |
+| JavaScript 回归 | PASS_AUTOMATED | P2-3A mock-browser 安全验证加入后，GitHub Actions 回归 229/229 PASS；最新提交 CI 仍需单独核实 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
 | CloudBase 既有 A/B 双账号与成员权限 | PASS_REAL_6_OF_6 | 用户 2026-11-11 实际验证 A、B1、B2、B3、B4、C 全部通过；不得要求重复创建家庭 |
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
 | P2 真实 CloudBase 业务结构 | P2_1_SCHEMA_PASS_REAL | 011/013 真实预检 18/18；005→006 19/19、008→014 15/15、009→017→015 21/21 + 016 安全 ACL、010→018 20/20、012 12/12 均通过。7 张表全部空、RLS 生效、2 个 RPC 已安装；未开展真机业务调用 |
+| P2-3A 独立只读云端联调 | READY_CODE_ONLY_REAL_PENDING | 已新增 p2-readonly-test.html + p2-readonly-diag.js、Mock SDK 7+ 自动化用例及部署手册；无账号与 A/B 成员的读表及只读 RPC 拒绝探针均未在真实 CloudBase 浏览器执行；未上传静态站点、未写测试业务数据 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -150,6 +151,15 @@
 - 当前下一阶段为 **P2-3 真实业务联调的准备**：先在开发分支完成只读端点鉴权测试设计和**独立虚拟宝宝创建入口的权限设计**，在隔离测试环境验证并审查数据隔离/回收方案。未获得用户对向真实 CloudBase **新增虚拟宝宝/模拟采购**的单独授权前，不实际创建数据，不打开业务写入测试开关。
 - 用户已明确知情接受共享 PostgreSQL 无用户可验证备份能力的**仅 P2-1 空结构部署风险**；本授权**不自动延伸到任何真实数据迁移或测试业务写入**。
 - GitHub 开发仅限 `feature/cloudbase-sync-v1.2.0`；不修改 main/develop，不发布正式 v1.1.2。
+
+### B.11 2026-11-11 P2-3A 零业务写入诊断准备完成（尚未真实联调）
+
+- 新增 `cloudbase/smoke/p2-readonly-test.html` 和 `p2-readonly-diag.js`，是**独立**于正式 v1.1.2 的浏览器测试页，需用户手动上传到现有 CloudBase 静态网站专用 `xb-test/` 目录才能使用。
+- 页面无自动调用，点击“连接”后可显式运行 anon 或登录 A/B 的只读检查。只读取 `families` / `family_members` / `family_app_access` 和新业务表的有限字段/行数；唯一 RPC 目标是 `xb_read_inventory_reconciliation`，只用合成的不存在宝宝/其他家庭标识请求应拒绝，不调用库存采购写入函数，不执行直接表写入。
+- 匿名检查预期 7 个子项 PASS；已登录 A 或 B 各自预期 10 个子项 PASS。对权限拒绝、网络失败及 SDK 无法区分的异常，返回 FAIL/INCONCLUSIVE/BLOCKED，不能伪造成功。
+- `tests/p2-readonly-browser-diagnostics.test.cjs` 使用纯合成 Fake CloudBase，验证模拟会话、匿名不可见、已有成员访问、非法 RPC 意外成功为 FAIL、无法分类网络错误为 INCONCLUSIVE、不会调用 DML/write-RPC、不会泄露 ID/Token。合成测试不等于真实云端验收。
+- 专用步骤见 `docs/v1.2.0/P2_3A_READONLY_ACCEPTANCE_RUNBOOK.md`。未在真实 CloudBase 新建任何宝宝、库存、采购，未部署测试页面、未合并 main/develop 或更新正式网站。
+- P2-3B/C 虚拟宝宝初始化及模拟采购将涉及真实业务数据库写入，**不在本次“继续”开发授权范围内执行**。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
