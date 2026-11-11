@@ -89,6 +89,18 @@
     if(!POLICY.has(key))issues.push(issue('replenishPolicy','UNKNOWN_POLICY_FIELD'));
    }
   }
+  // v1.1.2 produces referenceKey(brand,series,size) with five supported
+  // reference sizes (XXL has no reference price in the original catalog).
+  // Keep every original key untouched; reject ambiguous/unmapped keys rather
+  // than silently dropping a custom comparison threshold.
+  if(isObject(data.referenceOverrides)){
+   for(const key of Object.keys(data.referenceOverrides)){
+    const parts=key.split('|');
+    if(parts.length!==3||!parts[0].trim()||!parts[1].trim()
+       ||!new Set(['NB','S','M','L','XL']).has(parts[2]))
+     issues.push(issue('referenceOverrides','UNMAPPED_REFERENCE_KEY'));
+   }
+  }
   if(own(data,'preset')&&!['balanced','cautious','relaxed','custom'].includes(data.preset))
    issues.push(issue('preset','UNKNOWN_PRESET'));
   if(own(data,'sizeMode')&&!['auto','manual'].includes(data.sizeMode))
