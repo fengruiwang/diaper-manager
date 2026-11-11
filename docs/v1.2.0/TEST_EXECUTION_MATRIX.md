@@ -14,7 +14,7 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | 新增只读家庭宝宝列表过滤、迁移目标强制预检、未来新增家庭成员兼容性回归后，GitHub Actions **254/254 PASS**（截至最新代码提交，最终文档提交 CI 单独核实）；不替代真实 CloudBase 测试 |
+| JavaScript 回归 | PASS_AUTOMATED | P2-3C 账号/家庭授权前置检查、Outbox 仍保持禁止上传、独立浏览器测试页加入后，**269/269 PASS**；PG16 隔离合同 PASS；不代表 CloudBase 真实写入授权 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
@@ -23,6 +23,7 @@
 | P2 真实 CloudBase 业务结构 | P2_1_SCHEMA_PASS_REAL | 011/013 真实预检 18/18；005→006 19/19、008→014 15/15、009→017→015 21/21 + 016 安全 ACL、010→018 20/20、012 12/12 均通过。7 张表全部空、RLS 生效、2 个 RPC 已安装；未开展真机业务调用 |
 | P2-3A 独立只读云端联调 | A_B_BOTH_PASS_ANON_RPC_ORIGIN_INCONCLUSIVE | 真实管理员 A 10/10 PASS；用户反馈老婆以自己的账号运行检查项全部 PASS，按 B 已登录 10/10 PASS 存档（未逐项抄录）；手机新浏览器的匿名 6/7 PASS，剩余只读 RPC 为 DENIED_UNCLASSIFIED，证明请求被拒绝但拒绝来源未确认；未写入宝宝、库存和采购 |
 | P2-3B 虚拟宝宝受控初始化 | MEMORY_BROWSER_12_OF_12_PASS_REAL_CLOUD_UNTOUCHED | 用户 2026-11-11 反馈已在真实网页端测试 p2-smoke-preview 的全部 12 步，全部 PASS（未逐项转录）；该结果仅为真实浏览器内存模拟，**不代表真实云端购买/库存**。019/020 仍仅隔离 PG16 18/18 true，未在 CloudBase 安装、未写宝宝/库存/采购，尚无 P2-3B 写入授权 |
+| P2-3C 库存上传前置检查 | CODE_AND_MOCK_269_PASS_LIVE_READONLY_PENDING | 新增 sync/cloudbase-access-preflight.js：匹配 SDK 有效登录 UID、RLS 可见家庭与本人成员/xb 授权；initialized 永远 false，现有库存 Outbox runner / sync reader 即使允许启用参数也必须停止在 family-not-initialized。新增 P2-3C read-only 网页和 3 文件验收说明，尚未真实运行、未写业务数据 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -225,6 +226,15 @@
 - 历史迁移目标仅限 **活跃的 `primary`**，`inspectLegacyTarget` 返回 `readyForMigration:false`，不会自动写入或替换 v1.1.2 历史；后续须单独完成数据恢复方案与迁移授权。
 - 兼容后续新增家庭成员，不写死当前两个 xb grant 的数量；Mock SDK 用例包含三位成员的家庭扩展。
 - CI JavaScript 254/254、PG16 合同已通过（以 8dfa197c0a2d 为代码验收基准）；尚未导入正式 v1.1.2 / main，不创建真实测试宝宝、采购或历史迁移。
+
+### B.19 2026-11-11 P2-3C 上传前置检查实现与真实只读浏览器测试准备
+
+- 已增补 `sync/cloudbase-access-preflight.js`：`getSession()` 的 `data.user.id` / `data.session.user.id` 必须与 actorUid 一致，且通过 CloudBase RLS 的 `families`、`family_members`（本人 `user_uid`）、`family_app_access`（本人 xb grant）实时只读校验。仅基于真实会话和服务端授权做有限判断，错误消息必须脱敏，绝不通过本地昵称或按钮自我声明。
+- 新前置检查将 `initialized:false` 固定写入返回值。**不是声称服务器库存为空，也不是自动创建/验收初始库存**；没有独立完成的 server+IDB durable baseline handshake 之前，原有 `inventory-outbox-runner` 和 `inventory-sync-reader` 均返回 `family-not-initialized`，不能发送/确认任何库存操作。合成测试刻意传入 `uploadEnabled:true` 仍阻断写入。
+- 新增独立网页 `cloudbase/smoke/p2-upload-readiness.html`、`p2-upload-readiness-bridge.js`、原 `sync/cloudbase-access-preflight.js` 三文件组合。只含登录状态、家庭成员/应用权限只读查询及“上传保持阻断”的显示；**所有真实创建、购买、迁移按钮禁用**，不读旧版 localStorage，不上传库存。
+- `tests/p2-cloudbase-access-preflight.test.cjs` + `tests/p2-upload-readiness.test.cjs` 合成测试通过，累计 **269/269 JS PASS**、PG16 合同 PASS。前置检查真实 CloudBase SDK 浏览器验收仍 `LIVE_PENDING`。
+- 本轮后续需要用户真实测试时，在对话正文直接交付三个文件链接、`xb-test/` 目录位置、点击步骤、预期 `AUTH_PASS_UPLOAD_BLOCKED` 和五项字段、脱敏反馈方法；完整文档 `docs/v1.2.0/P2_3C_UPLOAD_READINESS_RUNBOOK.md`。
+- 仍无 P2-3B 虚拟宝宝 SQL/测试数据写入授权：不部署 019/020、不模拟真实采购、不更改 main/develop 或正式 v1.1.2、不迁移本地历史。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
