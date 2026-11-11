@@ -32,6 +32,13 @@
 - 每个阶段分开记录 **纯模拟 PASS / PG16 隔离 PASS / CloudBase 真实 SDK/SQL PASS / 双真机业务 PASS**，不互相替代。
 - 开发可连续推进纯逻辑、隔离 SQL、测试页和 Mock CI；任何生产共享 PostgreSQL 实际新增测试数据、迁移或正式发布，均需要**单独明确授权**。
 
+## P2-3D 基线核验准备（2026-11-11）
+
+- 新增 `sync/inventory-baseline-inspector.js`，组合已有 CloudBase 鉴权、非测试宝宝只读列表、IndexedDB 现存库存及全部待同步/已 ACK 记录和六尺码只读 reconciliation RPC。
+- 对未信任的本地基线、待同步队列、已 ACK 但服务器回执缺失、六尺码/修订号不一致、陌生宝宝或错误家庭等情况拒绝自动同步；模块返回值**永远** `uploadAllowed:false`、`localUnchanged:true`。
+- 隔离 Node 新增 15 组测试，开发分支 JavaScript **284/284 PASS**，PostgreSQL 原隔离合同仍通过。当前真实 CloudBase 尚无测试宝宝，因此本轮不要求用户再上传网页或反复做“空表”测试。
+- 审查文档：`docs/v1.2.0/P2_3D_BASELINE_INSPECTION_REVIEW.md`。下一阶段不是直接把 `initialized` 设为 true，而是先设计与已保存 v1.1.2 历史兼容的**权威云端初始基线握手 + 原子 IDB 提交 + 检查后 revision 复核**。真实数据库写测试宝宝/采购及迁移仍须单独授权。
+
 ## 采购编辑（正式版必备）
 
 详细需求见 `PURCHASE_EDIT_CORRECTION_REQUIREMENTS.md`。当前 009 RPC 仅支持 `buy/use/stocktake/reverse`，未实现编辑。页面应提供普通「编辑购买记录」，服务端按字段类型选择不变库存的元数据变更或原子差量库存更新，必须记录修改历史、修改人和时间。
