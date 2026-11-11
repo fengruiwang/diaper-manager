@@ -1,6 +1,14 @@
 # 小宝管家 v1.2.0 — P2-3A 真实 CloudBase 只读诊断验收手册
 
-更新：2026-11-11。状态：**开发分支代码和模拟回归已准备；尚未上传到 CloudBase 静态托管，尚未执行真实浏览器联调。**
+更新：2026-11-11。状态：**用户已在现有 CloudBase 真实浏览器执行；A 管理员已登录 10/10 PASS，匿名因已有会话 BLOCKED，B 独立账号尚未确认；不要求重测 A。**
+
+## 首次真实测试反馈与正确解读
+
+- A 管理员已经登录时执行④：**10/10 PASS_REAL**，家庭、成员、xb 授权、四张空业务表和两次非法读取 RPC 拒绝均正确。
+- 用户自认为未登录时执行④也得到 **10/10 PASS**，但 `authenticated_session=SESSION_PRESENT`。这代表此浏览器其实存在有效 CloudBase 会话；不能算匿名测试，也不能证明是配偶 B 账号。
+- 执行②匿名检查仅返回 `anonymous_session=BLOCKED(LOGIN_SESSION_PRESENT_USE_PRIVATE_WINDOW)`。工具发现已有会话后主动阻断，**没有执行匿名数据访问或 RPC**；既不是匿名验收成功，也不意味着发生越权。
+- **测试余项：匿名账户 7 项与 B 成员独立 10 项。管理员 A 不必再次登录或重测。**
+- CloudBase Web SDK v3 的登录状态由 `auth.getSession()` 返回的 `data.session` 判断，不能以当前页面是否刚刚输入过 OTP 为准。
 
 ## 目的
 
@@ -45,9 +53,9 @@ CloudBase 官方安全提示：PostgREST 网关可能不强制执行 SQL `GRANT 
 
 ### B. 无登录 / anon（全新的无痕窗口）
 
-1. 新开真正的无痕窗口（不能复用已登录的普通页面），连接同一测试目录，只输入环境 ID 与客户端 Publishable Key；**不要登录**。
+1. **推荐 Chrome 浏览器 → 右上角头像 → 添加/打开访客（Guest）窗口**，这样与原账号浏览器存储完全隔离；或先关闭**全部**现存的无痕窗口，再新开无痕窗口。同一批无痕窗口共享会话，单独新开一个无痕标签未必匿名。连接相同测试页，只输入环境 ID 与客户端 Publishable Key；**不要登录，也不要退出原账号或清除原浏览器数据**。
 2. 点击②“检查匿名权限”；预期 **7 个检查状态全部 PASS**：无会话、匿名对家庭与 4 张业务表均不可见/被拒绝，以及匿名只读 RPC 返回 `authentication_required`。
-3. 如果显示 `BLOCKED: LOGIN_SESSION_PRESENT_USE_PRIVATE_WINDOW`，说明当前测试容器有登录状态；不要直接退出原账号，换新无痕窗口再试。
+3. 如果仍显示 `BLOCKED: LOGIN_SESSION_PRESENT_USE_PRIVATE_WINDOW`，说明当前浏览器上下文仍有登录会话；**不要为了通过测试而登出原账号或清除浏览器数据**。更换独立 Guest 窗口；如仍 BLOCKED，把状态反馈开发对话，不要尝试关闭安全检测。
 4. 如果错误在 SDK 层被包装导致无法辨识确切拒绝原因，页面会报 INCONCLUSIVE，而不会自动当作 PASS；仅反馈字段名及安全错误码。
 
 ### 反馈给开发对话
