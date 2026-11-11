@@ -7,7 +7,7 @@ test('standalone P3 browser test embeds required offline modules, never fetches 
  assert.match(html,/XBInventoryReconciler/);
  assert.match(html,/XBInventoryProjection/);
  assert.match(html,/xiaobao-p3-browser-test-only-v1/);
- assert.match(html,/测试页/);
+ assert.match(html,/诊断页/);
  assert.doesNotMatch(html,/xiaobao_diaper_planner_v1/);
  assert.doesNotMatch(html,/f495637659-d2gnuzz2jf5657da8/);
  assert.doesNotMatch(html,/https?:\/\/[^\s"'<>]*(?:cloudbase|github)/i);
