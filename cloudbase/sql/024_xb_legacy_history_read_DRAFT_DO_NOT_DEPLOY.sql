@@ -63,7 +63,7 @@ BEGIN
  -- hide history. Do not permit partial recovery pages.
  SELECT count(*) INTO v_total FROM public.xb_legacy_history_entries
   WHERE family_id=p_family_id AND child_id=p_child_id;
- IF v_total<>(v_receipt.counts->>'historyEntries')::integer
+ IF v_total IS DISTINCT FROM (v_receipt.counts->>'historyEntries')::integer
    OR EXISTS(
     SELECT 1 FROM public.xb_legacy_history_entries
     WHERE family_id=p_family_id AND child_id=p_child_id
@@ -80,7 +80,7 @@ BEGIN
   WHERE family_id=p_family_id AND child_id=p_child_id
    AND source_sha256=v_receipt.source_sha256
    AND (p_record_kind='all' OR record_kind=p_record_kind);
- IF v_expected IS NULL OR v_count<>v_expected THEN
+ IF v_expected IS NULL OR v_count IS DISTINCT FROM v_expected THEN
   RAISE EXCEPTION 'committed_history_count_mismatch' USING ERRCODE='23514';
  END IF;
  -- This immutable migration ledger cannot be edited. A stable sort by
@@ -147,7 +147,7 @@ BEGIN
    OR jsonb_typeof(v_settings.settings_data->'referenceOverrides')<>'object'
    OR (SELECT count(*) FROM jsonb_object_keys(
         v_settings.settings_data->'referenceOverrides'))
-      <>(v_receipt.counts->>'referenceOverrides')::integer THEN
+      IS DISTINCT FROM (v_receipt.counts->>'referenceOverrides')::integer THEN
   RAISE EXCEPTION 'legacy_settings_mismatch' USING ERRCODE='23514';
  END IF;
  RETURN jsonb_build_object(
