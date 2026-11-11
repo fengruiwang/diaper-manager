@@ -7,13 +7,14 @@ const pre=read('cloudbase/sql/011_xb_p2_predeploy_readonly.sql');
 const post=read('cloudbase/sql/012_xb_p2_postdeploy_readonly.sql');
 const capabilities=read('cloudbase/sql/013_xb_p2_capabilities_readonly.sql');
 const purchasePost=read('cloudbase/sql/014_xb_p2_purchase_postflight_readonly.sql');
+const atomicPost=read('cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql');
 const contract=read('tests/postgres/p2_purchase_contract.sql');
 const forbidden=/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|CREATE|GRANT|REVOKE|DO|COPY|CALL|EXECUTE|PERFORM|SET|RESET)\b/i;
 function actualSql(sql){
  return sql.replace(/--[^\n]*/g,'').replace(/'(?:''|[^'])*'/g,"''").trim();
 }
 test('P2 preflight and postflight are single SELECT-only inspection queries',()=>{
- for(const sql of [pre,post,capabilities,purchasePost]){
+ for(const sql of [pre,post,capabilities,purchasePost,atomicPost]){
   const text=actualSql(sql);
   assert.match(text,/^SELECT\s/i);
   assert.equal((text.match(/;/g)||[]).length,1);
@@ -51,6 +52,24 @@ test('P2 stage 008 purchase-table checkpoint audits 15 security and history flag
  assert.equal(markers.length,15);
  for(const m of markers)assert.ok(purchasePost.includes('AS '+m),m);
 });
+test('P2 stage 009 postflight validates 21 security and empty-data facts',()=>{
+ const markers=[
+  'atomic_purchase_rpc_exists','legacy_stock_only_rpc_absent',
+  'purchase_rpc_is_security_definer','purchase_rpc_is_volatile',
+  'purchase_rpc_returns_jsonb','purchase_rpc_search_path_fixed',
+  'untrusted_roles_cannot_create_public',
+  'authenticated_can_execute_purchase_rpc','anonymous_cannot_execute_purchase_rpc',
+  'one_reverse_per_source_index_exists','reverse_operation_consistency_check_exists',
+  'read_reconciliation_rpc_not_installed_yet',
+  'purchase_history_still_empty','inventory_ops_still_empty',
+  'inventory_still_empty','babies_still_empty',
+  'direct_business_writes_still_denied',
+  'rpc_contains_purchase_and_retry_validation',
+  'original_family_preserved','original_members_preserved','original_xb_grants_preserved'
+ ];
+ assert.equal(markers.length,21);
+ for(const marker of markers)assert.ok(atomicPost.includes('AS '+marker),marker);
+});
 test('P2 postflight refuses to confuse schema presence with permissions or empty data',()=>{
  for(const marker of [
   'all_seven_business_tables_exist','all_seven_tables_rls_enabled',
@@ -73,6 +92,8 @@ test('P2 isolated PG contract runs both inspections before creating synthetic ch
  const stage008='\\i cloudbase/sql/008_xb_transactions_schema_draft.sql';
  const stage014='\\i cloudbase/sql/014_xb_p2_purchase_postflight_readonly.sql';
  const stage009='\\i cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql';
+ const stage015='\\i cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql';
+ const stage010='\\i cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql';
  const child='INSERT INTO public.xb_children';
  assert.ok(index(before)>0);
  assert.ok(index(before)<index(schema));
@@ -81,6 +102,8 @@ test('P2 isolated PG contract runs both inspections before creating synthetic ch
  assert.ok(index(stage006)<index(stage008));
  assert.ok(index(stage008)<index(stage014));
  assert.ok(index(stage014)<index(stage009));
+ assert.ok(index(stage009)<index(stage015));
+ assert.ok(index(stage015)<index(stage010));
  assert.ok(index(schema)<index(after));
  assert.ok(index(after)<index(child));
  assert.ok(!contract.includes('\\i cloudbase/sql/007_xb_inventory_rpc_draft.sql'));
