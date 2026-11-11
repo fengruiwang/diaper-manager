@@ -39,6 +39,26 @@ INSERT INTO public.family_app_access(family_id,user_uid,app_code,granted_by) VAL
 \i cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql
 \i cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql
 \i cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql
+
+-- Simulate the real CloudBase explicit anonymous EXECUTE grant observed in
+-- 016, only in this disposable PG16 fixture (never in live family DB).
+GRANT EXECUTE ON FUNCTION public.xb_apply_inventory_operation(
+ uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb) TO anon;
+SELECT public.xb_test_assert(
+ has_function_privilege('anon',
+ 'public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb)',
+ 'EXECUTE'),'simulated unexpectedly granted anon EXECUTE');
+\i cloudbase/sql/017_xb_p2_purchase_rpc_acl_repair.sql
+SELECT public.xb_test_assert(
+ NOT has_function_privilege('anon',
+  'public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb)',
+  'EXECUTE')
+ AND has_function_privilege('authenticated',
+  'public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb)',
+  'EXECUTE'),
+ '017 only the logged-in role retains execute permission');
+\i cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql
+\i cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql
 \i cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql
 \i cloudbase/sql/012_xb_p2_postdeploy_readonly.sql
 
