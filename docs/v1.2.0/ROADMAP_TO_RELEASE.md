@@ -102,6 +102,14 @@
 - **下阶段重点**：为新历史表接入正式 SDK 安全分页读取及双账号浏览，然后设计经过审计的采购记录修改/撤销与库存冲正，完善 P2-3E 服务器证明和本地 IndexedDB 原子初始化、离线重试、两设备一致性及正式发布。原 B2 完成收据不等于立即允许旧手机 outbox 上传。
 - 不运行任何真实 SQL、不上传真实备份、不触碰生产 main、v1.1.2 本地数据或现有 CloudBase 业务表。详情：`docs/v1.2.0/P2_4E_B2_ATOMIC_PROMOTION_REVIEW.md`。
 
+## P2-4F-A 已迁移历史与设置的安全分页读取（2026-11-11）
+
+- 新增未部署 SQL `cloudbase/sql/024_xb_legacy_history_read_DRAFT_DO_NOT_DEPLOY.sql`，通过 STABLE SECURITY DEFINER RPC 对**已具备真实完成收据**的旧版历史按交易/报价/成长提供 1–50 条分页，以及只读参考价/计划/用量设置。函数体检查现有登录/家庭 xb 授权、孩子有效、迁移收据两项证明字段和各类历史数量及 SHA 来源，一旦缺失或篡改即拒绝；SQL 本身仍包含 CREATE FUNCTION DDL，**未获许可不可真实执行**。
+- `sync/cloudbase-legacy-history-reader.js` 是未接入正式 PWA 的安全只读 SDK 适配器，客户端验证会话身份、分页完整性/顺序、服务器返回的编辑/上传权限始终为 false；新增 **15 个** SDK Mock 用例，完整 JS **379/379 PASS**，隔离 PostgreSQL 读取/隐私/缺收据/数据篡改阻断合同 PASS。此前 B2 原子迁移及双连接一致性仍 PASS。
+- 旧版历史保持不可修改的迁移依据，新应用查询可以看到原采购/消耗/比价与参考价。**正式采购编辑、历史修订版合成、两台手机实时读取/离线同步仍待实现**；详情 `docs/v1.2.0/P2_4F_A_HISTORY_READ_REVIEW.md`。
+- 下一阶段 P2-4F-B：append-only 历史纠错账本、乐观 revision、幂等操作 ID、修改前后审计；对原有旧购买**只修有效历史视图**、数量/尺码修正后需用户明确确认是否另作当前库存盘点；对迁移后的**实时新购买**才使用原子差额/库存版本校验。不得把旧购买重新加进现存库存。
+- 真实 CloudBase 021–024 全部未安装，`main`、v1.1.2 手机本地记录和真实家庭数据库未更改。本轮无需用户手动测试、上传 JSON 或执行 SQL。
+
 ## 采购编辑（正式版必备）
 
 详细需求见 `PURCHASE_EDIT_CORRECTION_REQUIREMENTS.md`。当前 009 RPC 仅支持 `buy/use/stocktake/reverse`，未实现编辑。页面应提供普通「编辑购买记录」，服务端按字段类型选择不变库存的元数据变更或原子差量库存更新，必须记录修改历史、修改人和时间。
