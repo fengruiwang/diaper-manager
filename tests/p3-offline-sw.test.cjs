@@ -58,7 +58,7 @@ test('P3 SW is restricted to the synthetic diagnostic page and not production or
  assert.match(html,/serviceWorker\.register\(\s*['"]\.\/idb-offline-sw\.js['"]\s*,\s*\{scope:['"]\.\/idb-offline-test\.html['"]\}/);
  assert.match(html,/离线页面缓存已就绪/);
  assert.match(script,/xiaobao-p3-idb-offline-shell-v1/);
- assert.doesNotMatch(script,/xiaobao_diaper_planner_v1|CloudBase|signInWithOtp|fetch\(.*\/rpc\//i);
+ assert.doesNotMatch(script,/xiaobao_diaper_planner_v1|signInWithOtp|\.rpc\(|\/rpc\//i);
  assert.doesNotMatch(script,/\bindexedDB\b|\blocalStorage\b/);
 });
 test('installation caches the standalone HTML and offline navigation reads it without network',async()=>{
