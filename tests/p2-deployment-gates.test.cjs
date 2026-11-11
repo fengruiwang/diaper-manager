@@ -8,13 +8,14 @@ const post=read('cloudbase/sql/012_xb_p2_postdeploy_readonly.sql');
 const capabilities=read('cloudbase/sql/013_xb_p2_capabilities_readonly.sql');
 const purchasePost=read('cloudbase/sql/014_xb_p2_purchase_postflight_readonly.sql');
 const atomicPost=read('cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql');
+const aclDiag=read('cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql');
 const contract=read('tests/postgres/p2_purchase_contract.sql');
 const forbidden=/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|CREATE|GRANT|REVOKE|DO|COPY|CALL|EXECUTE|PERFORM|SET|RESET)\b/i;
 function actualSql(sql){
  return sql.replace(/--[^\n]*/g,'').replace(/'(?:''|[^'])*'/g,"''").trim();
 }
 test('P2 preflight and postflight are single SELECT-only inspection queries',()=>{
- for(const sql of [pre,post,capabilities,purchasePost,atomicPost]){
+ for(const sql of [pre,post,capabilities,purchasePost,atomicPost,aclDiag]){
   const text=actualSql(sql);
   assert.match(text,/^SELECT\s/i);
   assert.equal((text.match(/;/g)||[]).length,1);
@@ -70,6 +71,18 @@ test('P2 stage 009 postflight validates 21 security and empty-data facts',()=>{
  assert.equal(markers.length,21);
  for(const marker of markers)assert.ok(atomicPost.includes('AS '+marker),marker);
 });
+test('P2 016 diagnostic separates explicit ACL grant, effective privilege and CloudBase schema usage',()=>{
+ for(const marker of [
+  'purchase_function_found','authenticated_role_exists',
+  'authenticated_public_schema_usage','effective_authenticated_execute',
+  'effective_anon_execute','explicit_authenticated_execute_grant',
+  'public_execute_grant_present','explicit_anon_execute_grant',
+  'purchase_function_has_default_acl','comparison_alias_authenticated_execute',
+  'purchase_function_owned_by_cloudbase_postgres'
+ ])assert.ok(aclDiag.includes('AS '+marker),marker);
+ assert.match(aclDiag,/pg_catalog\.aclexplode/);
+ assert.doesNotMatch(aclDiag,/\bSELECT\s+\*\s+FROM\s+public\.families\b/i);
+});
 test('P2 postflight refuses to confuse schema presence with permissions or empty data',()=>{
  for(const marker of [
   'all_seven_business_tables_exist','all_seven_tables_rls_enabled',
@@ -93,6 +106,7 @@ test('P2 isolated PG contract runs both inspections before creating synthetic ch
  const stage014='\\i cloudbase/sql/014_xb_p2_purchase_postflight_readonly.sql';
  const stage009='\\i cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql';
  const stage015='\\i cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql';
+ const stage016='\\i cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql';
  const stage010='\\i cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql';
  const child='INSERT INTO public.xb_children';
  assert.ok(index(before)>0);
@@ -103,6 +117,7 @@ test('P2 isolated PG contract runs both inspections before creating synthetic ch
  assert.ok(index(stage008)<index(stage014));
  assert.ok(index(stage014)<index(stage009));
  assert.ok(index(stage009)<index(stage015));
+ assert.ok(index(stage015)<index(stage016));
  assert.ok(index(stage015)<index(stage010));
  assert.ok(index(schema)<index(after));
  assert.ok(index(after)<index(child));
