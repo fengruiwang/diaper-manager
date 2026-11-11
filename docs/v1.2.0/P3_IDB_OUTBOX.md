@@ -24,3 +24,14 @@
 ## 迁移
 
 当前未调用 \`xiaobao_diaper_planner_v1\`、未加载或清空历史 JSON。正式启用前完成完整备份、所有字段映射、首次导入幂等和用户明确授权。
+
+
+## 2026-11-11 v2 原子库存投影升级（覆盖前文 v1 队列表描述）
+
+- \`sync/idb-outbox.js\` 当前 IndexedDB schema 版本为 **2**，在原有 \`operations\` 之外增加 \`inventory_snapshots\`。v1 → v2 为纯增量升级，绝不删除或重新建立原 v1 队列。
+- \`initializeInventory\` 仅供明确提供可信初始快照的开发流程使用，不能把 \`source='verified-server'\` 字符串本身当成真实性证明；存在原快照或未处理旧操作时拒绝重建。
+- \`commitInventory\` 同一 readwrite 事务内更新库存投影和加入唯一 operation_id 的队列事件，**任何一步失败整笔回滚**；重复 ID 和相同参数不再次累计库存；更改金额、账号、数量会拒绝。
+- \`readInventory\` 按家庭、账号和宝宝 ID 查本地快照；切换账号不能混用缓存。
+- 配套纯函数 \`sync/inventory-local-projection.js\` 处理采购、消耗、盘点和本机已经缓存的撤销。旧版原机真实数据不通过该功能自动上传。
+- 接下来的阻断项：真实 Edge 事务验证、旧版单一 localStorage → IDB 的明确迁移、与服务器增量修订重基同步、双手机恢复与线上 CloudBase RLS 测试。
+- SDK 登录状态恢复由独立的 \`sync/cloudbase-session-recovery.js\` 完成，禁止复制访问/刷新令牌到业务缓存。
