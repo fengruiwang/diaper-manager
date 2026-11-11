@@ -21,7 +21,7 @@
 | CloudBase 既有 A/B 双账号与成员权限 | PASS_REAL_6_OF_6 | 用户 2026-11-11 实际验证 A、B1、B2、B3、B4、C 全部通过；不得要求重复创建家庭 |
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
 | P2 真实 CloudBase 业务结构 | P2_1_SCHEMA_PASS_REAL | 011/013 真实预检 18/18；005→006 19/19、008→014 15/15、009→017→015 21/21 + 016 安全 ACL、010→018 20/20、012 12/12 均通过。7 张表全部空、RLS 生效、2 个 RPC 已安装；未开展真机业务调用 |
-| P2-3A 独立只读云端联调 | READY_CODE_ONLY_REAL_PENDING | 已新增 p2-readonly-test.html + p2-readonly-diag.js、Mock SDK 7+ 自动化用例及部署手册；无账号与 A/B 成员的读表及只读 RPC 拒绝探针均未在真实 CloudBase 浏览器执行；未上传静态站点、未写测试业务数据 |
+| P2-3A 独立只读云端联调 | ADMIN_10_OF_10_PASS_ANON_BLOCKED_MEMBER_B_UNCONFIRMED | 用户已在真实 CloudBase 独立测试页执行：管理员已登录检查 10/10 PASS；未手动输入验证码时点击登录成员检查同样 10/10 PASS，但页面报告 SESSION_PRESENT，故属于已有会话而非匿名/另一账号证据；匿名检查 BLOCKED（LOGIN_SESSION_PRESENT_USE_PRIVATE_WINDOW），未实际进行；尚未确认 B 独立账号；无业务写入 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -160,6 +160,18 @@
 - `tests/p2-readonly-browser-diagnostics.test.cjs` 使用纯合成 Fake CloudBase，验证模拟会话、匿名不可见、已有成员访问、非法 RPC 意外成功为 FAIL、无法分类网络错误为 INCONCLUSIVE、不会调用 DML/write-RPC、不会泄露 ID/Token。合成测试不等于真实云端验收。
 - 专用步骤见 `docs/v1.2.0/P2_3A_READONLY_ACCEPTANCE_RUNBOOK.md`。未在真实 CloudBase 新建任何宝宝、库存、采购，未部署测试页面、未合并 main/develop 或更新正式网站。
 - P2-3B/C 虚拟宝宝初始化及模拟采购将涉及真实业务数据库写入，**不在本次“继续”开发授权范围内执行**。
+
+### B.12 2026-11-11 P2-3A 首次真实浏览器反馈（当前最新状态）
+
+- 用户已打开独立 `p2-readonly-test.html` 并反馈三轮诊断。无需重复已成功的管理员 A 已登录检查：
+  1. 点击匿名检查：**BLOCKED**，唯一字段 `anonymous_session=BLOCKED(LOGIN_SESSION_PRESENT_USE_PRIVATE_WINDOW)`；因有当前会话，页面**没有执行匿名表/RPC 检查**，不能记为 anon PASS 或权限漏洞。
+  2. 用户认为“未登录”时点击已登录成员检查：**10/10 PASS**，其中 `authenticated_session=PASS(SESSION_PRESENT)`。CloudBase SDK 已存在持久会话，所以这是**有效的已登录角色**，不能作为匿名测试，也不能把它自动算成 B 账号验收。
+  3. 管理员明确登录后点击已登录成员检查：**10/10 PASS**。包含家庭 1、成员 2、xb 授权 2，四张业务表全部无可见记录、无效宝宝和伪造家庭两次只读 RPC 均返回预期拒绝（`EXPECTED_DENIAL`）。
+- **当前分类：A 管理员已登录 P2-3A 10/10 PASS_REAL；匿名项 BLOCKED（环境已有会话）；B 妻子独立身份 P2-3A 尚未验证。**
+- 根据 CloudBase Web SDK v3 官方指引，`auth.getSession()` / `data.session` 是实际会话状态依据，不以是否在当前页面手工输入 OTP 判断；有会话时匿名测试正确停止。官方文档：<https://docs.cloudbase.net/api-reference/webv3/authentication>。
+- 下一步测试：A 的正式和诊断浏览器均保留会话、不清理 localStorage、不强制退出。为 anon 新建**独立 Chrome 访客浏览器档案**，或关闭**所有**无痕窗口后新开单一无痕窗口（同一无痕会话多标签会共享登录状态），在从未登录的窗口执行匿名检查。预计 7/7 PASS，若仍显示 BLOCKED 原样反馈。
+- B 已有家庭成员的测试仅在配偶本人独立手机/浏览器登录后进行；若已有有效会话直接执行 10 项，不重复验证码。未取得 B 单独反馈前，不能把两次 PASS 归为 A/B 双成员独立实测。
+- 所有检查仅只读。禁止创建测试宝宝、采购、库存，禁止旧版迁移、发布或再执行已经验收的 P2-1 DDL。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
