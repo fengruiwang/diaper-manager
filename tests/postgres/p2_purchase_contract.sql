@@ -63,6 +63,11 @@ SELECT public.xb_test_assert(
 \i cloudbase/sql/018_xb_p2_reconciliation_postflight_readonly.sql
 \i cloudbase/sql/012_xb_p2_postdeploy_readonly.sql
 
+-- P2-3B DRAFT only: install safe test-child RPCs in this disposable
+-- PostgreSQL fixture; real CloudBase deployment is NOT AUTHORIZED.
+\i cloudbase/sql/019_xb_smoke_child_rpc_draft_DO_NOT_DEPLOY.sql
+\i cloudbase/sql/020_xb_smoke_child_postflight_draft_DO_NOT_DEPLOY.sql
+
 SELECT public.xb_test_assert(
  to_regprocedure('public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz)') IS NULL,
  'stock-only 9-arg purchase bypass removed');
