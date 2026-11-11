@@ -71,10 +71,18 @@
 - `cloudbase/sql/020_xb_smoke_child_postflight_draft_DO_NOT_DEPLOY.sql`：18 项只读核验，**隔离 PG16 18/18 true**。不代表真实 CloudBase 已安装任何新 RPC。
 - `tests/postgres/p2_smoke_child_contract.sql`：仅合成 PG16，验证 owner/成员/陌生用户/无授权 owner/anon 的服务器授权和生命周期；不操作真实家庭或历史数据。
 - `tests/p2-smoke-child-draft.test.cjs`：静态防误发布、固定标识、权限限制和检查脚本的代码级断言。
+- `cloudbase/smoke/p2-smoke-preview.html` + `p2-smoke-preview.js`：独立手机浏览器可操作的 12 步**仅内存**演练，覆盖 A/B 60+80、丢 ACK 重发、冲突、读本人回执和停用后拒绝；真实云端按钮禁用，绝无 SDK 或存储调用。
+- `tests/p2-smoke-preview.test.cjs` 与 `docs/v1.2.0/P2_3B_PREVIEW_RUNBOOK.md`：演练模块自动化断言及手机查看说明。
 - 设计审查和未来正式测试前提：`docs/v1.2.0/P2_3B_SMOKE_CHILD_REVIEW.md`。必须先明确风险、测试记录保留和 UI / 迁移排除后，**单独取得用户对真实数据库新增函数与一条虚拟宝宝记录的授权**。
+
+### 2026-11-11 P2-3B 深度复核
+
+- 发现 `019` 创建/停用原先咨询锁键与已部署 `009` 库存写入不同步，存在极端并发窗口。仅修改未部署的 019 为相同的 `xb.inventory.family:` 家庭事务锁键，保证二者序列化；增加静态合同测试，不触碰 CloudBase 真实 009。
+- 019 新函数使用 `CREATE FUNCTION` 而非 `CREATE OR REPLACE FUNCTION`，避免误安装时覆盖同签名函数。
+- 纯内存手机演练页面已交付，但**不是真实 CloudBase 双端同步**。未来必须在单独授权后进行真实创建/采购/幂等/并发、并核实正式宝宝列表与历史迁移排除测试标识。
 
 ## P2-3 当前下一动作
 
-**P2-3B 的 SQL 草案和纯隔离生命周期测试已完成，下一步应在开发分支进行最终安全审查、准备独立的手动测试客户端及数据归档说明**；在取得用户对真实 CloudBase 新增函数与测试宝宝的单独授权以前，不运行 019/020、不创建宝宝、不模拟采购。匿名读取 RPC 拒绝来源仍需后续独立核验。
+**P2-3B 的 SQL 草案、PG16 隔离合同测试以及手机可操作的纯内存演练页面均已完成**。下一个发布前门槛是独立安全审查、真实测试宝宝与正式迁移的过滤设计，以及单独授权真实 CloudBase 测试数据写入；在获得许可前不运行 019/020、不创建宝宝或真实模拟采购。匿名读取 RPC 拒绝来源仍待独立核验。
 
 **注意**：P2-1 的 018 与 012 全 true 是真实数据库静态验收证据，不是任何真实 HTTP/SDK 业务调用的结果。
