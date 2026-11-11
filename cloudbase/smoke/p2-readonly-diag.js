@@ -51,13 +51,15 @@
    return !!(response&&response.data&&response.data.session);
   }
   async function runRead(table,select,modify){
-   let query=db.from(table).select(select);
-   if(modify)query=modify(query);
-   const response=await query.limit(3);
-   if(response&&response.error)return {error:response.error};
-   if(!Array.isArray(response&&response.data))
-    return {error:{code:'INVALID_READ_RESPONSE'}};
-   return {data:response.data};
+   try{
+    let query=db.from(table).select(select);
+    if(modify)query=modify(query);
+    const response=await query.limit(3);
+    if(response&&response.error)return {error:response.error};
+    if(!Array.isArray(response&&response.data))
+     return {error:{code:'INVALID_READ_RESPONSE'}};
+    return {data:response.data};
+   }catch(error){return {error};}
   }
   async function rpcProbe(familyId,childId){
    try{
@@ -75,11 +77,14 @@
     makeStep(name,'PASS',reason):
     makeStep(name,'INCONCLUSIVE',reason);
   }
-  function readEmpty(name,result){
+  function readEmpty(name,result,allowDenial){
    if(result.error){
     const code=diagnosticError(result.error);
-    return /^(?:DATABASE_)?42501$/.test(code)||
-       /^(?:HTTP_)?(?:401|403)$/.test(code)?
+    // Only anonymous probes may treat an access denial as a safe result.
+    // An authenticated member MUST be able to read the permitted table.
+    const denied=/^(?:DATABASE_)?42501$/.test(code)||
+       /^(?:HTTP_)?(?:401|403)$/.test(code);
+    return allowDenial&&denied?
       makeStep(name,'PASS','DENIED_NO_ROWS'):
       makeStep(name,'INCONCLUSIVE','READ_'+code);
    }
@@ -94,9 +99,9 @@
    catch(_){return summary([makeStep('anonymous_session','BLOCKED','SESSION_UNKNOWN')]);}
    if(active)return summary([makeStep('anonymous_session','BLOCKED','LOGIN_SESSION_PRESENT_USE_PRIVATE_WINDOW')]);
    steps.push(makeStep('anonymous_session','PASS','NO_SESSION'));
-   steps.push(readEmpty('anonymous_families',await runRead('families','id')));
+   steps.push(readEmpty('anonymous_families',await runRead('families','id'),true));
    for(const [table,column] of READ_TABLES)
-    steps.push(readEmpty('anonymous_'+table,await runRead(table,column)));
+    steps.push(readEmpty('anonymous_'+table,await runRead(table,column),true));
    steps.push(expectDenial('anonymous_reconciliation_rpc',
     await rpcProbe(null,SAFE_CHILD),'authentication_required'));
    return summary(steps);
@@ -126,7 +131,7 @@
     grants.data.length===2?'TWO_XB_GRANTS_VISIBLE':'EXPECTED_TWO_XB_GRANTS'));
    for(const [table,column] of READ_TABLES)
     steps.push(readEmpty('authenticated_'+table,await runRead(table,column,
-     q=>q.eq('family_id',familyId))));
+     q=>q.eq('family_id',familyId)),false));
    // Reconciliation RPC is SECURITY DEFINER but STABLE / read-only.
    // Probe only with a guaranteed-nonexistent synthetic child. An accepted
    // result would be a security/schema regression, never a test purchase.
