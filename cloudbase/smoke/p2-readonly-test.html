@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>小宝管家 · P2-3A 云端只读诊断</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;color:#243049;background:#f5f6fa}
+*{box-sizing:border-box}body{margin:auto;max-width:720px;padding:22px 14px 50px}
+main{background:white;border:1px solid #dce1ec;border-radius:18px;padding:24px}
+h1{font-size:23px;margin:0 0 10px}h2{font-size:17px;margin:24px 0 8px}
+p{line-height:1.65;color:#526178;font-size:14px}
+label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px}
+input{display:block;width:100%;border:1px solid #cbd3e1;border-radius:9px;padding:11px;font:inherit}
+button{border:0;border-radius:10px;background:#4f62ca;color:#fff;padding:11px 14px;font:inherit;font-weight:600;margin:8px 8px 8px 0;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+.note{border-left:3px solid #bf903b;background:#fffaf0;padding:11px 13px;color:#74572c}
+.step{padding-top:12px;border-top:1px solid #e9edf4}
+#status{white-space:pre-wrap;border-radius:9px;padding:13px;background:#eef1f8;min-height:58px}
+#results{list-style:none;padding:0;margin:10px 0}
+#results li{padding:9px 11px;margin:5px 0;border-radius:8px;background:#f0f3f8;font-size:13px}
+#results li.pass{border-left:3px solid #2c835e}
+#results li.fail{border-left:3px solid #bb443f}
+#results li.pending{border-left:3px solid #b9902d}
+.small{font-size:12px}
+</style>
+</head>
+<body>
+<main>
+<h1>小宝管家 · P2-3A 云端只读诊断</h1>
+<p>此页独立于正式 v1.1.2，专门检查 CloudBase 登录、RLS 只读访问和库存一致性读取 RPC 的拒绝行为。<strong>不会调用采购写入 RPC，不创建宝宝或库存，不读取旧版 localStorage 数据。</strong></p>
+<p class="note">仅使用客户端 Publishable Key，禁止输入服务端 API Key、管理员密码或分享验证码、Token、家庭 UUID。页面仅展示布尔/状态结果，不展示家庭记录。匿名测试请使用新的浏览器无痕窗口；已有登录会话不会被此页自动退出。</p>
+<div class="step">
+<h2>① 连接现有测试环境</h2>
+<label for="envId">CloudBase 环境 ID</label>
+<input id="envId" placeholder="从腾讯云 CloudBase 控制台复制" autocomplete="off" spellcheck="false">
+<label for="publishable">客户端 Publishable Key（只保留在输入时的内存中）</label>
+<input id="publishable" type="password" placeholder="仅客户端公钥" autocomplete="off" spellcheck="false">
+<button type="button" id="connect">连接（不登录、不写数据）</button>
+</div>
+<div class="step">
+<h2>② 匿名安全检查（无痕窗口）</h2>
+<p>确认没有既有登录会话时，读取家庭、新业务表并调用<strong>只读 RPC</strong> 验证拒绝行为。检测到登录会话将直接阻止此项测试，不会为你退出账号。</p>
+<button type="button" id="anon" disabled>检查匿名权限</button>
+</div>
+<div class="step">
+<h2>③ 已有家庭成员登录（A 或 B）</h2>
+<p>如果 SDK 已有有效会话可直接进行第④步；不需要反复登录。只有在会话缺失时才主动请求邮箱验证码。不会创建新用户。</p>
+<label for="email">已有家庭成员的登录邮箱</label>
+<input id="email" type="email" autocomplete="email" placeholder="在本页输入，不输出到结果">
+<button type="button" id="sendOtp" disabled>发送验证码</button>
+<label for="otp">验证码</label>
+<input id="otp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="仅在本页填写" maxlength="8">
+<button type="button" id="verify" disabled>验证登录</button>
+</div>
+<div class="step">
+<h2>④ 家庭成员只读及拒绝检查</h2>
+<p>只读取当前账号所属家庭的记录数量，使用合成的不存在宝宝 ID 测试读取 RPC 的拒绝。不会调用库存写入接口。</p>
+<button type="button" id="member" disabled>检查登录成员权限</button>
+</div>
+<div class="step">
+<h2>检查结果</h2>
+<div id="status" role="status" aria-live="polite">尚未连接。所有操作均需手动点击触发。</div>
+<ul id="results"></ul>
+<p class="small">反馈时仅复制检查名称、PASS/FAIL/INCONCLUSIVE/BLOCKED 和简短错误码。不要提供邮箱、验证码、Session、Key 或真实 UUID。若遇任何 FAIL，请停止后续联调。</p>
+</div>
+</main>
+<script src="./p2-readonly-diag.js"></script>
+<script>
+(function(){
+ 'use strict';
+ const $=id=>document.getElementById(id);
+ let app=null,diag=null,verifyOtp=null,busy=false;
+ function say(message){$('status').textContent=message;}
+ function safeError(error){
+  const code=String(error&&error.code||error&&error.errorCode||error&&error.message||'SDK_ERROR');
+  const allow=/^(?:SDK_[A-Z_]+|DIAG_[A-Z_]+|[A-Za-z0-9_-]{1,48})$/;
+  return allow.test(code)?code:'SDK_ERROR';
+ }
+ function setEnabled(connected){
+  $('anon').disabled=!connected;
+  $('member').disabled=!connected;
+  $('sendOtp').disabled=!connected;
+  $('verify').disabled=!verifyOtp;
+ }
+ function render(report){
+  const ul=$('results');ul.replaceChildren();
+  const title=document.createElement('li');
+  title.className=report.status==='PASS'?'pass':'pending';
+  if(report.status==='FAIL')title.className='fail';
+  title.textContent='总体状态：'+report.status;
+  ul.appendChild(title);
+  for(const item of report.steps){
+   const li=document.createElement('li');
+   li.className=item.status==='PASS'?'pass':item.status==='FAIL'?'fail':'pending';
+   li.textContent=item.name+'：'+item.status+'（'+item.detail+'）';
+   ul.appendChild(li);
+  }
+  say('检查完成：'+report.status+'。仅报告这些状态字段，不要复制完整网络请求日志。');
+ }
+ function loadJs(url){
+  return new Promise((resolve,reject)=>{
+   const sc=document.createElement('script');
+   sc.async=true;sc.src=url;
+   const id=setTimeout(()=>{sc.remove();reject(new Error('SDK_LOAD_TIMEOUT'));},12000);
+   sc.onload=()=>{clearTimeout(id);resolve();};
+   sc.onerror=()=>{clearTimeout(id);sc.remove();reject(new Error('SDK_LOAD_ERROR'));};
+   document.head.appendChild(sc);
+  });
+ }
+ async function ensureSdk(){
+  if(window.cloudbase&&typeof window.cloudbase.init==='function')return;
+  for(const url of [
+   'https://static.cloudbase.net/cloudbase-js-sdk/3.0.1/cloudbase.full.js',
+   'https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js'
+  ]){
+   try{await loadJs(url);if(window.cloudbase&&typeof window.cloudbase.init==='function')return;}
+   catch(_){ /* next trusted CDN version */ }
+  }
+  throw new Error('SDK_UNAVAILABLE');
+ }
+ function run(button,fn){
+  if(busy)return;
+  busy=true;button.disabled=true;
+  Promise.resolve().then(fn).catch(error=>say('操作中止：'+safeError(error)+'。未进行业务写入。'))
+   .finally(()=>{busy=false;if(app)setEnabled(true);else $('connect').disabled=false;});
+ }
+ $('connect').onclick=()=>run($('connect'),async()=>{
+  const env=$('envId').value.trim(),accessKey=$('publishable').value.trim();
+  if(!env||!accessKey){say('请先填写已有的环境 ID 和 Publishable Key。');return;}
+  if(!/^[A-Za-z0-9_-]{3,80}$/.test(env)){say('环境 ID 格式不正确。');return;}
+  if(!window.XBReadonlyCloudDiag||typeof window.XBReadonlyCloudDiag.create!=='function')
+   throw new Error('DIAG_MODULE_MISSING');
+  await ensureSdk();
+  const instance=window.cloudbase.init({env,accessKey,timeout:15000});
+  const helper=window.XBReadonlyCloudDiag.create(instance);
+  app=instance;diag=helper;$('publishable').value='';
+  setEnabled(true);
+  const response=await app.auth.getSession();
+  if(response&&response.error){say('已连接；会话检测失败。请勿开始已登录测试。');return;}
+  say(response&&response.data&&response.data.session?
+   '已连接，并检测到现有登录会话，可直接执行④。匿名检查请另开无痕窗口。':
+   '已连接，无既有登录会话。可先执行②；需要时再使用邮箱验证码登录。');
+ });
+ $('anon').onclick=()=>run($('anon'),async()=>{render(await diag.runAnonymous());});
+ $('member').onclick=()=>run($('member'),async()=>{render(await diag.runAuthenticated());});
+ $('sendOtp').onclick=()=>run($('sendOtp'),async()=>{
+  if(!app){say('请先连接。');return;}
+  const email=$('email').value.trim();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){say('邮箱格式不正确。');return;}
+  const response=await app.auth.signInWithOtp({email,options:{shouldCreateUser:false}});
+  if(response&&response.error)throw response.error;
+  if(!response||!response.data||typeof response.data.verifyOtp!=='function')
+   throw new Error('SDK_OTP_UNAVAILABLE');
+  verifyOtp=response.data.verifyOtp;
+  $('verify').disabled=false;
+  say('验证码已请求。仅在本页填写，不要分享到聊天。');
+ });
+ $('verify').onclick=()=>run($('verify'),async()=>{
+  if(!verifyOtp){say('请先请求验证码。');return;}
+  const token=$('otp').value.trim();
+  if(!/^\d{4,8}$/.test(token)){say('验证码格式不正确。');return;}
+  const response=await verifyOtp({token});
+  if(response&&response.error)throw response.error;
+  $('otp').value='';verifyOtp=null;$('verify').disabled=true;
+  const result=await app.auth.getSession();
+  if(result&&result.error)throw result.error;
+  if(!result||!result.data||!result.data.session){say('校验后尚未读取到有效会话。');return;}
+  say('已有成员登录有效，可运行④。该操作没有创建宝宝或采购。');
+ });
+})();
+</script>
+</body>
+</html>
