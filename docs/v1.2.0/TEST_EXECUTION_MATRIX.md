@@ -14,13 +14,13 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | 216/216 PASS；https://github.com/fengruiwang/diaper-manager/actions/runs/42949668204 |
+| JavaScript 回归 | PASS_AUTOMATED | 220/220 PASS（截至 017 最小权限修复后；018 门槛测试加入后另以最新 CI 为准） |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
 | CloudBase 既有 A/B 双账号与成员权限 | PASS_REAL_6_OF_6 | 用户 2026-11-11 实际验证 A、B1、B2、B3、B4、C 全部通过；不得要求重复创建家庭 |
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
-| P2 真实 CloudBase 业务结构 | STAGE_009_ACL_ANON_GRANTED_REPAIR_PENDING | 005→006 19/19 PASS、008→014 15/15 PASS；009 已安装。015 曾报 authenticated EXECUTE=false/anon EXECUTE=false，后续真实 016 显示 authenticated EXECUTE=true 且显式授权、anon EXECUTE=true 且显式授权。准备 017 仅修正该 RPC ACL；010 禁止安装 |
+| P2 真实 CloudBase 业务结构 | STAGE_009_017_015_016_PASS_REAL_010_PENDING | 005→006 19/19、008→014 15/15 通过；用户执行 017 并反馈 015 21/21 true，016 authenticated EXECUTE=true/显式授权=true、anon EXECUTE=false/显式授权=false，009 权限修复通过。010/018/012 待执行 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -125,6 +125,16 @@
 - **当前需用户只执行 017 一次，然后紧接着执行原 015 和 016（都是只读），提交两份布尔结果。直到真实 015=21/21 true，且 016 中 authenticated=true/anon=false，才允许继续 010。**
 - 官方 CloudBase RPC 文档：<https://docs.cloudbase.net/database/postgresql/rpc> 提醒 HTTP RPC 网关不强制按函数 EXECUTE ACL 限制调用。017 是 PostgreSQL ACL 加固，**不构成端点层匿名隔离证明**；函数内部必须保持 `auth.role()/auth.uid()/can_use_app` 权限校验，后续需要真实 SDK 负面测试。
 - 始终禁止创建测试宝宝、采购/库存数据或迁移真实 v1.1.2 历史；不修改家庭、成员、备注或正式 main/develop。
+
+### B.9 2026-11-11 017 修复后 015/016 真实 CloudBase 验收通过
+
+- 用户完成 017 最小 ACL 修复，并返回 **015 一行 21/21 true**。已确认 10 参数采购 RPC 存在、旧入口无残留、SECURITY DEFINER、登录可执行、匿名不可执行、业务表仍为空、家庭1/成员2/xb授权2保留。
+- 真实 016 返回 `effective_authenticated_execute=true`、`explicit_authenticated_execute_grant=true`、`effective_anon_execute=false`、`explicit_anon_execute_grant=false`、`public_execute_grant_present=false`。
+- 016 `purchase_function_owned_by_cloudbase_postgres=false` 表示函数不属于该特定角色，不是此次验收阻断；`purchase_function_has_default_acl=false` 符合显式授权。
+- **结论：009→017→015→016 完成 PASS_REAL，旧 015 异常关闭。不再重跑 009 或 017。**
+- 已准备 `018_xb_p2_reconciliation_postflight_readonly.sql`：010 安装后的 20 项只读检查，额外确认新的读取 RPC 对 anon 未授权、authenticated 授权有效、函数自身限制读取本人 ACK、库存与原家庭均保持不变。隔离 PG16 **20/20 true**。
+- 接下来仅执行 `010_xb_inventory_reconcile_rpc_draft.sql`（创建读取 RPC）→`018`（20/20 true）→`012`（12/12 true），先检查 018 通过再执行 012。如中途有错误或 false 必须停止。
+- 任何核验通过只证明静态数据库结构与授权，不等于真实 CloudBase SDK、双端同步及离线补传已经通过。没有创建测试宝宝、没有迁移历史业务、没有合并 main/develop。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
