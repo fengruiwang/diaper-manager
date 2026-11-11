@@ -95,7 +95,7 @@
 - 与现有 Outbox runner 和 InventorySyncReader 的合成联调保证：`initialized:false`（**未证明持久库存基线**）时即使请求开启同步也**零业务写入**，返回 `family-not-initialized`。不允许仅凭登录/授权判断数据已初始化。
 - 独立真实 CloudBase 只读测试工具：`cloudbase/smoke/p2-upload-readiness.html` + `p2-upload-readiness-bridge.js` + `sync/cloudbase-access-preflight.js`（三个文件上传至同一 `xb-test/`）。预期 A 和 B 各返回 `AUTH_PASS_UPLOAD_BLOCKED`，四项身份/家庭授权 PASS、上传闸门 BLOCKED。**这不是上传失败，是尚未授权真实写入的正确状态。**
 - 测试方法、完整三文件链接、预期安全状态和脱敏反馈见 `docs/v1.2.0/P2_3C_UPLOAD_READINESS_RUNBOOK.md`；用户要求同样步骤必须在对话中发出。
-- 目前没有对真实 CloudBase 执行上述 P2-3C 浏览器检查，也没有部署虚拟宝宝 SQL 019/020 或修改生产 PWA。真实库存初始化、A/B 采购、购买记录编辑和安全迁移仍是后续独立任务。
+- **P2-3C 只读浏览器检查已取得真实电脑截图及手机相同结果**：两端总体均为 `AUTH_PASS_UPLOAD_BLOCKED`，session/family/member/grant 四项 PASS，upload_gate BLOCKED（安全预期）。两设备能恢复已存在的 SDK 会话，不需要此测试页重新登录；新页面未显示 owner/member 角色，不能仅凭两端结果相同判断两个不同 UID。仍没有部署虚拟宝宝 SQL 019/020、修改生产 PWA 或上传真实库存。真实初始库存基线、A/B 采购、购买记录编辑和安全迁移仍是后续独立任务。
 
 ## P2-3 当前下一动作
 
