@@ -73,13 +73,14 @@
 - `tests/p2-smoke-child-draft.test.cjs`：静态防误发布、固定标识、权限限制和检查脚本的代码级断言。
 - `cloudbase/smoke/p2-smoke-preview.html` + `p2-smoke-preview.js`：独立手机浏览器可操作的 12 步**仅内存**演练，覆盖 A/B 60+80、丢 ACK 重发、冲突、读本人回执和停用后拒绝；真实云端按钮禁用，绝无 SDK 或存储调用。
 - `tests/p2-smoke-preview.test.cjs` 与 `docs/v1.2.0/P2_3B_PREVIEW_RUNBOOK.md`：演练模块自动化断言及手机查看说明。
+- `sync/child-scope-guard.js` + `tests/p2-child-scope-guard.test.cjs`：未来正式云端宝宝显示和 v1.1.2 历史迁移的**默认拒绝**分类守卫，缺失 `legacy_slot/deleted_at` 即阻断，排除测试和停用宝宝，迁移必须指定未停用的 `primary`。尚未集成正式 PWA。
 - 设计审查和未来正式测试前提：`docs/v1.2.0/P2_3B_SMOKE_CHILD_REVIEW.md`。必须先明确风险、测试记录保留和 UI / 迁移排除后，**单独取得用户对真实数据库新增函数与一条虚拟宝宝记录的授权**。
 
 ### 2026-11-11 P2-3B 深度复核
 
 - 发现 `019` 创建/停用原先咨询锁键与已部署 `009` 库存写入不同步，存在极端并发窗口。仅修改未部署的 019 为相同的 `xb.inventory.family:` 家庭事务锁键，保证二者序列化；增加静态合同测试，不触碰 CloudBase 真实 009。
 - 019 新函数使用 `CREATE FUNCTION` 而非 `CREATE OR REPLACE FUNCTION`，避免误安装时覆盖同签名函数。
-- 纯内存手机演练页面已交付，但**不是真实 CloudBase 双端同步**。未来必须在单独授权后进行真实创建/采购/幂等/并发、并核实正式宝宝列表与历史迁移排除测试标识。
+- 纯内存手机演练页面已交付，且设计了 fail-closed 的测试宝宝筛选守卫，但**不是真实 CloudBase 双端同步，也未接入正式 UI**。未来必须在单独授权后进行真实创建/采购/幂等/并发、并核实正式宝宝列表与历史迁移排除测试标识。
 
 ## P2-3 当前下一动作
 
