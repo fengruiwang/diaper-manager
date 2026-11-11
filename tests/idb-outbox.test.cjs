@@ -24,15 +24,15 @@ function fakeIndexedDB(){
     let backing=databases.get(name),fresh=!backing;
     if(fresh){backing={records:new Map(),indexes:new Set()};databases.set(name,backing);}
     const db={
-     objectStoreNames:{contains:n=>n==='operations'&&!fresh||backing.indexes.has('operations')},
+     objectStoreNames:{contains:n=>backing.indexes.has(n)},
      createObjectStore(n){
-      if(n!=='operations')throw Error('unexpected store');
-      backing.indexes.add('operations');
+      if(!['operations','inventory_snapshots'].includes(n))throw Error('unexpected store');
+      backing.indexes.add(n);
       return {createIndex(index){backing.indexes.add(index)}};
      },
      close(){},
-     transaction(name,mode){
-      if(name!=='operations')throw Error('unexpected store');
+     transaction(names,mode){
+      if(!Array.isArray(names)||names.length!==1||names[0]!=='operations')throw Error('unexpected store');
       let copy=new Map([...backing.records].map(([k,v])=>[k,clone(v)]));
       let outstanding=0,aborted=false,finished=false;
       const tx={oncomplete:null,onabort:null,onerror:null,abort(){
