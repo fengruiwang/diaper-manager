@@ -42,9 +42,12 @@
    const visible=await select('families','id',[['id',familyId]],2);
    if(visible.length!==1||visible[0].id!==familyId)
     fail('family_access_denied');
+   // Do not hard-code the current 2-member household into future releases.
+   // RLS checks the caller's app access; more family members may be added later.
    const grants=await select('family_app_access','app_code',
-    [['family_id',familyId],['app_code','xb']],3);
-   if(grants.length===0||grants.length>2||grants.some(row=>row.app_code!=='xb'))
+    [['family_id',familyId],['app_code','xb']],MAX_CHILDREN+1);
+   if(grants.length===0||grants.length>MAX_CHILDREN
+      ||grants.some(row=>row.app_code!=='xb'))
     fail('app_access_denied');
   }
   async function load({familyId}={}){
