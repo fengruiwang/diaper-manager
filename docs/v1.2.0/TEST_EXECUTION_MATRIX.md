@@ -23,7 +23,7 @@
 | P2 真实 CloudBase 业务结构 | P2_1_SCHEMA_PASS_REAL | 011/013 真实预检 18/18；005→006 19/19、008→014 15/15、009→017→015 21/21 + 016 安全 ACL、010→018 20/20、012 12/12 均通过。7 张表全部空、RLS 生效、2 个 RPC 已安装；未开展真机业务调用 |
 | P2-3A 独立只读云端联调 | A_B_BOTH_PASS_ANON_RPC_ORIGIN_INCONCLUSIVE | 真实管理员 A 10/10 PASS；用户反馈老婆以自己的账号运行检查项全部 PASS，按 B 已登录 10/10 PASS 存档（未逐项抄录）；手机新浏览器的匿名 6/7 PASS，剩余只读 RPC 为 DENIED_UNCLASSIFIED，证明请求被拒绝但拒绝来源未确认；未写入宝宝、库存和采购 |
 | P2-3B 虚拟宝宝受控初始化 | MEMORY_BROWSER_12_OF_12_PASS_REAL_CLOUD_UNTOUCHED | 用户 2026-11-11 反馈已在真实网页端测试 p2-smoke-preview 的全部 12 步，全部 PASS（未逐项转录）；该结果仅为真实浏览器内存模拟，**不代表真实云端购买/库存**。019/020 仍仅隔离 PG16 18/18 true，未在 CloudBase 安装、未写宝宝/库存/采购，尚无 P2-3B 写入授权 |
-| P2-3C 库存上传前置检查 | CODE_AND_MOCK_269_PASS_LIVE_READONLY_PENDING | 新增 sync/cloudbase-access-preflight.js：匹配 SDK 有效登录 UID、RLS 可见家庭与本人成员/xb 授权；initialized 永远 false，现有库存 Outbox runner / sync reader 即使允许启用参数也必须停止在 family-not-initialized。新增 P2-3C read-only 网页和 3 文件验收说明，尚未真实运行、未写业务数据 |
+| P2-3C 库存上传前置检查 | PC_AND_PHONE_READONLY_PASS_UPLOAD_BLOCKED | 用户提供真实浏览器截图：session PASS(SESSION_PRESENT)、family PASS(ONE_VISIBLE_FAMILY)、member PASS(MEMBERSHIP_VERIFIED)、grant PASS(XB_GRANT_VERIFIED)、upload_gate BLOCKED(DURABLE_BASELINE_NOT_VERIFIED)，总体 AUTH_PASS_UPLOAD_BLOCKED；用户反馈手机侧相同。两端均存在已有 SDK 登录会话，无需本页重新登录；未显示账号角色，因此不能仅由两端同结果断言是不同 UID。未上传库存/历史或安装 019/020 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -235,6 +235,15 @@
 - `tests/p2-cloudbase-access-preflight.test.cjs` + `tests/p2-upload-readiness.test.cjs` 合成测试通过，累计 **269/269 JS PASS**、PG16 合同 PASS。前置检查真实 CloudBase SDK 浏览器验收仍 `LIVE_PENDING`。
 - 本轮后续需要用户真实测试时，在对话正文直接交付三个文件链接、`xb-test/` 目录位置、点击步骤、预期 `AUTH_PASS_UPLOAD_BLOCKED` 和五项字段、脱敏反馈方法；完整文档 `docs/v1.2.0/P2_3C_UPLOAD_READINESS_RUNBOOK.md`。
 - 仍无 P2-3B 虚拟宝宝 SQL/测试数据写入授权：不部署 019/020、不模拟真实采购、不更改 main/develop 或正式 v1.1.2、不迁移本地历史。
+
+### B.20 2026-11-11 P2-3C 电脑截图与手机实测，双端前置检查符合预期
+
+- 用户截图清楚显示：总体 **`AUTH_PASS_UPLOAD_BLOCKED`**；`session PASS(SESSION_PRESENT)`、`family PASS(ONE_VISIBLE_FAMILY)`、`member PASS(MEMBERSHIP_VERIFIED)`、`grant PASS(XB_GRANT_VERIFIED)`、`upload_gate BLOCKED(DURABLE_BASELINE_NOT_VERIFIED)`。用户反馈手机端也得到相同结果。
+- **正确验收分类：P2-3C 两个浏览器端真实 SDK/RLS 只读核验通过；上传安全闸门按设计保持关闭。** 这是合格状态，`BLOCKED` 不是错误。尚未证明 IDB 与服务器库存初始快照一致，也不代表真实两人购买/同步可用。
+- 用户表示没看到登录账号步骤：本页**设计上没有登录入口**，只调用 `getSession()` 检查有效会话。电脑/手机两侧均有 `SESSION_PRESENT` 且后续真实 RLS 读通过，所以无需此页再次发送 OTP；会话持久化的多日/过期/刷新行为仍需独立生命周期测试。
+- **区分身份**：此前 P2-3A 已分别得到夫妻 A/B 两账号 10/10 PASS，但本轮新页面仅报告权限结果，不显示角色或 UID。因此“电脑与手机结果相同”本身不能独立证明本轮是在两种不同身份下执行；下一版诊断可仅展示 `owner/member` 角色而不泄漏 UID，避免用户为了证明身份再执行无意义登录。
+- 用户不需要重测本轮 P2-3C、不需要再传任何文件或运行 SQL。真实 CloudBase 仍不允许未经新授权写入虚拟宝宝、采购和历史迁移；不改正式 `main` 与 v1.1.2 本地存储。
+- 接下来准备**服务器库存六尺码与 IndexedDB outbox 的安全初始基线握手**，必须能拒绝既有待同步操作、不一致 revision、错误家庭/child 或过期权限，不能人为把 `initialized` 改成 true 来放行真实上传。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
