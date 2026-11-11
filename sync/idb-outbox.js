@@ -40,7 +40,7 @@
    createdAt:op.createdAt});
  }
  function clone(x){return JSON.parse(JSON.stringify(x));}
- function create({indexedDB:factory,contract,projection=null,dbName=DB_NAME}={}){
+ function create({indexedDB:factory,contract,projection=null,reconciler=null,dbName=DB_NAME}={}){
   if(!factory||typeof factory.open!=='function')fail('indexeddb_unavailable');
   if(!contract||typeof contract.createOperation!=='function'
     ||typeof contract.applyResult!=='function')fail('contract_required');
@@ -297,7 +297,79 @@
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,stats,initializeInventory,readInventory,commitInventory});
+
+  function requiredReconciler(){
+   if(!reconciler||typeof reconciler.build!=='function')
+    fail('reconciler_required');
+  }
+  // The caller must request ALL IDs, including already-ACKed IDs, from the
+  // server. Never truncate to 50: that could silently erase evidence that a
+  // previously confirmed cloud operation has disappeared.
+  async function reconciliationIds(scopeInput,childId){
+   const scope=scopeOf(scopeInput),child=id(childId,'child_id');
+   const rows=await list(scope,{includeAcked:true});
+   const matches=rows.filter(row=>row.payload?.childId===child);
+   if(matches.length>50)fail('reconciliation_requires_pagination');
+   return matches.map(row=>row.id);
+  }
+  // Runs only AFTER explicit authenticated server snapshot read.
+  // No legacy localStorage writes; both the local projection and all receipt
+  // ACKs commit or roll back together. A changed local queue after the remote
+  // read causes 'stale_checked_set', not an overwrite of a newer local edit.
+  async function reconcileInventory(scopeInput,childId,response){
+   requiredReconciler();
+   const scope=scopeOf(scopeInput),child=id(childId,'child_id');
+   const key=identityKey(scope,child);
+   return run('readwrite',(opsStore,complete,abort,tx)=>{
+    const snaps=tx.objectStore(SNAPSHOTS);
+    const pendingReq=opsStore.index('by_identity').getAll([scope.familyId,scope.actorUid]);
+    pendingReq.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    pendingReq.onsuccess=()=>{
+     const scoped=(pendingReq.result||[]).filter(op=>op.payload?.childId===child);
+     if(scoped.length>50){
+      abort(new Error('outbox_store:reconciliation_requires_pagination'));return;
+     }
+     const snapReq=snaps.get(key);
+     snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+     snapReq.onsuccess=()=>{
+      if(!snapReq.result){
+       abort(new Error('outbox_store:snapshot_not_initialized'));return;
+      }
+      let plan,updates;
+      try{
+       plan=reconciler.build({snapshot:snapReq.result,operations:scoped,response});
+       const seen=new Set(plan.acknowledgedIds);
+       updates=scoped.filter(op=>seen.has(op.id)).map(op=>{
+        const updated=contract.applyResult(op,{kind:'accepted',receiptId:op.id});
+        if(updated.id!==op.id||updated._signature!==op._signature
+          ||updated.actorUid!==op.actorUid||updated.familyId!==op.familyId)
+         fail('reconcile_operation_identity_changed');
+        return updated;
+       });
+      }catch(e){abort(e);return;}
+      const stored={...plan.snapshot,key};
+      const total=1+updates.length;
+      let completed=0;
+      const success=()=>{
+       completed++;
+       if(completed===total)complete({
+        snapshot:stored,acknowledgedIds:plan.acknowledgedIds,
+        pendingCount:plan.pendingCount,status:plan.status
+       });
+      };
+      const snapshotWrite=snaps.put(stored);
+      snapshotWrite.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      snapshotWrite.onsuccess=success;
+      for(const row of updates){
+       const write=opsStore.put(row);
+       write.onerror=()=>abort(new Error('outbox_store:receipt_write_failed'));
+       write.onsuccess=success;
+      }
+     };
+    };
+   },[STORE,SNAPSHOTS]);
+  }
+  return Object.freeze({enqueue,get,list,ready,recordResult,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;
