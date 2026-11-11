@@ -96,6 +96,9 @@ DECLARE
  v_history_count integer;
  v_weight_count integer;
  v_stock_total bigint:=0;
+ v_historical_purchase_fen bigint:=0;
+ v_historical_bought_pieces bigint:=0;
+ v_historical_used_pieces bigint:=0;
  v_settings jsonb;
  v_exported_at timestamptz;
  v_receipt_counts jsonb;
@@ -285,6 +288,18 @@ BEGIN
  WHERE family_id=p_family_id AND child_id=p_child_id
    AND record_kind='weight';
 
+ -- Old purchases are a financial ledger only. Amounts are checked but
+ -- are NEVER converted into new live inventory deltas.
+ SELECT COALESCE(sum((item.value->>'price')::numeric*100),0)::bigint,
+        COALESCE(sum((item.value->>'pieces')::integer),0)::bigint
+ INTO v_historical_purchase_fen,v_historical_bought_pieces
+ FROM jsonb_array_elements(v_state->'transactions') item(value)
+ WHERE item.value->>'type'='buy';
+ SELECT COALESCE(sum((item.value->>'pieces')::integer),0)::bigint
+ INTO v_historical_used_pieces
+ FROM jsonb_array_elements(v_state->'transactions') item(value)
+ WHERE item.value->>'type'='use';
+
  v_settings:=v_state - 'inventory' - 'transactions' - 'quotes'
    - 'weightRecords' - 'babyProfile';
  INSERT INTO public.xb_legacy_settings(
@@ -326,6 +341,9 @@ BEGIN
    'migration_schema','legacy-history-v1',
    'inventorySizes',6,'stockUnits',v_stock_total,
    'transactions',jsonb_array_length(v_state->'transactions'),
+   'historicalPurchaseFen',v_historical_purchase_fen,
+   'historicalBoughtPieces',v_historical_bought_pieces,
+   'historicalUsedPieces',v_historical_used_pieces,
    'quotes',jsonb_array_length(v_state->'quotes'),
    'weightRecords',v_weight_count,'historyEntries',v_history_count,
    'referenceOverrides',
