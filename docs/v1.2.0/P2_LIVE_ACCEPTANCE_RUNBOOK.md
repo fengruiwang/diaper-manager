@@ -8,7 +8,7 @@
 - P3 虚拟 IndexedDB 库存、断网录入、离线刷新/重开、模拟 ACK：用户反馈 D1 + D2a/D2b/D2c 全部通过。
 - 这些**不等于真实 CloudBase 业务数据双端同步已经通过**。
 
-## P2-0 — 首次部署前只读预检（当前需要执行）
+## P2-0 — 首次部署前只读预检（真实 CloudBase 11/11 已通过）
 
 1. 使用腾讯云 CloudBase **现有** `xiaobao-family` 环境的 PostgreSQL SQL 控制台；不要创建新的环境或新的家庭，不要在客户端网页粘贴管理员数据库凭证。
 2. 打开 GitHub 开发分支 `cloudbase/sql/011_xb_p2_predeploy_readonly.sql` 并完整复制到 SQL 编辑器。
@@ -17,6 +17,16 @@
 5. 向开发对话反馈“11/11 true”即可；有 false 则仅提供字段名及 true/false，不要自行运行修复 SQL、不要泄露家庭 UUID、邮箱或凭证。
 
 本检查不会触发迁移，不更改库存，也不授予后续写入操作权限。
+
+**真实结果（2026-11-11）**：用户已执行 011，11 项全部为 true。该步骤标记 PASS_REAL，不需要重新运行。
+
+### P2-0b — CloudBase 环境函数能力只读预检（新增）
+
+真实 CloudBase 与 GitHub CI 的 PostgreSQL 16 容器可能有不同的系统函数或限制。因此在首次执行任何 DDL 之前，运行 `cloudbase/sql/013_xb_p2_capabilities_readonly.sql`：它只有一条 SELECT，不接触家庭私有资料，不创建业务表。
+
+预期返回一行 **7 个 true**，依次核对 PostgreSQL 版本、SHA-256、UUID、家庭锁哈希、事务级咨询锁、auth.claim 函数和家庭 xb 权限函数。任何 false **立即停止**，不要继续 005/008/009/010。
+
+单独通过 013 **不等于授权部署**。即便 11 + 7 项全部通过，仍须取得用户明确同意才能执行数据库 DDL。
 
 ## P2-1 — 待正式审批的首次安装（尚未执行）
 
@@ -30,6 +40,7 @@
 | 顺序 | 文件 | 行为 | 是否会写 schema |
 |---|---|---|---|
 | 0 | 011_xb_p2_predeploy_readonly.sql | 检查已有家庭与未部署状态 | 否 |
+| 0b | 013_xb_p2_capabilities_readonly.sql | 验证实际 CloudBase RPC 运行依赖（7 项） | 否 |
 | 1 | 005_xb_core_schema_draft.sql | 仅建空宝宝、体重、库存、事件、迁移收据表 | 是，必须先审批 |
 | 2 | 006_xb_core_schema_postflight.sql | 检查空表、RLS、现有家庭不变 | 否 |
 | 3 | 008_xb_transactions_schema_draft.sql | 创建空采购历史表 | 是，必须先审批 |
