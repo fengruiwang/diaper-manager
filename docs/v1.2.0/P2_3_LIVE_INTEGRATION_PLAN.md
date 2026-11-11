@@ -1,6 +1,6 @@
 # 小宝管家 v1.2.0 — P2-3 真实 CloudBase 业务联调方案（草案）
 
-日期：2026-11-11。状态：**P2-3A 已取得真实 A 管理员 10/10、B 家庭成员 10/10 已登录只读 PASS；匿名 6 项 PASS、读取 RPC 拒绝来源仍 INCONCLUSIVE。P2-3B/C 真实业务数据写入尚未获授权。**
+日期：2026-11-11。状态：**P2-3A 已取得真实 A/B 双账号各 10/10 已登录只读 PASS；匿名只读 RPC 拒绝来源仍 INCONCLUSIVE。P2-3B 已完成受控测试宝宝 RPC 草案与 PG16 合同测试（020 18/18 true），但真实 CloudBase 部署及所有 P2-3B/C 业务写入仍未获授权。**
 
 ## 已完成的前置基础
 
@@ -65,8 +65,16 @@
 - **用户已手动上传诊断文件至 CloudBase 静态测试目录并运行真实 SDK/HTTP 只读检查**；正式生产 PWA 没有更新，未写入宝宝或库存。
 - A/B 两名真实家庭成员的已登录只读路径已通过，anon 6 项通过但 RPC 拒绝来源仍未分类。不得把该项计为 7/7 完全通过，更不能因此启动未经授权的虚拟宝宝或购买数据写入。
 
+## P2-3B 实际开发交付（仅离线设计和模拟数据库）
+
+- `cloudbase/sql/019_xb_smoke_child_rpc_draft_DO_NOT_DEPLOY.sql`：准备 `xb_create_smoke_child` 与 `xb_retire_smoke_child`，仅当前家庭 owner 有权运行。使用固定 `__xb_smoke_v1__` 测试标识，幂等创建、每户一个、软停用且不可复活。文件只是 SQL 草案，尚未运行真实 CloudBase。
+- `cloudbase/sql/020_xb_smoke_child_postflight_draft_DO_NOT_DEPLOY.sql`：18 项只读核验，**隔离 PG16 18/18 true**。不代表真实 CloudBase 已安装任何新 RPC。
+- `tests/postgres/p2_smoke_child_contract.sql`：仅合成 PG16，验证 owner/成员/陌生用户/无授权 owner/anon 的服务器授权和生命周期；不操作真实家庭或历史数据。
+- `tests/p2-smoke-child-draft.test.cjs`：静态防误发布、固定标识、权限限制和检查脚本的代码级断言。
+- 设计审查和未来正式测试前提：`docs/v1.2.0/P2_3B_SMOKE_CHILD_REVIEW.md`。必须先明确风险、测试记录保留和 UI / 迁移排除后，**单独取得用户对真实数据库新增函数与一条虚拟宝宝记录的授权**。
+
 ## P2-3 当前下一动作
 
-**现阶段已完成 A/B 独立账号的真实只读联调**；下一步可在隔离测试环境设计虚拟宝宝专用 RPC、鉴权/重复创建限制与可审计关闭流程，任何真实 CloudBase 测试数据写入都要单独申请。匿名 RPC 的拒绝来源仍需后续独立核验。
+**P2-3B 的 SQL 草案和纯隔离生命周期测试已完成，下一步应在开发分支进行最终安全审查、准备独立的手动测试客户端及数据归档说明**；在取得用户对真实 CloudBase 新增函数与测试宝宝的单独授权以前，不运行 019/020、不创建宝宝、不模拟采购。匿名读取 RPC 拒绝来源仍需后续独立核验。
 
 **注意**：P2-1 的 018 与 012 全 true 是真实数据库静态验收证据，不是任何真实 HTTP/SDK 业务调用的结果。
