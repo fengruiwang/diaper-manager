@@ -39,3 +39,6 @@ jobs:
       - name: Verify same-source P2-4E-B1 archive idempotency with two independent PostgreSQL sessions
         run: |
           bash tests/postgres/p2_legacy_archive_concurrency.sh
+      - name: Verify P2-4E-B2 same-source promotion with two independent PostgreSQL sessions
+        run: |
+          bash tests/postgres/p2_legacy_promotion_concurrency.sh
