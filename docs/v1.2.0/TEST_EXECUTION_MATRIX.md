@@ -14,7 +14,7 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | P2-3B 独立模拟演练与 smoke 子表投影防护加入后，GitHub Actions 回归 **245/245 PASS**；纯模拟/代码级证明，不能取代真实 CloudBase 测试 |
+| JavaScript 回归 | PASS_AUTOMATED | 新增只读家庭宝宝列表过滤、迁移目标强制预检、未来新增家庭成员兼容性回归后，GitHub Actions **254/254 PASS**（截至最新代码提交，最终文档提交 CI 单独核实）；不替代真实 CloudBase 测试 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
@@ -216,6 +216,15 @@
 - 用户明确提出后期购买录入错误需要**支持编辑已存购买信息**：品牌/系列/日期/价格为元数据修改、数量/尺码为事务差量库存调整，需要追踪修订历史、冲突、幂等和两端一致性。现有已部署 009 只有 `buy/use/stocktake/reverse`，**还没有云端编辑 API**。新增完整需求文档 `docs/v1.2.0/PURCHASE_EDIT_CORRECTION_REQUIREMENTS.md`，要求正式发布前实现和验证，不承诺现已支持。
 - 用户明确要求：**后续每次发送测试任务时，在聊天对话正文同时给出测试文件直接链接、测试页面上传位置/地址、逐步操作步骤、预期结果、错误反馈格式和安全注意事项**，不可只把步骤写在 GitHub MD 后让用户自己寻找。
 - 仍维持不触碰 v1.1.2 旧版历史、只在 Feature 开发、非授权不在真实 CloudBase 写测试宝宝/采购或迁移数据的闸门。
+
+### B.18 2026-11-11 六阶段开发路线图与只读宝宝列表接口
+
+- 新增总体开发计划：`docs/v1.2.0/ROADMAP_TO_RELEASE.md`；阶段依次为受控测试环境、真实 A/B 库存采购、采购后编辑、全业务云端同步、旧版历史可恢复迁移、PWA 集成验收与发布。
+- 用户要求的**采购记录修改、历史数据兼容、长效会话、后续测试文件及步骤直接通过对话发送**已固定为阶段验收和发布要求。
+- 开发分支新增 `sync/cloudbase-child-reader.js` + `tests/p2-cloudbase-child-reader.test.cjs`：在有有效登录、当前家庭可见和 xb 应用授权时只读宝宝行，查询强制包括 `legacy_slot` 与 `deleted_at`，使用既有 `child-scope-guard` 排除 smoke 及停用宝宝；无会话、无授权、不完整字段、重复 ID 等错误不当作“零宝宝成功”。
+- 历史迁移目标仅限 **活跃的 `primary`**，`inspectLegacyTarget` 返回 `readyForMigration:false`，不会自动写入或替换 v1.1.2 历史；后续须单独完成数据恢复方案与迁移授权。
+- 兼容后续新增家庭成员，不写死当前两个 xb grant 的数量；Mock SDK 用例包含三位成员的家庭扩展。
+- CI JavaScript 254/254、PG16 合同已通过（以 8dfa197c0a2d 为代码验收基准）；尚未导入正式 v1.1.2 / main，不创建真实测试宝宝、采购或历史迁移。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
