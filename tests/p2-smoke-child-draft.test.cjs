@@ -45,13 +45,23 @@ test('P2-3B function body checks authenticated identity, owner, xb authorization
   "RETURN jsonb_build_object('child_id'","revision=revision+1"
  ])assert.ok(draft.includes(marker),marker);
  for(const marker of [
-  "CREATE OR REPLACE FUNCTION public.xb_create_smoke_child(p_family_id uuid)",
-  "CREATE OR REPLACE FUNCTION public.xb_retire_smoke_child(",
+  "CREATE FUNCTION public.xb_create_smoke_child(p_family_id uuid)",
+  "CREATE FUNCTION public.xb_retire_smoke_child(",
   "FROM PUBLIC,anon","TO authenticated;"
  ])assert.ok(draft.includes(marker),marker);
  assert.match(draft,/LANGUAGE plpgsql VOLATILE SECURITY DEFINER/g);
 });
 
+test('P2-3B create and retire serialize with production 009 inventory family transaction lock',()=>{
+ const prod=read('cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql');
+ const lockKey='xb.inventory.family:';
+ assert.ok(prod.includes(lockKey),'existing 009 lock key is authoritative');
+ assert.equal(draft.split(lockKey).length-1,2,'both new smoke RPCs use the SAME family key');
+ assert.ok(!draft.includes('xb:smoke-v1:'),'must never use a different advisory lock domain');
+ assert.doesNotMatch(draft,/CREATE OR REPLACE FUNCTION/i);
+ assert.match(draft,/CREATE FUNCTION public\.xb_create_smoke_child/);
+ assert.match(draft,/CREATE FUNCTION public\.xb_retire_smoke_child/);
+});
 test('P2-3B postflight validates eighteen schema, ACL, no-write and family-preservation facts',()=>{
  const flags=[
   'smoke_create_rpc_exists','smoke_retire_rpc_exists',
