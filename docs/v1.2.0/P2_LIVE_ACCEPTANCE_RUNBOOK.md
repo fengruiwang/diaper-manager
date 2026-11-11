@@ -30,12 +30,24 @@
 
 这不等于授权部署。即便 11 + 7 项全部通过，仍须取得用户对 005/008/009/010 数据库 DDL 的**明确同意**。
 
-## P2-1 — 待正式审批的首次安装（尚未执行）
+## P2-1 — 已获限定授权，待核实恢复路径（尚未执行）
 
-两项真实预检均已通过。开始实际安装前仍需单独确认：
-- 用户是否允许在现有 CloudBase `xiaobao-family` PostgreSQL 里创建**空业务表**、安全 RPC；不会导入历史数据，**不会创建真实或测试宝宝**。
+2026-11-11 用户明确授权：**仅在现有 `xiaobao-family` PostgreSQL 执行 005/008/009/010 的空业务表、RLS、2 个 RPC，并执行 006/012 核验**。明确禁止真实历史数据迁移、虚拟/真实宝宝创建、向 main/develop 合并、生产发布。**授权不意味着现在可执行 DDL：用户要求先证实备份与恢复能力。当前 BACKUP_GATE=PENDING。**
+
+两项真实预检均已通过（011=11/11，013=7/7）。开始实际安装前仍需单独确认：
+- 用户已授权在现有 CloudBase `xiaobao-family` PostgreSQL 里创建**空业务表**、安全 RPC；不会导入历史数据，**不会创建真实或测试宝宝**，但仅能在备份/恢复闸门通过后执行。
 - 检查既有家庭为 1、成员为 2、xb 授权为 2；确认没有 P2 旧表和 007 旧接口，且 CloudBase 环境可备份/恢复 schema。
 - 审核 `005`、`008`、`009`、`010` 的完整 SQL 与权限边界及失败回退方案；**每个 DDL 是真实数据库写操作，必须明确同意**。
+
+**备份恢复前置检查（当前优先）**
+
+1. CloudBase PG 模式不能使用传统文档数据库回档功能，必须以 PostgreSQL 备份恢复链路为准：https://docs.cloudbase.net/database/backup
+2. 在 CloudBase `xiaobao-family` → PostgreSQL 数据库 → 配置，先确认共享/独享实例类型与是否有备份入口。云开发控制台可见功能以实际界面为准：https://docs.cloudbase.net/database/postgresql/database-management
+3. 若能访问腾讯云 PostgreSQL 实例，核对与 CloudBase 环境的真实关联及最近成功备份；如支持手动备份，确认备份完成并记录时间、恢复方式（不泄露实例 ID）。官方参考：https://cloud.tencent.com/document/product/409/33945 和 https://cloud.tencent.com/document/product/409/68277
+4. 若无法找到/使用备份入口，标记 BACKUP_GATE=BLOCKED，**不执行 005/008/009/010**，不因“物理数据库有自动备份的说法”而默认可恢复，也不擅自升级共享实例。
+5. 备份可能是整实例级别、克隆恢复也可能产生新实例和费用。当前 CloudBase 的 `auth`、`storage` 与业务数据可能共用 PostgreSQL，不得为回退 P2 随意重放整库覆盖既有身份及家庭资料。
+6. 一旦备份方案可操作，需留存备份完成状态、可恢复时间点与进入恢复流程的入口。**只查看恢复方案，不执行真正恢复。**
+7. 旧版 v1.1.2 本地 JSON 备份仅是额外保护，不能代替 PostgreSQL 实例备份。
 
 审批后按下列顺序执行（不可跳过或调换）：
 
