@@ -9,6 +9,9 @@ const capabilities=read('cloudbase/sql/013_xb_p2_capabilities_readonly.sql');
 const purchasePost=read('cloudbase/sql/014_xb_p2_purchase_postflight_readonly.sql');
 const atomicPost=read('cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql');
 const aclDiag=read('cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql');
+const aclRepair=read('cloudbase/sql/017_xb_p2_purchase_rpc_acl_repair.sql');
+const rpcSql=read('cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql');
+const reconcileSql=read('cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql');
 const contract=read('tests/postgres/p2_purchase_contract.sql');
 const forbidden=/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|CREATE|GRANT|REVOKE|DO|COPY|CALL|EXECUTE|PERFORM|SET|RESET)\b/i;
 function actualSql(sql){
@@ -82,6 +85,18 @@ test('P2 016 diagnostic separates explicit ACL grant, effective privilege and Cl
  ])assert.ok(aclDiag.includes('AS '+marker),marker);
  assert.match(aclDiag,/pg_catalog\.aclexplode/);
  assert.doesNotMatch(aclDiag,/\bSELECT\s+\*\s+FROM\s+public\.families\b/i);
+});
+test('P2 scoped repair 017 denies anon and keeps authenticated without touching business rows',()=>{
+ assert.match(aclRepair,/^\s*--[^\n]*\n[\s\S]*?BEGIN;/);
+ assert.match(aclRepair,/REVOKE EXECUTE ON FUNCTION public\.xb_apply_inventory_operation\([\s\S]*?\) FROM PUBLIC, anon;/);
+ assert.match(aclRepair,/GRANT EXECUTE ON FUNCTION public\.xb_apply_inventory_operation\([\s\S]*?\) TO authenticated;/);
+ assert.doesNotMatch(actualSql(aclRepair),/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|CREATE TABLE)\b/i);
+ assert.match(rpcSql,/\) FROM PUBLIC, anon;\s*GRANT EXECUTE ON FUNCTION public\.xb_apply_inventory_operation/);
+ assert.match(reconcileSql,/REVOKE ALL ON FUNCTION public\.xb_read_inventory_reconciliation\(uuid,uuid,uuid\[\]\) FROM PUBLIC, anon;/);
+ const testFixture=contract.indexOf('\\i cloudbase/sql/017_xb_p2_purchase_rpc_acl_repair.sql');
+ const testPre=contract.indexOf('simulated unexpectedly granted anon EXECUTE');
+ const testRecheck=contract.lastIndexOf('\\i cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql');
+ assert.ok(testPre>0&&testPre<testFixture&&testFixture<testRecheck);
 });
 test('P2 postflight refuses to confuse schema presence with permissions or empty data',()=>{
  for(const marker of [
