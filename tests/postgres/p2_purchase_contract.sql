@@ -19,17 +19,6 @@ $$;
 
 \i cloudbase/sql/001_shared_foundation.sql
 \i cloudbase/sql/003_member_alias_migration.sql
-\i cloudbase/sql/005_xb_core_schema_draft.sql
-\i cloudbase/sql/008_xb_transactions_schema_draft.sql
-\i cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql
-\i cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql
-
-SELECT public.xb_test_assert(
- to_regprocedure('public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz)') IS NULL,
- 'stock-only 9-arg purchase bypass removed');
-SELECT public.xb_test_assert(
- to_regprocedure('public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb)') IS NOT NULL,
- '10-arg audited purchase RPC exists');
 
 -- All UUIDs, emails and amounts below are synthetic; never production data.
 INSERT INTO public.families(id,display_name,owner_uid)
@@ -40,6 +29,22 @@ INSERT INTO public.family_members(family_id,user_uid,member_role) VALUES
 INSERT INTO public.family_app_access(family_id,user_uid,app_code,granted_by) VALUES
  ('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-dad','xb','test-dad'),
  ('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-mom','xb','test-dad');
+\i cloudbase/sql/011_xb_p2_predeploy_readonly.sql
+
+\i cloudbase/sql/005_xb_core_schema_draft.sql
+\i cloudbase/sql/008_xb_transactions_schema_draft.sql
+\i cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql
+\i cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql
+\i cloudbase/sql/006_xb_core_schema_postflight.sql
+\i cloudbase/sql/012_xb_p2_postdeploy_readonly.sql
+
+SELECT public.xb_test_assert(
+ to_regprocedure('public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz)') IS NULL,
+ 'stock-only 9-arg purchase bypass removed');
+SELECT public.xb_test_assert(
+ to_regprocedure('public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb)') IS NOT NULL,
+ '10-arg audited purchase RPC exists');
+
 INSERT INTO public.xb_children(id,family_id,legacy_slot,display_name,created_by)
  VALUES('6b3d0e45-bf18-4c95-889c-6f19731a8ae5',
   '29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','primary','TEST BABY','test-dad');
