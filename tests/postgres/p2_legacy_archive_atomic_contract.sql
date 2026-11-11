@@ -235,6 +235,61 @@ BEGIN
   RAISE EXCEPTION 'duplicate_history_id_accepted' USING ERRCODE='XX000';
  EXCEPTION WHEN SQLSTATE '23505' THEN NULL;
  END;
+ -- A property present with JSON null is NOT a valid real value.
+ BEGIN
+  PERFORM public.xb_stage_legacy_archive_draft(
+   'ba8d0e45-bf18-4c95-889c-6f19731a8ae5',
+   'ca5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   '6b5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   replace(current_setting('xb.test.legacy_export'),'"mode":"days"','"mode":null'));
+  RAISE EXCEPTION 'null_policy_mode_accepted' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE '22023' THEN NULL;
+ END;
+ BEGIN
+  PERFORM public.xb_stage_legacy_archive_draft(
+   'ba8d0e45-bf18-4c95-889c-6f19731a8ae5',
+   'ca5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   '6b5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   replace(current_setting('xb.test.legacy_export'),'"type":"buy"','"type":null'));
+  RAISE EXCEPTION 'null_purchase_type_accepted' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE '22023' THEN NULL;
+ END;
+ BEGIN
+  PERFORM public.xb_stage_legacy_archive_draft(
+   'ba8d0e45-bf18-4c95-889c-6f19731a8ae5',
+   'ca5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   '6b5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   replace(current_setting('xb.test.legacy_export'),'"name":"合成宝宝"','"name":null'));
+  RAISE EXCEPTION 'null_profile_name_accepted' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE '22023' THEN NULL;
+ END;
+ BEGIN
+  PERFORM public.xb_stage_legacy_archive_draft(
+   'ba8d0e45-bf18-4c95-889c-6f19731a8ae5',
+   'ca5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   '6b5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   replace(current_setting('xb.test.legacy_export'),'"price":29.99','"price":null'));
+  RAISE EXCEPTION 'null_purchase_price_accepted' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE '22023' THEN NULL;
+ END;
+ BEGIN
+  PERFORM public.xb_stage_legacy_archive_draft(
+   'ba8d0e45-bf18-4c95-889c-6f19731a8ae5',
+   'ca5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   '6b5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   replace(current_setting('xb.test.legacy_export'),'"S":42,','"S":42,"S":49,'));
+  RAISE EXCEPTION 'duplicate_stock_json_key_accepted' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE '22023' THEN NULL;
+ END;
+ BEGIN
+  PERFORM public.xb_stage_legacy_archive_draft(
+   'ba8d0e45-bf18-4c95-889c-6f19731a8ae5',
+   'ca5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   '6b5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   replace(current_setting('xb.test.legacy_export'),'"price":15.50','"price":15.505'));
+  RAISE EXCEPTION 'fractional_quote_total_accepted' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE '22023' THEN NULL;
+ END;
 END
 $bad_archive$;
 RESET ROLE;
