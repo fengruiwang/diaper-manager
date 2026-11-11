@@ -7,13 +7,13 @@
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  function step(name,status,code){return Object.freeze({name,status,code});}
  function report(status,steps){return Object.freeze({status,steps:Object.freeze(steps)});}
- function create(app){
+ function create(app,preflight){
+  const dependency=preflight||(root&&root.XBCloudbaseAccessPreflight);
   if(!app||!app.auth||typeof app.auth.getSession!=='function'
      ||typeof app.rdb!=='function'
-     ||!root||!root.XBCloudbaseAccessPreflight
-     ||typeof root.XBCloudbaseAccessPreflight.create!=='function')
+     ||!dependency||typeof dependency.create!=='function')
    throw Error('readiness:DEPENDENCY_MISSING');
-  const verifier=root.XBCloudbaseAccessPreflight.create(app);
+  const verifier=dependency.create(app);
   const db=app.rdb();
   async function run(){
    let sessionResponse;
