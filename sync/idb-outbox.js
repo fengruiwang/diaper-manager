@@ -11,8 +11,9 @@
 (function(root){
  'use strict';
  const DB_NAME='xiaobao-family-sync-v1';
- const DB_VERSION=1;
+ const DB_VERSION=2;
  const STORE='operations';
+ const SNAPSHOTS='inventory_snapshots';
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const SENDABLE=new Set(['pending','retry']);
  const OUTSTANDING=new Set(['pending','retry','conflict','blocked']);
@@ -39,7 +40,7 @@
    createdAt:op.createdAt});
  }
  function clone(x){return JSON.parse(JSON.stringify(x));}
- function create({indexedDB:factory,contract,dbName=DB_NAME}={}){
+ function create({indexedDB:factory,contract,projection=null,dbName=DB_NAME}={}){
   if(!factory||typeof factory.open!=='function')fail('indexeddb_unavailable');
   if(!contract||typeof contract.createOperation!=='function'
     ||typeof contract.applyResult!=='function')fail('contract_required');
@@ -57,6 +58,9 @@
       const store=db.createObjectStore(STORE,{keyPath:'id'});
       store.createIndex('by_identity',['familyId','actorUid'],{unique:false});
      }
+     // Version 1 outbox records are never dropped or rewritten by v2 upgrade.
+     if(!db.objectStoreNames.contains(SNAPSHOTS))
+      db.createObjectStore(SNAPSHOTS,{keyPath:'key'});
     };
     request.onblocked=()=>reject(new Error('outbox_store:open_blocked'));
     request.onerror=()=>reject(new Error('outbox_store:open_failed'));
@@ -71,7 +75,7 @@
    }).catch(e=>{dbPromise=null;throw e;});
    return dbPromise;
   }
-  async function run(mode,work){
+  async function run(mode,work,storeNames=[STORE]){
    const db=await database();
    return new Promise((resolve,reject)=>{
     let tx,output,logicalError=null,finished=false;
@@ -81,7 +85,7 @@
      if(ok)resolve(clone(v));
      else reject(v);
     };
-    try{tx=db.transaction(STORE,mode);}catch(_){done(false,new Error('outbox_store:transaction_unavailable'));return;}
+    try{tx=db.transaction(storeNames,mode);}catch(_){done(false,new Error('outbox_store:transaction_unavailable'));return;}
     tx.oncomplete=()=>logicalError?done(false,logicalError):done(true,output);
     tx.onabort=()=>done(false,logicalError||new Error('outbox_store:transaction_aborted'));
     tx.onerror=()=>{}; // the abort event is authoritative
@@ -90,7 +94,7 @@
      logicalError=e instanceof Error?e:new Error('outbox_store:transaction_failed');
      try{tx.abort();}catch(_){done(false,logicalError);}
     };
-    try{work(tx.objectStore(STORE),succeed,abort);}
+    try{work(tx.objectStore(storeNames[0]),succeed,abort,tx);}
     catch(e){abort(e);}
    });
   }
@@ -190,7 +194,110 @@
    }
    return {...counts,total:rows.length,outstanding:rows.length-counts.acked};
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,stats});
+
+  function identityKey(scope,childId){
+   const item=scopeOf(scope);
+   return JSON.stringify([item.familyId,item.actorUid,id(childId,'child_id')]);
+  }
+  function requiredProjection(){
+   if(!projection||typeof projection.createSnapshot!=='function'
+     ||typeof projection.apply!=='function')fail('projection_required');
+  }
+  // Only explicit, already-verified baseline initialization is allowed;
+  // callers must not pass default empty stock for an existing family.
+  async function initializeInventory(scopeInput,{childId,inventory,serverRevisions,source}={}){
+   requiredProjection();
+   const scope=scopeOf(scopeInput),key=identityKey(scope,childId);
+   const initial=projection.createSnapshot({
+    familyId:scope.familyId,actorUid:scope.actorUid,childId,
+    inventory,serverRevisions,source
+   });
+   const record={key,...initial};
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const read=snapshots.get(key);
+    read.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    read.onsuccess=()=>{
+     if(read.result){
+      abort(new Error('outbox_store:snapshot_already_initialized'));return;
+     }
+     // Old v1 outbox operations cannot be silently ignored when a baseline
+     // arrives later. Never overwrite a pending event by seeding a new stock.
+     const queued=operations.index('by_identity').getAll([scope.familyId,scope.actorUid]);
+     queued.onerror=()=>abort(new Error('outbox_store:read_failed'));
+     queued.onsuccess=()=>{
+      if((queued.result||[]).some(x=>x.payload?.childId===childId)){
+       abort(new Error('outbox_store:queue_exists_before_baseline'));return;
+      }
+      const insert=snapshots.add(record);
+      insert.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      insert.onsuccess=()=>complete(record);
+     };
+    };
+   },[STORE,SNAPSHOTS]);
+  }
+  async function readInventory(scopeInput,childId){
+   const scope=scopeOf(scopeInput),key=identityKey(scope,childId);
+   return run('readonly',(snapshots,complete,abort)=>{
+    const req=snapshots.get(key);
+    req.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    req.onsuccess=()=>complete(req.result||null);
+   },[SNAPSHOTS]);
+  }
+  // The local inventory projection and network outbox event must commit
+  // atomically in the SAME IndexedDB transaction. Never mutate old localStorage.
+  async function commitInventory(scopeInput,operation){
+   requiredProjection();
+   const scope=scopeOf(scopeInput),item=validateNewOperation(operation);
+   if(item.familyId!==scope.familyId||item.actorUid!==scope.actorUid)
+    fail('operation_not_in_scope');
+   const childId=id(item.payload?.childId,'child_id');
+   const key=identityKey(scope,childId);
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const snapReq=snapshots.get(key);
+    snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    snapReq.onsuccess=()=>{
+     if(!snapReq.result){
+      abort(new Error('outbox_store:snapshot_not_initialized'));return;
+     }
+     const opReq=operations.get(item.id);
+     opReq.onerror=()=>abort(new Error('outbox_store:read_failed'));
+     opReq.onsuccess=()=>{
+      const existing=opReq.result;
+      if(existing){
+       if(existing._signature!==item._signature){
+        abort(new Error('outbox_store:same_id_different_payload'));return;
+       }
+       if(existing.familyId!==scope.familyId||existing.actorUid!==scope.actorUid)
+        {abort(new Error('outbox_store:operation_not_in_scope'));return;}
+       complete({duplicate:true,operation:existing,snapshot:snapReq.result});
+       return;
+      }
+      let next;
+      try{next=projection.apply(snapReq.result,item);}
+      catch(e){abort(e);return;}
+      if(next.familyId!==scope.familyId||next.actorUid!==scope.actorUid
+        ||next.childId!==childId){
+       abort(new Error('outbox_store:projection_identity_changed'));return;
+      }
+      const stored={...next,key};
+      let writes=0;
+      const finish=()=>{
+       writes++;
+       if(writes===2)complete({duplicate:false,operation:item,snapshot:stored});
+      };
+      const writeSnapshot=snapshots.put(stored);
+      writeSnapshot.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      writeSnapshot.onsuccess=finish;
+      const writeOperation=operations.add(item);
+      writeOperation.onerror=()=>abort(new Error('outbox_store:write_failed'));
+      writeOperation.onsuccess=finish;
+     };
+    };
+   },[STORE,SNAPSHOTS]);
+  }
+  return Object.freeze({enqueue,get,list,ready,recordResult,stats,initializeInventory,readInventory,commitInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;
