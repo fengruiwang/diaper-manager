@@ -4,6 +4,7 @@ const Outbox=require('../sync/idb-outbox.js');
 const Contract=require('../sync/outbox-contract.js');
 const Projection=require('../sync/inventory-local-projection.js');
 const Reconciler=require('../sync/inventory-reconciler.js');
+const Bootstrap=require('../sync/inventory-bootstrap-coordinator.js');
 const FAMILY='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='6b3d0e45-bf18-4c95-889c-6f19731a8ae5';
 const O1='397b1791-b8d0-4d63-82d6-c5b829240f42';
@@ -351,4 +352,82 @@ test('verified server read for empty queue can update local baseline without sub
  assert.equal(r.snapshot.inventory.S,75);
  assert.equal(r.pendingCount,0);
  assert.equal((await store.ready(dad)).length,0);
+});
+
+const bootstrapProof=()=>({
+ kind:'verified-server-migration-receipt',familyId:FAMILY,actorUid:dad.actorUid,
+ childId:CHILD,backupVerified:true,legacyReconciled:true,receiptsVerified:true
+});
+const bootstrapReply=()=>({
+ familyId:FAMILY,childId:CHILD,actorUid:dad.actorUid,complete:true,
+ checkedOperationIds:[],seenOperationIds:[],
+ rows:['NB','S','M','L','XL','XXL'].map(size=>({
+  size,quantity:size==='S'?25:0,revision:size==='S'?2:0
+ }))
+});
+function realOutboxBootstrap(store){
+ const writes=[];
+ const coordinator=Bootstrap.create({
+  verifyAccess:async()=>({familyId:FAMILY,actorUid:dad.actorUid,appCode:'xb',
+   member:true,initialized:false}),
+  children:{listActiveChildren:async()=>({familyId:FAMILY,activeChildren:[{id:CHILD}]})},
+  outbox:store,
+  remote:{readReconciliation:async()=>bootstrapReply()},
+  verifyHistoryClearance:async()=>bootstrapProof(),
+  permitIsolatedLocalSeed:true
+ });
+ return {coordinator,writes};
+}
+test('P2-3E isolated bootstrap truly persists a server-only six-size snapshot in IDB v2',async()=>{
+ const idb=idbFake(),store=make(idb,'p2-3e-isolated-bootstrap');
+ const {coordinator}=realOutboxBootstrap(store);
+ const result=await coordinator.initialize({
+  familyId:FAMILY,childId:CHILD,actorUid:dad.actorUid,
+  readEnabled:true,seedLocal:true
+ });
+ assert.equal(result.status,'local-seeded-upload-still-disabled');
+ assert.equal(result.uploadAllowed,false);
+ const snapshot=await store.readInventory(dad,CHILD);
+ assert.equal(snapshot.inventory.S,25);
+ assert.equal(snapshot.serverRevisions.S,2);
+ assert.equal(snapshot.source,'verified-server');
+ const restarted=make(idb,'p2-3e-isolated-bootstrap');
+ assert.equal((await restarted.readInventory(dad,CHILD)).inventory.S,25);
+ assert.equal((await restarted.ready(dad)).length,0);
+ const repeated=await coordinator.initialize({
+  familyId:FAMILY,childId:CHILD,actorUid:dad.actorUid,readEnabled:true,seedLocal:true
+ });
+ assert.equal(repeated.status,'existing-local-snapshot');
+ assert.equal((await restarted.readInventory(dad,CHILD)).inventory.S,25);
+});
+test('P2-3E existing pre-bootstrap durable pending queue must survive without snapshot',async()=>{
+ const idb=idbFake(),store=make(idb,'p2-3e-existing-queue');
+ await store.enqueue(event(O1));
+ const {coordinator}=realOutboxBootstrap(store);
+ const result=await coordinator.initialize({
+  familyId:FAMILY,childId:CHILD,actorUid:dad.actorUid,readEnabled:true,seedLocal:true
+ });
+ assert.equal(result.status,'existing-child-queue-preserved');
+ assert.equal(result.uploadAllowed,false);
+ assert.equal(await store.readInventory(dad,CHILD),null);
+ assert.deepEqual((await store.ready(dad)).map(x=>x.id),[O1]);
+});
+test('P2-3E a queue inserted just before the actual IDB transaction blocks bootstrap atomically',async()=>{
+ const idb=idbFake(),store=make(idb,'p2-3e-race-queue');
+ const wrapped={
+  list:store.list,readInventory:store.readInventory,
+  initializeInventory:async(scope,params)=>{
+   await store.enqueue(event(O1));
+   return store.initializeInventory(scope,params);
+  }
+ };
+ const {coordinator}=realOutboxBootstrap(wrapped);
+ const result=await coordinator.initialize({
+  familyId:FAMILY,childId:CHILD,actorUid:dad.actorUid,readEnabled:true,seedLocal:true
+ });
+ assert.equal(result.status,'local-bootstrap-transaction-rejected');
+ assert.equal(result.localChanged,false);
+ assert.equal(result.uploadAllowed,false);
+ assert.equal(await store.readInventory(dad,CHILD),null);
+ assert.equal((await store.ready(dad)).length,1);
 });
