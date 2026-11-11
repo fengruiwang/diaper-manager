@@ -56,8 +56,9 @@
   resetBundle();resetRecovery();
   if(!vault)throw Error('legacy_vault:module_missing');
   const raw=await fileText('sourceFile',vault.MAX_BYTES);
-  newArchive=await vault.createFromExport(raw,{createdAt:time(),cryptoProvider:crypto});
-  const preview=await vault.verify(newArchive,{cryptoProvider:crypto});
+  const pending=await vault.createFromExport(raw,{createdAt:time(),cryptoProvider:crypto});
+  const preview=await vault.verify(pending,{cryptoProvider:crypto});
+  newArchive=pending; // Only enable download after successful local self-check.
   say('原始导出文件：格式正确。\n保护副本：生成并自检 PASS。\n完整性校验：SHA-256。\n可恢复原始文件：'+preview.recoveryPreview+
    '。\n正式云端迁移：仍未授权。\n下一步：下载保护副本，然后重新选择该文件验证。');
  }));
