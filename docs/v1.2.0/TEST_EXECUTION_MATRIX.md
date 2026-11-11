@@ -14,7 +14,7 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | P2-4A 原始 v1.1.2 导出备份保护、SHA256 校验、原字节恢复及网页无网络保护新增 11 组测试后，完整 **316/316 PASS**；PG16 隔离合同 PASS；无 CloudBase 业务写入或正式数据恢复 |
+| JavaScript 回归 | PASS_AUTOMATED | P2-4A 原始 v1.1.2 导出备份保护、SHA256 校验、原字节恢复及网页无网络保护新增 12 组测试后，完整 **316/316 PASS**；PG16 隔离合同 PASS；无 CloudBase 业务写入或正式数据恢复 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
@@ -270,7 +270,7 @@
 - 已核对当前正式 `index.html` 的 `exportData` / `importData`：导出文件格式为 `{app:'xiaobao-diapers',version:1,exportedAt,data}`。**现有导入将替换本机数据，且合并默认值/钳制库存**，不允许用户用正在使用的手机直接进行覆盖式恢复验证。
 - `sync/legacy-backup-vault.js` 纯本地库对原始导出 JSON **原文封存**，用 SHA-256 校验源文本及文件大小；未知旧版字段仍原样保留，并且显式声明 `migrationAuthorized:false` 与 `verifiedByServer:false`。对未知字段/不兼容格式不提前删除或补默认值。
 - `cloudbase/smoke/legacy-backup-check.html` + `legacy-backup-check.js` 可在单独静态 `xb-test/` 目录提供**本地文件选择器**：选择原始备份 → 生成 SHA-256 保护副本 → 由用户本地下载 → 再次选择刚下载的保护副本 → 验证后可下载字节等价的原始 JSON。页面 CSP 禁止网络连接，也没有 CloudBase SDK、fetch、localStorage 或 IndexedDB。
-- `tests/legacy-backup-vault.test.cjs` 8 项和 `tests/legacy-backup-check-browser.test.cjs` 3 项新增测试，完整 JavaScript **316/316 PASS**，PG16 隔离合同 PASS。正式业务数据从未被写入；用户浏览器/真实备份的校验仍待用户自行执行。
+- `tests/legacy-backup-vault.test.cjs` 8 项和 `tests/legacy-backup-check-browser.test.cjs` 4 项新增测试，完整 JavaScript **316/316 PASS**，PG16 隔离合同 PASS。正式业务数据从未被写入；用户浏览器/真实备份的校验仍待用户自行执行。
 - 完整三文件链接、`xb-test/` 上传目录、原版导出步骤、保护副本二次验证、脱敏反馈与禁止真实恢复操作见 `docs/v1.2.0/P2_4A_LEGACY_BACKUP_RESTORE_RUNBOOK.md`；**本轮在对话正文也要发送相同的具体测试文件和步骤**。
 - SHA-256 验证只能防意外破坏，**不是来源身份签名、正式恢复成功或历史迁移审批**。后续另做完全隔离的应用数据恢复及幂等迁移收据，不触碰现有 `main` 或用户手机原记录。
 
