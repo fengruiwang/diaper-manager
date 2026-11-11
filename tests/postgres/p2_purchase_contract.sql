@@ -64,56 +64,56 @@ SELECT public.xb_test_assert(
 SELECT public.xb_test_assert(
  (public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-mom','妈妈',1)->>'alias_revision')::bigint=2,
  'member can update self alias with current revision');
-DO $
+DO $xb_p1_test$
 BEGIN
  BEGIN
   PERFORM public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-dad','越权修改',1);
   RAISE EXCEPTION 'expected owner alias change to be denied';
  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
  END;
-END $;
+END $xb_p1_test$;
 SELECT public.xb_test_assert(
  (SELECT member_alias='我' AND alias_revision=1 FROM public.family_members
  WHERE user_uid='test-dad'), 'member cannot alter owner alias');
-DO $
+DO $xb_p1_test$
 BEGIN
  BEGIN
   PERFORM public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-mom','过期版本',1);
   RAISE EXCEPTION 'expected stale alias revision to be denied';
  EXCEPTION WHEN SQLSTATE '40001' THEN NULL;
  END;
-END $;
-DO $
+END $xb_p1_test$;
+DO $xb_p1_test$
 BEGIN
  BEGIN
   UPDATE public.family_members SET member_alias='绕过RPC' WHERE user_uid='test-mom';
   RAISE EXCEPTION 'expected direct member table update to be denied';
  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
  END;
-END $;
+END $xb_p1_test$;
 
 SELECT set_config('xb.test.uid','test-stranger',false);
 SELECT public.xb_test_assert(
  (SELECT COUNT(*)=0 FROM public.family_members),
  'stranger cannot read household membership');
-DO $
+DO $xb_p1_test$
 BEGIN
  BEGIN
   PERFORM public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-mom','陌生账号',2);
   RAISE EXCEPTION 'expected stranger alias change to be denied';
  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
  END;
-END $;
+END $xb_p1_test$;
 SELECT set_config('xb.test.role','anon',false);
 SELECT set_config('xb.test.uid','test-dad',false);
-DO $
+DO $xb_p1_test$
 BEGIN
  BEGIN
   PERFORM public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-dad','匿名伪造',1);
   RAISE EXCEPTION 'expected anonymous alias change to be denied';
  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
  END;
-END $;
+END $xb_p1_test$;
 SELECT set_config('xb.test.role','authenticated',false);
 RESET ROLE;
 SELECT public.xb_test_assert(
