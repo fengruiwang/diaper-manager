@@ -1,6 +1,25 @@
 # 小宝管家 v1.2.0 — P2-3C 登录身份与上传闸门只读测试
 
-日期：2026-11-11。状态：**开发分支完成；仅 Mock SDK/CI 已通过，尚未在真实 CloudBase 运行新检查；没有启用上传。**
+日期：2026-11-11。状态：**用户真实电脑截图与手机实测均返回 AUTH_PASS_UPLOAD_BLOCKED，四项只读权限 PASS，上传闸门 BLOCKED（预期）；未启用上传。**
+
+## 已取得的真实测试结果（无需重复）
+
+用户在电脑截图中提供的结果：
+
+| 检查项 | 实际结果 |
+|---|---|
+| 总体 | `AUTH_PASS_UPLOAD_BLOCKED` |
+| session | `PASS (SESSION_PRESENT)` |
+| family | `PASS (ONE_VISIBLE_FAMILY)` |
+| member | `PASS (MEMBERSHIP_VERIFIED)` |
+| grant | `PASS (XB_GRANT_VERIFIED)` |
+| upload_gate | `BLOCKED (DURABLE_BASELINE_NOT_VERIFIED)` |
+
+用户反馈在手机上得到相同结果。以上是**正确的安全闸门验收**；不要求再次上传文件、再次登录或重测。测试页本身没有登录表单，仅通过 CloudBase SDK `getSession()` 检查该设备浏览器里**已有**的有效会话；电脑/手机都存在会话，因此未弹出 OTP 是合理的。正式 PWA 的多日会话保活、token 自动刷新仍未验收。
+
+本次页面隐藏账号 UID、家庭 ID 和角色，故不能仅凭结果完全相同确定两个设备登录了不同账号；此点不会推翻既有 P2-3A A/B 双账号分别验证的结果。未来诊断可以安全显示 `管理员/家庭成员`，不显示可识别标识。
+
+**本次成功不证明库存初始基线完成。** `initialized:false` 依然是手动关闭的安全开关；实际库存与离线队列对齐是下一独立工程环节。尚无 CloudBase 测试宝宝及购买记录写入授权，继续保持 `019/020` 不在真实库执行。
 
 ## 测试意义
 
