@@ -36,6 +36,31 @@ BEGIN
 END
 $test_stranger_create_denied$;
 
+-- Owner role alone is insufficient: removing the synthetic xb app grant
+-- must block creation, even though the same user still owns this family.
+RESET ROLE;
+DELETE FROM public.family_app_access
+ WHERE family_id='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5'
+   AND user_uid='test-dad' AND app_code='xb';
+SET ROLE authenticated;
+SELECT set_config('xb.test.role','authenticated',false);
+SELECT set_config('xb.test.uid','test-dad',false);
+DO $test_owner_without_grant$
+BEGIN
+ BEGIN
+  PERFORM public.xb_create_smoke_child('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5');
+  RAISE EXCEPTION 'ungranted_owner_create_unexpectedly_succeeded' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+END
+$test_owner_without_grant$;
+RESET ROLE;
+INSERT INTO public.family_app_access(family_id,user_uid,app_code,granted_by)
+ VALUES('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',
+        'test-dad','xb','test-dad');
+SET ROLE authenticated;
+SELECT set_config('xb.test.role','authenticated',false);
+
 -- Legitimate owner may initialize precisely ONE dedicated test child.
 SELECT set_config('xb.test.uid','test-dad',false);
 SELECT public.xb_test_assert(
