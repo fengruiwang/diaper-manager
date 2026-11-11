@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>小宝管家 · P2-3B 虚拟宝宝联调演练（纯本地）</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;background:#f4f6fb;color:#22314b}
+*{box-sizing:border-box}body{max-width:780px;margin:0 auto;padding:18px 14px 55px}
+main{border:1px solid #dce4f0;background:white;border-radius:18px;padding:22px}
+h1{font-size:22px;margin:0 0 8px}h2{font-size:16px;margin:25px 0 10px}
+p{font-size:14px;line-height:1.7;color:#51627a}
+.warning{background:#fff9ed;border-left:4px solid #cb8b22;padding:11px 13px;border-radius:5px}
+.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.metric{border:1px solid #dfe5f1;background:#f8faff;border-radius:12px;padding:12px}
+.metric span{display:block;font-size:12px;color:#66738c}
+.metric strong{font-size:24px;line-height:1.6}
+button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:11px 15px;margin:8px 8px 8px 0;background:#4b61c4;color:white;cursor:pointer}
+button.secondary{background:#e7ebfa;color:#30477d}
+button:disabled{background:#e9edf5;color:#7b879c;cursor:not-allowed}
+ol{list-style:none;margin:8px 0 0;padding:0}
+li{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #edf0f7;font-size:13px}
+li .indicator{font-size:11px;font-weight:700;border-radius:14px;padding:4px 8px;white-space:nowrap;background:#edf0f6;color:#66738c}
+li.done .indicator{background:#e6f5ed;color:#236347}
+li.failed .indicator{background:#ffe9e9;color:#9d3636}
+#report{white-space:pre-wrap;background:#eff2f9;padding:13px;border-radius:10px;font-size:13px;line-height:1.6}
+.small{font-size:12px;color:#6b7890}
+@media(max-width:420px){main{padding:17px}.metric strong{font-size:21px}}
+</style>
+</head>
+<body>
+<main>
+<h1>小宝管家 · 虚拟宝宝联调演练</h1>
+<p class="warning"><strong>当前是纯内存模拟，不连接腾讯云。</strong> 所有宝宝、S 码库存及采购记录均为合成演练。刷新页面即消失；不读写旧版小宝管家数据，也不发起真实采购、库存或数据库请求。</p>
+<div class="metrics" aria-label="合成演练数据">
+  <div class="metric"><span>S 码虚拟库存</span><strong id="quantity">0</strong><span>片</span></div>
+  <div class="metric"><span>虚拟采购流水</span><strong id="operations">0</strong><span>笔</span></div>
+  <div class="metric"><span>虚拟宝宝状态</span><strong id="childStatus">未创建</strong></div>
+</div>
+<h2>按顺序模拟 12 个操作</h2>
+<p>依次检验 B 无权创建、A 唯一创建、夫妻分别采购 60 和 80 片、重复提交不叠加、同 ID 不同内容拒绝、双方只看到本人回执、成员无权停用，以及停用后不能再采购。</p>
+<ol id="steps"></ol>
+<button id="next" type="button">执行下一项模拟</button>
+<button id="reset" type="button" class="secondary">重置本页模拟</button>
+<div id="report" role="status" aria-live="polite">尚未模拟任何操作。</div>
+<h2>真实 CloudBase 操作闸门</h2>
+<p>以下功能本版本未实现。019/020 仍是未经授权部署的 SQL 草案，不能通过这个页面创建真实宝宝、提交真实采购或操作家庭记录。</p>
+<button disabled type="button">真实创建测试宝宝（不可用）</button>
+<button disabled type="button">真实购买 +60/+80（不可用）</button>
+<button disabled type="button">真实停用测试宝宝（不可用）</button>
+<p class="small">该页面没有登录、SDK、密钥、RPC、Ajax、网络写入或任何持久化代码。它不是 v1.2.0 同步已经成功的证据。需要真实跨手机联调时，必须先完成安全审查并取得新授权。</p>
+</main>
+<script src="./p2-smoke-preview.js"></script>
+<script>
+(function(){
+ 'use strict';
+ const $=id=>document.getElementById(id);
+ if(!window.XBSmokePreview){$('report').textContent='模拟模块加载失败，请检查文件是否在同一目录。';$('next').disabled=true;return;}
+ const scenario=window.XBSmokePreview.scenario;
+ let m,step=0,failed=false;
+ function render(){
+  const status=m.state();
+  $('quantity').textContent=String(status.quantity);
+  $('operations').textContent=String(status.operationCount);
+  $('childStatus').textContent=status.retired?'已停用':status.smokeChild?'测试中':'未创建';
+  $('next').disabled=failed||step>=scenario.length;
+  $('next').textContent=step>=scenario.length?'全部模拟完成':'执行下一项模拟';
+ }
+ function reset(){
+  m=window.XBSmokePreview.create();step=0;failed=false;
+  $('steps').replaceChildren();
+  for(const op of scenario){
+   const li=document.createElement('li');
+   li.textContent=op.title;
+   const b=document.createElement('span');b.className='indicator';b.textContent='待模拟';li.appendChild(b);
+   $('steps').appendChild(li);
+  }
+  $('report').textContent='纯内存状态已重置；没有访问数据库或更改正式数据。';
+  render();
+ }
+ function run(){
+  if(failed||step>=scenario.length)return;
+  const current=scenario[step],result=m.run(current.id);
+  let ok=result.code===current.expected;
+  const s=result.state;
+  if(['buyB','retryA','reusedIdModifiedAmount','readA','readB'].includes(current.id))
+   ok=ok&&s.quantity===140&&s.operationCount===2;
+  if(current.id==='readA'||current.id==='readB')
+   ok=ok&&result.details?.seenOwnOperations.length===1;
+  if(current.id==='buyAfterRetire')
+   ok=ok&&s.retired===true&&s.operationCount===2&&s.quantity===140;
+  const li=$('steps').children[step];
+  li.className=ok?'done':'failed';
+  li.querySelector('span').textContent=ok?'PASS':'FAIL';
+  $('report').textContent=(ok?'PASS':'FAIL')+' · '+current.title+'\n结果码：'+result.code+
+   '\n虚拟库存：'+s.quantity+' 片；虚拟流水：'+s.purchaseCount+
+   '；修订号：'+s.revision+'。\n环境：仅内存模拟，不连接腾讯云。';
+  failed=!ok;step++;render();
+ }
+ $('next').addEventListener('click',run);
+ $('reset').addEventListener('click',reset);
+ reset();
+})();
+</script>
+</body></html>
