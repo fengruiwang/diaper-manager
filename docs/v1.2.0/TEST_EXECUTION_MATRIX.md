@@ -14,7 +14,7 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | P2-4C 新增 12 项**从正式 index.html 原样提取并执行 importData/save/load** 的一次性 Node VM 导入/重载合成测试后，完整 **338/338 PASS**；PG16 隔离合同 PASS；无真实手机/CloudBase 数据写入 |
+| JavaScript 回归 | PASS_AUTOMATED | P2-4D 增加 **18 项**旧备份来源/版本校验、业务字段与金额精度、未知字段及隐性数据修改阻断测试后，完整 **356/356 PASS**；隔离 PG16 合同 PASS；仍无真实手机/CloudBase 迁移写入 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
@@ -29,6 +29,7 @@
 | P2-4A 旧版备份完整性与恢复预览 | REAL_BROWSER_BACKUP_VAULT_PASS_RESTORE_IMPORT_NOT_TESTED | 2026-11-11 用户提交两张网页截图：选取正式 v1.1.2 导出 JSON，保护副本生成/自检 PASS；重新选择下载的保护副本后核验 PASS，原始文件字节长度 3265，SHA-256 一致，原始备份取回预览 PASS。此为**真实浏览器备份文件完整性验收**，非正式软件导入恢复、历史数据库迁移或业务记录逐项校验。JS 316/316 PASS，页面不写旧 localStorage/云端 |
 | P2-4B 旧版导入内存差异审计 | SYNTHETIC_PROJECTION_PASS_REAL_IMPORT_NOT_RUN | 新增 legacy-restore-projection.js：在内存模拟正式 index.html 导入默认值、六尺码修正及 XBGrowth.extras 处理，对原 JSON 逐字段比对；补字段、库存舍入、体重记录过滤、未知嵌套字段丢失均标记需审核，输出只有类别/差异计数不含个人资料。10 组合成测试 PASS，总 326/326。**不在用户手机运行真实导入，不代表真正恢复无损** |
 | P2-4C 旧版真实导入器隔离执行 | REAL_IMPORT_FUNCTION_IN_SYNTHETIC_VM_PASS_USER_DATA_UNTOUCHED | 从正式 index.html 提取**原样 importData/save/load** 代码，用一次性 Node VM、合成 FileReader/Map localStorage 执行导入及重载；12 项测试验证规范数据/购买和参考价保留、取消不写、库存修正、缺省/体重/未知字段变化、版本号未校验；完整 JS 338/338 PASS。**不是用户真实 3265 字节备份的正式导入，也不是 CloudBase 数据迁移** |
+| P2-4D 历史迁移严格预检及差异策略 | CODE_AND_ISOLATED_TEST_PASS_REAL_MIGRATION_FORBIDDEN | 新增 strict-migration-gate.js，严格校验 v1 JSON 外层来源/版本/时间、旧数据全字段、六尺码、采购/比价金额、参考价 0.001 元、宝宝资料/体重/未知扩展字段；仅 preset 缺失单列人工审核，阻断旧导入器静默修改。18 组合成测试通过，总 JS 356/356 PASS。**全部结果 canUpload=false，没有真实迁移收据/云端写入权限** |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -298,6 +299,15 @@
 - P2-4B 独立投影与 P2-4C 原始导入代码的多个合成样本结果一致。完整 JS CI **338/338 PASS**，隔离 PG16 合同 PASS。用户 P2-4A 浏览器封存核验已通过，无需重复上传备份。
 - 范围严格区分：只在合成内存执行原样导入函数，不是完整正式网页、真实用户备份或手机 localStorage 的恢复测试。测试仅写 VM 局部 Map；**未改 main、GitHub Pages、正式 PWA、CloudBase 业务表、两个真实成员或任何历史数据**。
 - 详见 `docs/v1.2.0/P2_4C_REAL_IMPORT_SANDBOX_REVIEW.md`。下一步设计无损/允许修正字段清单和严格版本预检、云端迁移的幂等收据，不用在正在使用的手机上做覆盖式恢复。
+
+### B.27 2026-11-11 P2-4D 严格迁移预检规则与不授权上传的状态分类
+
+- 开发 `sync/strict-migration-gate.js`：输入为导出的 v1 原始 JSON 文本，**只读且完全无本地/远端写入**；校验 `app='xiaobao-diapers'`、`version=1`、严格 UTC 导出时间/外层字段和最大文件长度。解决 P2-4C 发现的原版导入器不验证 version 的漏洞。
+- 叠加已有迁移合同/字段映射/采购精度审计/导入差异模拟，约束六尺码库存/目标/日用量、采购/比价总价精确到分、参考价 0.001 元精度与合法品牌系列尺码键、成长记录和未知嵌套字段。未知扩展内容绝不静默删除；未审核的数值舍入和数据钳制一律阻断。
+- 只缺少 `preset` 这种旧版会补 `balanced` 的界面预设，单独报告 `DEFAULT_PRESET_REVIEW_REQUIRED`，**不自动通过**；即使 `MAPPING_PREFLIGHT_CLEAN_UPLOAD_DISABLED`，也绝不产生 P2-3E 所需的服务端历史迁移/备份有效收据。
+- `tests/strict-migration-gate.test.cjs` 18 项隔离样本覆盖错误版本、时间、未知顶层/嵌套字段、非法尺码/参考键、金额精度、重复采购、成长记录失效、危险数据改变和脱敏输出。JavaScript CI **356/356 PASS**，隔离 PostgreSQL 合同 PASS。
+- `docs/v1.2.0/P2_4D_STRICT_MIGRATION_GATE_REVIEW.md` 明确历史 `inventory` 是现存库存基线，`transactions` 是独立历史，不得把旧采购重新相加导致重复入库。下一阶段需设计服务器幂等收据与事务隔离，再按用户明确授权启动真实写入；P2-4D 不要求用户重复测试或发送历史 JSON。
+- `main`、正式 v1.1.2 `localStorage['xiaobao_diaper_planner_v1']`、CloudBase 账号/家庭以及真实业务数据未修改。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
