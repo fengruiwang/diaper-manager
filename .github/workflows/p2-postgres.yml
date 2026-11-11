@@ -32,3 +32,7 @@ jobs:
             postgres:16 \
             psql -X -h 127.0.0.1 -U postgres -d xb_p2_contract \
               -v ON_ERROR_STOP=1 -f tests/postgres/p2_purchase_contract.sql
+
+      - name: Verify cross-device P2-4E receipt contention in two independent disposable PostgreSQL sessions
+        run: |
+          bash tests/postgres/p2_migration_receipt_concurrency.sh
