@@ -100,7 +100,8 @@ function executeImport(exportObject,{approved=true}={}){
  return Object.freeze({
   didSave:typeof persisted==='string',
   savedState:persisted?JSON.parse(persisted):null,
-  // Normalize the VM realm's prototype before host assert.deepEqual.\n  reloadedState:JSON.parse(JSON.stringify(sandbox.__getReloadedState())),
+  // Normalize the VM realm's prototype before host assert.deepEqual.
+  reloadedState:JSON.parse(JSON.stringify(sandbox.__getReloadedState())),
   events:Object.freeze(events),
   currentState:sandbox.__getState(),
   productionFunctionUsed:true,
