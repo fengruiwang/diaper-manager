@@ -14,7 +14,7 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | P2-4E-A 迁移收据只读客户端增加 **8 项** Mock SDK 场景，完整 **364/364 PASS**；PostgreSQL 16 唯一收据/权限合同与两个独立连接并发竞争均 PASS；真实 CloudBase 021 未安装，未运行云端历史写入 |
+| JavaScript 回归 | PASS_AUTOMATED | P2-4F-A 新增 **15 项**历史分页与设置只读 SDK 测试，完整 **379/379 PASS**；PostgreSQL 16 已完成迁移收据核验、家庭/匿名权限、数据篡改阻断及此前双连接原子迁移全部 PASS；真实 CloudBase 021–024 均未安装 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
@@ -33,6 +33,7 @@
 | P2-4E-A 私有迁移收据唯一性/只读预检 | SYNTHETIC_PG_DUAL_SESSION_PASS_REAL_DDL_UNAUTHORIZED | SQL 021 草案新增 xb_migrations 每宝宝首次迁移与同家庭源摘要唯一约束，owner-only 严格身份的只读预检 RPC；单独 Postgres16 合同测试涵盖正常/重试/冲突、匿名/成员/陌生人拒绝、事务失败回滚；独立两连接同时插入不同迁移 ID，**只有一笔提交成功**。JS SDK 8 项 Mock，全部返回 canCommit=false/canUpload=false；完整回归 364/364 PASS。**正式 CloudBase 未安装 021，完整原子数据迁移 RPC 尚未实现** |
 | P2-4E-B1 原始历史原子归档暂存 | SYNTHETIC_PG_ATOMIC_ARCHIVE_AND_2SESSION_PASS_LIVE_FORBIDDEN | SQL 022 草案（**禁止真实部署**）建立两张私有归档表，原文保存完整旧 JSON 与服务端 SHA-256；记录每条历史采购/消耗、比价、体重；严格校验 null、价格、六尺码、重复 JSON 键，owner-only + 原生事务锁。合成 PG16 归档/晚期失败全回滚 PASS；两个独立连接相同备份竞态：**1 首次成功 + 1 重复识别、4 条历史行，0 库存操作/0 正式迁移收据**。JS 364/364 PASS；B2 可用历史/库存原子迁移与完成收据尚未实现。 |
 | P2-4E-B2 历史及六尺码库存原子提交 | SYNTHETIC_PG_FULL_PROMOTION_AND_DUAL_SESSION_PASS_REAL_UNDEPLOYED | 新增 SQL 023 草案，六尺码旧版当前库存直接写绝对基线及六条 migration_baseline 操作；旧采购/消耗/比价另写独立家庭 RLS 历史表，成长原生映射、设置/三位小数参考价保留。独立核对库存、历史条数、历史采购总额，**最后写 xb_migrations 完成收据**；在收据 INSERT 注入失败时全部业务回滚，原归档保留。两独立 PG 连接竞态：**一次迁移成功、另一次识别重复**，最终 1 收据、6 库存/6 baseline、4 历史、0 重放采购。隔离 PG16 PASS；JavaScript 364/364 PASS。**真实 021/022/023 均未安装；历史编辑、手机同步尚未开放**。 |
+| P2-4F-A 已迁移历史/设置安全分页读取 | SYNTHETIC_PG_SDK_READ_PASS_REAL_UNDEPLOYED | SQL 024 草案新增需**已完成正式归档迁移收据**的 history page/settings READ ONLY RPC，函数体校验登录、同家庭 xb 授权、宝宝有效、正确 receipt flag/schema、全历史条数及来源哈希；支持最多 50 条分页和 0.001 元参考价。隔离 PG16 对成员、陌生家庭、匿名(模拟额外 EXECUTE)、缺收据元信息、篡改源摘要/参考价执行拒绝验证 PASS。SDK 只读客户端 15 组 Mock，分页校验、防伪造 can_upload/can_edit、会话拦截 PASS；JS **379/379**。**024 含 DDL 不得真实部署；真实手机数据未读，旧采购编辑未实现。** |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -339,6 +340,15 @@
 - 新增 `tests/postgres/p2_legacy_promotion_concurrency.sh`：一次性 PG16 中两个独立 psql 连接同时迁移同一归档，最终**一端首次迁移、一端重复识别；1 条完成收据、6 库存、6 baseline、4 历史、1 原生体重、0 实时重放采购**。PG16 全合同 + 双连接竞态 PASS；全 JavaScript 回归 **364/364 PASS**（本轮无 JS 测试新增）。
 - 上述**均为合成 PostgreSQL 数据库**：真实腾讯云没有安装 021/022/023，旧版真实 JSON 没有上传。当前 B2 是可读的独立历史存储与库存事务原型，不代表新 UI 已实现历史编辑、两个手机持久化授权和同步。详见 `docs/v1.2.0/P2_4E_B2_ATOMIC_PROMOTION_REVIEW.md`。
 - 本轮**无需用户手动操作**，不修改 main/正式 PWA/v1.1.2 任何本地数据/云端家庭成员。
+
+### B.31 2026-11-11 P2-4F-A 历史记录及设置的安全读取
+
+- 新增 **`cloudbase/sql/024_xb_legacy_history_read_DRAFT_DO_NOT_DEPLOY.sql`**：按家庭/宝宝、`all/transaction/quote/weight` 分类与 1–50 限额分页读取旧版已迁移历史，以及只读读取参考价/目标/日用量。只有当前登录账号具有 xb 应用授权，且存在 B2 已完成收据 (`archiveVerified=true`, `migration_schema=legacy-history-v1`) 才允许访问，SQL NULL/缺字段也拒绝。
+- SQL 读取前验证完成收据记录的历史总数、按类别数量、所有行 SHA-256 来源一致；设置读取要求 referenceOverrides 数量、修订号和来源摘要与收据一致。无法确认完整性时拒绝，不返回“部分有效”的采购/成长记录。
+- `tests/postgres/p2_legacy_history_read_contract.sql` 使用合成已迁移家庭验证分页/过滤/0.001 元价精度、授权家人读取、他人/匿名拒绝、SQL EXECUTE ACL 绕过仍安全、缺失收据 flags 拒绝、注入历史哈希/设置条目篡改时拒绝，测试更改均局部事务 ROLLBACK。合成 PG16 全合同 PASS。
+- `sync/cloudbase-legacy-history-reader.js` 只在 Feature 提供，主动调用才执行登录会话校验与 RPC；`tests/cloudbase-legacy-history-reader.test.cjs` 新增 15 项 Mock SDK 验证，覆盖恶意服务端假编辑授权、越界分页、多重/错位/重复记录、身份异常、隐私错误脱敏等。JS 回归 **379/379 PASS**。
+- 功能仍 **READ ONLY**：正式迁移历史 `xb_legacy_history_entries` 不可直接 UPDATE，不能通过读取接口更改采购、库存。下一阶段 B 为 append-only 修订审计及新购记录 metadata/数量尺码差额原子编辑。参考 `docs/v1.2.0/P2_4F_A_HISTORY_READ_REVIEW.md`。
+- 真实腾讯云尚未安装 021、022、023、**024**；本轮不需要用户运行 SQL、重新上传旧版备份或做手机验收。正式 `main`、v1.1.2 原地历史与两位成员/真实业务数据库保持不变。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
