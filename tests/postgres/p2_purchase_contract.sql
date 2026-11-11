@@ -60,6 +60,7 @@ SELECT public.xb_test_assert(
 \i cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql
 \i cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql
 \i cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql
+\i cloudbase/sql/018_xb_p2_reconciliation_postflight_readonly.sql
 \i cloudbase/sql/012_xb_p2_postdeploy_readonly.sql
 
 SELECT public.xb_test_assert(
