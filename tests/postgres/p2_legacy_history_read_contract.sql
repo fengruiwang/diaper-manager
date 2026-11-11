@@ -117,6 +117,7 @@ BEGIN
 END
 $invalid_scope$;
 
+SELECT set_config('xb.test.uid','synthetic-migration-owner',false);
 DO $uncommitted_stage$
 BEGIN
  BEGIN
@@ -129,6 +130,7 @@ BEGIN
  END;
 END
 $uncommitted_stage$;
+SELECT set_config('xb.test.uid','archive-member',false);
 RESET ROLE;
 
 SET ROLE authenticated;
@@ -183,6 +185,49 @@ $anonymous_denial$;
 RESET ROLE;
 REVOKE EXECUTE ON FUNCTION public.xb_read_legacy_history_page_draft(uuid,uuid,text,integer,integer) FROM anon;
 REVOKE EXECUTE ON FUNCTION public.xb_read_legacy_settings_draft(uuid,uuid) FROM anon;
+
+-- Privileged fixture injects a post-commit wrong digest within a
+-- SAVEPOINT-like transaction. Read API must FAIL, not hide the corrupt row.
+BEGIN;
+UPDATE public.xb_legacy_history_entries SET source_sha256=repeat('e',64)
+ WHERE family_id='9b8d0e45-bf18-4c95-889c-6f19731a8ae5'
+ AND record_kind='quote';
+SELECT set_config('xb.test.role','authenticated',true);
+SELECT set_config('xb.test.uid','archive-member',true);
+DO $corrupt_history$
+BEGIN
+ BEGIN
+  PERFORM public.xb_read_legacy_history_page_draft(
+   '9b8d0e45-bf18-4c95-889c-6f19731a8ae5',
+   '7b5f0e45-bf18-4c95-889c-6f19731a8ae5',
+   'transaction',0,20);
+  RAISE EXCEPTION 'tampered_ledger_must_not_read' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE '23514' THEN NULL;
+ END;
+END
+$corrupt_history$;
+ROLLBACK;
+
+-- Likewise, changing an archived reference threshold must not be presented
+-- as verified historical configuration.
+BEGIN;
+UPDATE public.xb_legacy_settings SET settings_data=jsonb_set(
+ settings_data,'{referenceOverrides}','{}'::jsonb)
+ WHERE family_id='9b8d0e45-bf18-4c95-889c-6f19731a8ae5';
+SELECT set_config('xb.test.role','authenticated',true);
+SELECT set_config('xb.test.uid','archive-member',true);
+DO $corrupt_settings$
+BEGIN
+ BEGIN
+  PERFORM public.xb_read_legacy_settings_draft(
+   '9b8d0e45-bf18-4c95-889c-6f19731a8ae5',
+   '7b5f0e45-bf18-4c95-889c-6f19731a8ae5');
+  RAISE EXCEPTION 'modified_reference_price_must_not_read' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE '23514' THEN NULL;
+ END;
+END
+$corrupt_settings$;
+ROLLBACK;
 
 SELECT public.xb_test_assert(
  (SELECT count(*)=2 FROM public.xb_migrations WHERE family_id IN(
