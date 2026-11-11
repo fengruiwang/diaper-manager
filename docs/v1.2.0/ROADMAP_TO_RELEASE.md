@@ -61,6 +61,14 @@
 - 新增 10 项隔离投影测试，总 JS **326/326 PASS**；PG16 隔离合同 PASS。真实用户 JSON 不需要上传给开发端，不能在已经使用的手机上点原生“从备份恢复”测试。
 - 下一个关键里程碑是**隔离的真实导入器执行/差异核对**与服务器迁移凭证设计，而不是直接开放 P2-3E 的初始化开关。`docs/v1.2.0/P2_4B_RESTORE_PROJECTION_REVIEW.md` 中记录了主要差异风险。
 
+## P2-4C 正式版导入器在隔离环境中实际执行（2026-11-11）
+
+- `tests/helpers/isolated-v1-import-harness.cjs` 从**当前正式 `index.html`** 提取 `importData`、`save`、`load` 和辅助函数的原始源码，并调用正式 `growth.js`；只在一次性 Node VM 中运行，提供合成 FileReader、用户确认及独立内存 Map 作为 localStorage，不使用真实浏览器或历史备份。
+- `tests/legacy-real-import-isolation.test.cjs` 新增 12 项合同测试：完整历史导入/模拟重启后重载、取消不写、非法文件拒绝、库存/目标/日用量修正、采购/比价/参考价精度、未知成长字段被旧导入器删去、异常体重记录过滤、缺省值填补、版本号接受漏洞，以及与 P2-4B 独立投影一致性。
+- 最新 JS 完整回归 **338/338 PASS**，临时 PostgreSQL 合同 PASS。发现现有 v1.1.2 **并不核验备份 `version`**；未来迁移必须对版本进行严格校验并对可能过滤/修正的数据作差异预览，不能直接复用旧 `importData()` 做云端迁移。
+- P2-4A 用户真实浏览器备份核验已 PASS，但这轮只用**合成数据**执行正式函数，不对用户旧版 PWA 执行真实覆盖恢复，也不迁移腾讯云。发布前仍需隔离浏览器完整 UI 级回放、差异分类清单和真正幂等的云端迁移凭证。
+- 审查文件：`docs/v1.2.0/P2_4C_REAL_IMPORT_SANDBOX_REVIEW.md`。
+
 ## 采购编辑（正式版必备）
 
 详细需求见 `PURCHASE_EDIT_CORRECTION_REQUIREMENTS.md`。当前 009 RPC 仅支持 `buy/use/stocktake/reverse`，未实现编辑。页面应提供普通「编辑购买记录」，服务端按字段类型选择不变库存的元数据变更或原子差量库存更新，必须记录修改历史、修改人和时间。
