@@ -46,6 +46,14 @@
 - JS 自动化 **304/304 PASS**，PG16 隔离合同 PASS；未在真实 CloudBase 写入或修改正式 PWA。详细阻断项见 `docs/v1.2.0/P2_3E_ATOMIC_BOOTSTRAP_REVIEW.md`。
 - **下一步**：独立审查旧版历史格式、备份可恢复性与权威迁移收据，限制底层 `initializeInventory` 直接调用路径；如果要先进行真实云端虚拟宝宝采购，则需要独立的仅测试身份路径以及用户对 019/020 安装和业务测试记录写入的**另行明确批准**。
 
+## P2-4A 历史备份保护与恢复预览（2026-11-11）
+
+- 已按当前正式 v1.1.2 的 `exportData()` 实际文件格式开发 `sync/legacy-backup-vault.js`，封存原始 JSON **全文**而非删减或重新格式化后的状态；SHA-256 + 字节长度检测意外损坏；验证通过后可原样取回导出文件。测试中可保留未知未来字段和三位小数参考价，不会因迁移映射不全丢失原始内容。
+- 新增独立 `legacy-backup-check.html` + `legacy-backup-check.js`，在原 `xb-test/` 目录可通过用户**本地文件选择器**进行封存/下载/二次验证。浏览器 CSP `connect-src 'none'`，没有 CloudBase、localStorage 或 IndexedDB 读取/写入路径。**用户只能上传测试代码，绝不能上传包含真实家庭历史的 JSON 文件到静态托管或 GitHub。**
+- 新增 8+3 项隔离测试，完整 JS **315/315 PASS**，PG16 隔离合同不变；真实用户备份文件的手机/电脑浏览器校验尚待执行，不代表已完成数据迁移。
+- 官方旧版 `importData()` 会替换当前本机数据并钳制部分字段；因此当前只提供“提取原始文件”而不执行覆盖式恢复。正式上线前必须在**单独隔离且可回退的测试浏览器/应用实例**比较导入后所有记录，再完成独立的服务器迁移收据、去重与补传协议。
+- 详细交付及浏览器操作：`docs/v1.2.0/P2_4A_LEGACY_BACKUP_RESTORE_RUNBOOK.md`。保护包验证是备份可读性的前置条件，**不能单独满足 P2-3E 的真实 `verifyHistoryClearance`**。
+
 ## 采购编辑（正式版必备）
 
 详细需求见 `PURCHASE_EDIT_CORRECTION_REQUIREMENTS.md`。当前 009 RPC 仅支持 `buy/use/stocktake/reverse`，未实现编辑。页面应提供普通「编辑购买记录」，服务端按字段类型选择不变库存的元数据变更或原子差量库存更新，必须记录修改历史、修改人和时间。
