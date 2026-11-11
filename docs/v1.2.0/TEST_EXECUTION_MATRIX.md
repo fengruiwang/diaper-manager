@@ -20,7 +20,7 @@
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
 | CloudBase 既有 A/B 双账号与成员权限 | PASS_REAL_6_OF_6 | 用户 2026-11-11 实际验证 A、B1、B2、B3、B4、C 全部通过；不得要求重复创建家庭 |
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
-| P2 真实 CloudBase 业务结构 | P2_STAGE_008_014_PASS_REAL_15_OF_15 | 011 11/11 true、013 7/7 true；005→006 19/19 true；用户执行 008→014 并反馈 15/15 true，七张新业务表仍为空且原家庭/成员/授权正常；009/010 尚未执行 |
+| P2 真实 CloudBase 业务结构 | STAGE_009_015_ACL_FAIL_010_BLOCKED | 005→006 19/19 PASS、008→014 15/15 PASS；用户完成 009 后，015 返回 `authenticated_can_execute_purchase_rpc=false`，其余报告项 true。009 新 RPC 存在、旧重载不存在、业务表空、原家庭正常；需执行 016 只读 ACL 诊断，010 禁止安装 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -99,6 +99,15 @@
 - 015 核验 10 参数原子采购 RPC、旧 9 参数接口不存在、SECURITY DEFINER、只授予 authenticated 运行、anon 不可运行、反向撤销唯一索引/约束、七张表仍无新数据、原家庭成员不变和 public schema 对非可信角色不可 CREATE 等。
 - 015 是纯 SELECT 且只返回布尔值，不执行库存 RPC，也不创建测试宝宝、采购、库存或虚拟用户。
 - 当前 009、010、012 尚未在真实 CloudBase 执行；正式 main/develop 及 v1.1.2 历史业务数据保持不变。
+
+### B.7 2026-11-11 P2-1 第三阶段：009 安装后 015 权限异常
+
+- 用户发送的真实 CloudBase 015 检查结果中 **`authenticated_can_execute_purchase_rpc=false`**。因此 **015 未通过，不得把 009 标记为验收完成，也不能执行 010/012**。
+- 009 安装成功的迹象：10 参数 SECURITY DEFINER RPC 存在、旧 9 参数接口不存在、反向操作唯一约束存在。用户返回的其他布尔项为 true，空表及原家庭/成员/xb 授权保持。
+- 009 源 SQL 结尾包含对 `PUBLIC` 的 `REVOKE ALL` 和对 `authenticated` 的显式 `GRANT EXECUTE`。为何真实库检查仍为 false 尚**未确定**；隔离 PG16 下对应项为 true，不能直接认定是腾讯云故障、也不能根据 CI 自动修复。
+- 已新增 `cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql`，仅单条 SELECT，读取 PostgreSQL 元数据，比较函数存在性、`authenticated` 的有效调用权限、`pg_proc.proacl` 显式 GRANT、public schema USAGE、与既有别名 RPC 的授权对照。不执行任何 RPC，也不输出 UID 或家庭记录。
+- **严格暂停：不重跑 009，不执行 010、012，不手动 GRANT/REVOKE，不执行 007，不创建测试宝宝/采购/库存。** 等用户提供 016 诊断结果后，分析真实原因，再编写最小范围修复脚本和独立验收。
+- Tencent Cloud 官方 PostgreSQL 文档既有对 EXECUTE GRANT 的推荐，也特别提示 CloudBase PostgREST RPC HTTP 网关可能不强制检查 SQL 函数 EXECUTE 权限；因此不能依赖 GRANT 作为唯一授权边界。现有 009 RPC 具备自身 `auth.role()/auth.uid()/xb_private.can_use_app()` 校验，但本阶段尚未做真实 SDK 权限联调。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
