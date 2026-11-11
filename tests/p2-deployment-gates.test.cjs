@@ -10,6 +10,7 @@ const purchasePost=read('cloudbase/sql/014_xb_p2_purchase_postflight_readonly.sq
 const atomicPost=read('cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql');
 const aclDiag=read('cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql');
 const aclRepair=read('cloudbase/sql/017_xb_p2_purchase_rpc_acl_repair.sql');
+const reconciliationPost=read('cloudbase/sql/018_xb_p2_reconciliation_postflight_readonly.sql');
 const rpcSql=read('cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql');
 const reconcileSql=read('cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql');
 const contract=read('tests/postgres/p2_purchase_contract.sql');
@@ -18,7 +19,7 @@ function actualSql(sql){
  return sql.replace(/--[^\n]*/g,'').replace(/'(?:''|[^'])*'/g,"''").trim();
 }
 test('P2 preflight and postflight are single SELECT-only inspection queries',()=>{
- for(const sql of [pre,post,capabilities,purchasePost,atomicPost,aclDiag]){
+ for(const sql of [pre,post,capabilities,purchasePost,atomicPost,aclDiag,reconciliationPost]){
   const text=actualSql(sql);
   assert.match(text,/^(?:SELECT\s|WITH\s)/i);
   assert.equal((text.match(/;/g)||[]).length,1);
@@ -98,6 +99,21 @@ test('P2 scoped repair 017 denies anon and keeps authenticated without touching 
  const testRecheck=contract.lastIndexOf('\\i cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql');
  assert.ok(testPre>0&&testPre<testFixture&&testFixture<testRecheck);
 });
+test('P2 018 reconciliation gate is SELECT-only and covers 20 flags',()=>{
+ const flags=[
+ 'reconciliation_rpc_exists','reconciliation_security_definer',
+ 'reconciliation_is_stable','reconciliation_returns_jsonb',
+ 'reconciliation_search_path_fixed','authenticated_can_execute_reconciliation',
+ 'anonymous_cannot_execute_reconciliation','authenticated_explicit_reconciliation_grant',
+ 'public_and_anon_reconciliation_grants_absent','authenticated_can_use_public_schema',
+ 'reconciliation_auth_and_actor_filter_present','no_babies_created','no_inventory_created',
+ 'no_inventory_operations_created','no_purchases_created','purchase_rpc_acl_still_secure',
+ 'stock_only_rpc_still_absent','original_family_preserved','original_members_preserved',
+ 'original_xb_grants_preserved'
+ ];
+ assert.equal(flags.length,20);
+ for(const flag of flags)assert.ok(reconciliationPost.includes('AS '+flag),flag);
+});
 test('P2 postflight refuses to confuse schema presence with permissions or empty data',()=>{
  for(const marker of [
   'all_seven_business_tables_exist','all_seven_tables_rls_enabled',
@@ -123,6 +139,7 @@ test('P2 isolated PG contract runs both inspections before creating synthetic ch
  const stage015='\\i cloudbase/sql/015_xb_p2_atomic_purchase_postflight_readonly.sql';
  const stage016='\\i cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql';
  const stage010='\\i cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql';
+ const stage018='\\i cloudbase/sql/018_xb_p2_reconciliation_postflight_readonly.sql';
  const child='INSERT INTO public.xb_children';
  assert.ok(index(before)>0);
  assert.ok(index(before)<index(schema));
@@ -134,6 +151,8 @@ test('P2 isolated PG contract runs both inspections before creating synthetic ch
  assert.ok(index(stage009)<index(stage015));
  assert.ok(index(stage015)<index(stage016));
  assert.ok(index(stage015)<index(stage010));
+ assert.ok(index(stage010)<index(stage018));
+ assert.ok(index(stage018)<index(after));
  assert.ok(index(schema)<index(after));
  assert.ok(index(after)<index(child));
  assert.ok(!contract.includes('\\i cloudbase/sql/007_xb_inventory_rpc_draft.sql'));
