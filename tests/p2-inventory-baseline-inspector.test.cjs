@@ -221,7 +221,7 @@ test('actual CloudBase client adapter can be composed for read-only reconciliati
     return {data:{complete:true,family_id:F,child_id:C,actor_uid:A,
      checked_operation_ids:[],seen_operation_ids:[],rows:rows()}};
    }
-  }};
+  }}
  };
  const preflight=Access.create(sdk);
  const kids=Children.create(sdk,ChildGuard);
