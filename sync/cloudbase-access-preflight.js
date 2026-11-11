@@ -7,7 +7,7 @@
  */
 (function(root){
  'use strict';
- const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  function fail(code){throw new Error('access_preflight:'+code);}
  function uid(value){
   return typeof value==='string'&&value.length>0&&value.length<=128?value:null;
