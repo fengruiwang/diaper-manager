@@ -36,3 +36,6 @@ jobs:
       - name: Verify cross-device P2-4E receipt contention in two independent disposable PostgreSQL sessions
         run: |
           bash tests/postgres/p2_migration_receipt_concurrency.sh
+      - name: Verify same-source P2-4E-B1 archive idempotency with two independent PostgreSQL sessions
+        run: |
+          bash tests/postgres/p2_legacy_archive_concurrency.sh
