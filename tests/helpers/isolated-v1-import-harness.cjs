@@ -1,8 +1,8 @@
-/* Isolated Node VM harness: executes the EXACT importData function text
- * extracted from the current production index.html, against SYNTHETIC backups.
- * No actual browser, file picker, localStorage, network, credentials or user data.
- * The only 'save' writes to this transient VM fixture's in-memory string.
- * Do not bundle with production UI or run on users' real exported JSON.
+/* Isolated Node VM: executes EXACT production importData, save, load and
+ * helpers extracted from current index.html with a SYNTHETIC FileReader.
+ * localStorage is replaced with a disposable Map scoped to one VM call.
+ * No real browser, user backup, credential, network or filesystem writes.
+ * Never bundle this test-only helper in production PWA or public test pages.
  */
 'use strict';
 const fs=require('node:fs');
@@ -17,12 +17,25 @@ function exactLine(prefix){
  if(found.length!==1)throw Error('isolated_importer:source_contract_changed:'+prefix);
  return found[0];
 }
+function exactBlock(startPrefix,endPrefix){
+ const starts=lines.map((line,i)=>line.startsWith(startPrefix)?i:-1)
+  .filter(x=>x>=0);
+ const ends=lines.map((line,i)=>line.startsWith(endPrefix)?i:-1)
+  .filter(x=>x>=0);
+ if(starts.length!==1||ends.length!==1||ends[0]<=starts[0])
+  throw Error('isolated_importer:load_source_contract_changed');
+ return lines.slice(starts[0],ends[0]).join('\n');
+}
 const fragments=[
  exactLine("const SIZES=['NB','S','M','L','XL','XXL'];"),
+ exactLine("const KEY='xiaobao_diaper_planner_v1';"),
  exactLine("const defaults=()=>"),
  exactLine("const num=(x,fb=0)=>"),
  exactLine("const clamp=(x,lo,hi)=>"),
- exactLine("function importData(file)")
+ exactBlock('function load(){','let state=load();'),
+ exactLine('let state=load();'),
+ exactLine('function save()'),
+ exactLine('function importData(file)')
 ];
 const importSource=fragments.at(-1);
 for(const literal of [
@@ -34,19 +47,34 @@ for(const literal of [
   throw Error('isolated_importer:production_import_contract_changed:'+literal);
 }
 const script=new vm.Script(
- "'use strict';\n"+fragments.slice(0,-1).join('\n')+"\n"+
- "let state=defaults();\n"+importSource+"\n"+
- "globalThis.__getState=()=>JSON.parse(JSON.stringify(state));\n",
- {filename:'production-v1.1.2-importData-extracted.js'}
+ "'use strict';\n"+fragments.join('\n')+"\n"+
+ "globalThis.__getState=()=>JSON.parse(JSON.stringify(state));\n"+
+ "globalThis.__getReloadedState=()=>JSON.parse(JSON.stringify(load()));\n",
+ {filename:'production-v1.1.2-import-and-load-extracted.js'}
 );
 function executeImport(exportObject,{approved=true}={}){
  const events=[];
- let persisted=null;
+ const virtualStorage=new Map();
  const temporaryFile={content:typeof exportObject==='string'?
   exportObject:JSON.stringify(exportObject)};
  const sandbox={
   XBGrowth:Growth,
   __uploadedFile:temporaryFile,
+  localStorage:{
+   getItem:key=>{
+    if(key!=='xiaobao_diaper_planner_v1')
+     throw Error('isolated_importer:unknown_storage_key');
+    return virtualStorage.get(key)??null;
+   },
+   setItem:(key,value)=>{
+    if(key!=='xiaobao_diaper_planner_v1'||typeof value!=='string')
+     throw Error('isolated_importer:unexpected_storage_write');
+    events.push('isolated_storage_write');
+    virtualStorage.set(key,value);
+   },
+   clear:()=>{throw Error('isolated_importer:clear_forbidden');},
+   removeItem:()=>{throw Error('isolated_importer:remove_forbidden');}
+  },
   FileReader:class{
    result=null;
    onload=null;
@@ -60,8 +88,7 @@ function executeImport(exportObject,{approved=true}={}){
   },
   confirm:()=>{events.push('confirm');return approved;},
   renderAll:()=>{events.push('render');},
-  toast:message=>{events.push('toast:'+message);},
-  save:()=>{events.push('isolated_save');persisted=JSON.stringify(sandbox.__getState());return true;}
+  toast:message=>{events.push('toast:'+message);}
  };
  const context=vm.createContext(sandbox,{
   name:'synthetic-v1.1.2-import-only',
@@ -69,12 +96,12 @@ function executeImport(exportObject,{approved=true}={}){
  });
  script.runInContext(context,{timeout:1000});
  vm.runInContext('importData(__uploadedFile)',context,{timeout:1000});
+ const persisted=virtualStorage.get('xiaobao_diaper_planner_v1')??null;
  return Object.freeze({
   didSave:typeof persisted==='string',
-  // Local transient JSON string, not browser localStorage.
   savedState:persisted?JSON.parse(persisted):null,
+  reloadedState:sandbox.__getReloadedState(),
   events:Object.freeze(events),
-  // A non-committing run can still inspect initial fixture defaults.
   currentState:sandbox.__getState(),
   productionFunctionUsed:true,
   realBrowserStorageTouched:false
