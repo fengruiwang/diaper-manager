@@ -74,7 +74,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
  let app=null,diag=null,verifyOtp=null,busy=false;
  function say(message){$('status').textContent=message;}
  function safeError(error){
-  const code=String(error&&error.code||error&&error.errorCode||error&&error.message||'SDK_ERROR');
+  const code=String(error&&error.code||error&&error.errorCode||'SDK_ERROR');
   const allow=/^(?:SDK_[A-Z_]+|DIAG_[A-Z_]+|[A-Za-z0-9_-]{1,48})$/;
   return allow.test(code)?code:'SDK_ERROR';
  }
