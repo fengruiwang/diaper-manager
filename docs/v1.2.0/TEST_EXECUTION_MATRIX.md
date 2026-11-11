@@ -14,7 +14,7 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | P2-3A mock-browser 安全验证加入后，GitHub Actions 回归 229/229 PASS；最新提交 CI 仍需单独核实 |
+| JavaScript 回归 | PASS_AUTOMATED | P2-3B 独立模拟演练与 smoke 子表投影防护加入后，GitHub Actions 回归 **245/245 PASS**；纯模拟/代码级证明，不能取代真实 CloudBase 测试 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
@@ -22,7 +22,7 @@
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
 | P2 真实 CloudBase 业务结构 | P2_1_SCHEMA_PASS_REAL | 011/013 真实预检 18/18；005→006 19/19、008→014 15/15、009→017→015 21/21 + 016 安全 ACL、010→018 20/20、012 12/12 均通过。7 张表全部空、RLS 生效、2 个 RPC 已安装；未开展真机业务调用 |
 | P2-3A 独立只读云端联调 | A_B_BOTH_PASS_ANON_RPC_ORIGIN_INCONCLUSIVE | 真实管理员 A 10/10 PASS；用户反馈老婆以自己的账号运行检查项全部 PASS，按 B 已登录 10/10 PASS 存档（未逐项抄录）；手机新浏览器的匿名 6/7 PASS，剩余只读 RPC 为 DENIED_UNCLASSIFIED，证明请求被拒绝但拒绝来源未确认；未写入宝宝、库存和采购 |
-| P2-3B 虚拟宝宝受控初始化 | DESIGN_AND_ISOLATED_PG_PASS_REAL_DB_UNTOUCHED | 019 仅设计草案：仅家庭 owner 且具 xb 授权可创建/停用同一专用测试宝宝，重复调用幂等、停用留审计不可复活；020 18/18 true（仅 PG16 隔离环境）；成员/陌生人/anon/已撤销 xb grant 的 owner 被拒，正式 primary 不受影响。真实 CloudBase 未安装 019/020，未创建虚拟宝宝，用户尚未批准 P2-3B 数据写入 |
+| P2-3B 虚拟宝宝受控初始化 | DESIGN_PG_CI_PASS_MEMORY_ONLY_UI_READY | 019/020 仍仅设计草案，020 PG16 18/18 true；已修正 019 与 009 家庭级并发锁保持一致、首次 CREATE 不覆盖；新增 12 步纯内存手机演练页面和 child-scope-guard 过滤测试标识/停用记录，JS 245/245 PASS。真实 CloudBase 未运行 019/020、没有创建宝宝/库存或采购，尚无 P2-3B 写入授权 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -201,6 +201,14 @@
 - 已整理 `docs/v1.2.0/P2_3B_SMOKE_CHILD_REVIEW.md`，列明不能再次创建已停用测试宝宝、不能删除测试审计、未来正式 UI 和历史迁移必须排除测试标识。
 - **从未运行 019/020 到真实腾讯云；也没有创建任何真实 CloudBase 虚拟宝宝、库存、采购、迁移记录**。019/020 仅草案，正式执行必须另行得到用户对新增测试数据、权限/函数安装以及软停用审计保留的明确授权。
 - 正式 main / develop 和生产 PWA 未修改；不让用户重跑旧版 005–018 SQL。
+
+### B.16 2026-11-11 P2-3B 并发审查、纯内存演练页面和后续真实数据过滤守卫
+
+- 安全审查发现 `019` 原来与 `009` 使用不同的家庭事务咨询锁，极端并发下可能使“采购检查活跃”与“停用宝宝”交错。**已只修改未部署的 019**，使创建/停用共享 `009` 的 `xb.inventory.family:` 锁键；改用首次 `CREATE FUNCTION` 防止已有同签名 RPC 被静默覆盖。PG16 合同与静态 lock-key 验证通过；未重跑或修改真实 CloudBase 的 009。
+- 新增 `cloudbase/smoke/p2-smoke-preview.html` + `p2-smoke-preview.js`，只有浏览器内存状态，**不存在 CloudBase SDK/网络/持久化/真实写入调用**；12 个模拟操作覆盖 A/B +60/+80=140、重发去重、ID 冲突、各读本人 ACK、成员无权创建/停用、停用后拒绝买入。可选手动上传到 `xb-test/` 专用测试目录预览，不覆盖旧页，真实云端写入按钮永久禁用。
+- 新增 `sync/child-scope-guard.js` 及纯函数测试：未来正式云端宝宝列表必须同时查询 `legacy_slot`、`deleted_at`，排除 `__xb_smoke_` 及停用记录；历史数据迁移只能匹配活跃的 `primary`。缺字段即报错，不能把测试宝宝混入真实宝宝。**该守卫尚未集成生产 PWA**。
+- `tests/p2-smoke-preview.test.cjs` 与 `tests/p2-child-scope-guard.test.cjs` 已加入 Node 回归；最新 245/245 PASS，isolated PG16 PASS。预演运行和真实两账号云端同步严格分开。
+- `docs/v1.2.0/P2_3B_PREVIEW_RUNBOOK.md` 记录可选手机预览步骤、12 项预期和后续真实授权闸门。P2-3B 真实安装 019/020/创建测试宝宝、采购、软停用依然**未获授权**。历史本地数据、1 家庭/2 成员/2 授权以及 main/develop 不变。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
