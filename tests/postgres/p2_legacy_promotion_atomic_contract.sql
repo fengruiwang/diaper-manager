@@ -21,7 +21,8 @@ SELECT public.xb_test_assert(
 -- Synthetic source digest is resolved by PG fixture admin, never by the
 -- authenticated role: private archive tables intentionally have NO SELECT.
 SELECT set_config('xb.test.promotion_digest',
- current_setting('xb.test.promotion_digest'),false);
+ (SELECT source_sha256 FROM public.xb_legacy_staging
+  WHERE family_id='9b8d0e45-bf18-4c95-889c-6f19731a8ae5'),false);
 
 -- Test signed-in family member cannot trigger an owner-only promotion.
 SET ROLE authenticated;
