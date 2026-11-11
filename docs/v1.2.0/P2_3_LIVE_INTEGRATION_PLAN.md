@@ -1,6 +1,6 @@
 # 小宝管家 v1.2.0 — P2-3 真实 CloudBase 业务联调方案（草案）
 
-日期：2026-11-11。状态：**仅研发规划 / 不授权真实业务写入**。
+日期：2026-11-11。状态：**P2-3A 只读诊断代码、模拟回归和操作手册已完成；尚未上传静态测试站点或取得真实浏览器结果。P2-3B/C 真实数据写入仍未获授权**。
 
 ## 已完成的前置基础
 
@@ -56,8 +56,17 @@
 - 全业务模块（宝宝档案/体重/采购参考价/设置等）还有各自的 CRUD 和迁移契约，不能以库存成功冒充全业务成功。
 - 真实旧版迁移最后单独审查 schema mapping、备份可恢复性、idempotency、旧版数据校验；用户再决定是否授权。正式发布必须另行批准。
 
+## P2-3A 实际开发交付（2026-11-11）
+
+- 独立浏览器入口：`cloudbase/smoke/p2-readonly-test.html`。
+- 只读检查模块：`cloudbase/smoke/p2-readonly-diag.js`，仅 `SELECT` 与只读 `xb_read_inventory_reconciliation` 受控探针，不包含写库存 RPC 或数据表 DML。
+- 自动化合成 CloudBase SDK 用例：`tests/p2-readonly-browser-diagnostics.test.cjs`，覆盖 anon / 已登录 A/B、错误权限、RPC 意外成功、网络错误不可误报 PASS、不可输出真实家庭 ID。
+- 专用部署及手动验收步骤：`docs/v1.2.0/P2_3A_READONLY_ACCEPTANCE_RUNBOOK.md`。
+- **未发布、未上传 CloudBase 静态网站、没有真实 CloudBase HTTP/SDK 调用**。仅可将这两份前端文件手动放入原 `xb-test/` 独立目录；不得替换生产 PWA。
+- 在用户反馈真实 A/B/anon 检查状态前，不能标记 P2-3A PASS_REAL，也不能启动任何虚拟宝宝或购买数据写入。
+
 ## P2-3 当前下一动作
 
-**只进行无数据库写入的研发准备**：审查已有 CloudBase adapter 的会话与 RPC 调用、创建一个不带生产写入能力的独立诊断页面规划、为测试宝宝 RPC 制作 SQL 草案与隔离用例。任何真实 CloudBase 业务变更都要另行批准，不能将 P2-1 授权自动延展。
+**现阶段等待独立只读诊断页在 `xb-test/` 的真人浏览器验收**；随后继续在隔离测试环境设计虚拟宝宝专用 RPC 及可审计关闭流程，任何真实 CloudBase 测试数据写入都要单独申请。
 
 **注意**：P2-1 的 018 与 012 全 true 是真实数据库静态验收证据，不是任何真实 HTTP/SDK 业务调用的结果。
