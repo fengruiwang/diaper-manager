@@ -115,9 +115,11 @@ BEGIN
  END;
 END $;
 SELECT set_config('xb.test.role','authenticated',false);
+RESET ROLE;
 SELECT public.xb_test_assert(
  (SELECT COUNT(*)=3 FROM public.family_member_alias_audit),
  'exactly three valid edits created immutable audit records');
+SET ROLE authenticated;
 SELECT public.xb_test_assert(
  (SELECT member_alias='妈妈' AND alias_revision=2 FROM public.family_members
  WHERE user_uid='test-mom'),
