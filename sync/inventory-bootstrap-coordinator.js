@@ -55,6 +55,7 @@
  function inspectQueue(rows,scope){
   if(!Array.isArray(rows)||rows.length>MAX_OPS)fail('queue_unverified');
   const seen=new Set();
+  let hasChildOperations=false;
   for(const row of rows){
    if(!row||row.familyId!==scope.familyId||row.actorUid!==scope.actorUid
       ||typeof row.id!=='string'||!UUID.test(row.id)||seen.has(row.id)
@@ -67,8 +68,11 @@
    if(INVENTORY_TYPES.has(row.type)
       &&(typeof row.payload.childId!=='string'||!UUID.test(row.payload.childId)))
     fail('queue_unverified');
-   if(row.payload.childId===scope.childId)fail('existing_child_operations');
+   if(row.payload.childId===scope.childId)hasChildOperations=true;
   }
+  // Validate the ENTIRE queue before classifying it as merely nonempty.
+  // A corrupt later operation must not be hidden behind an earlier valid one.
+  if(hasChildOperations)fail('existing_child_operations');
  }
  function clearanceValid(proof,scope){
   return !!proof&&proof.kind==='verified-server-migration-receipt'
