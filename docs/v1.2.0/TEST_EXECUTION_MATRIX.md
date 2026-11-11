@@ -14,14 +14,14 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | 206/206 PASS；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398352 |
+| JavaScript 回归 | PASS_AUTOMATED | 215/215 PASS；https://github.com/fengruiwang/diaper-manager/actions/runs/42948467227 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
 | CloudBase 既有 A/B 双账号与成员权限 | PASS_REAL_6_OF_6 | 用户 2026-11-11 实际验证 A、B1、B2、B3、B4、C 全部通过；不得要求重复创建家庭 |
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
-| P2 云端业务表与库存 RPC 真实测试 | BLOCKED_ON_APPROVAL | 005/008/009/010 未在 CloudBase 部署 |
-| P3 Edge IndexedDB 浏览器测试 | D1_PASS_D2_BLOCKED | 用户确认虚拟库存及联网刷新持久化通过；D2 因诊断页离线重新打开失败而阻塞，不能归为 IndexedDB 失败 |
+| P2 云端业务表与库存 RPC 真实测试 | PREDEPLOY_WAITING_USER | 新增 011 只读预检、012 首次部署后只读核验，隔离 PG16 通过；005/008/009/010 尚未在真实 CloudBase 部署，需用户明确授权 |
+| P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
 | 正式发布升级 | NOT_STARTED | 需等全部发布闸门通过 |
@@ -35,10 +35,17 @@
 - B4 成员生成邀请码被拒绝：PASS_REAL
 - C 最终家庭关系和正式版历史数据核对：PASS_REAL
 - D1 独立 IndexedDB 虚拟库存与刷新持久化：PASS_BROWSER
-- D2 断网重开测试：BLOCKED_ENVIRONMENT（初版测试页没有离线页面缓存；并不证明 IndexedDB 出错）
-- 研发措施：新增独立作用域的 `cloudbase/smoke/idb-offline-sw.js` 和页面缓存状态提示，另设单元测试保证不影响账号测试页/正式版。需要将两个文件上传至同一 HTTPS 测试目录才可重新验收 D2b。
+- D2a 断网录入、D2b 离线刷新和重开、D2c 模拟云端确认：PASS_REAL（用户反馈全部正常）。这是离线本地验证，不是 CloudBase 真实补传。
+- 研发措施：新增独立作用域的 `cloudbase/smoke/idb-offline-sw.js` 和页面缓存状态提示，已完成测试页重新部署与真实复测；该 D2 阻塞已关闭，不需要重复验收。
 - P1 第三方 C 账号与成员撤权仍未实测；不撤销当前家庭的两名成员。
 - P2 正式业务表、真实双手机、全业务同步、历史迁移仍然未通过。
+
+## B.2 P2 下一验收节点（2026-11-11）
+
+- 已新增 `cloudbase/sql/011_xb_p2_predeploy_readonly.sql`，首次上线前只读 11 项检查；隔离数据库全 true，需用户在既有 CloudBase 环境运行并反馈。
+- 已新增 `cloudbase/sql/012_xb_p2_postdeploy_readonly.sql`，首次安装后只读 12 项结构、RLS、事务/迁移空表和 RPC 签名检查；隔离数据库全 true。真实环境还未安装/运行。
+- `tests/postgres/p2_purchase_contract.sql` 同时覆盖两个检查脚本，JS 安全测试保证其只包含只读查询。
+- 具体操作见 `docs/v1.2.0/P2_LIVE_ACCEPTANCE_RUNBOOK.md`；用户确认前禁止执行 005/008/009/010，禁止部署 007。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
@@ -124,7 +131,7 @@
 | C2-4 | B 创建邀请被拒绝 |  |  |
 | C3 | A 最终核对昵称和正式历史数据 |  |  |
 | D1 | 独立 IDB 测试页面可打开 |  |  |
-| D2 | 虚拟购买、刷新、断网、重开后保留 |  |  |
+| D2 | 虚拟购买、刷新、断网、重开后保留 | PASS（2026-11-11） | 用户反馈全部正常 |
 | D3 | 模拟回执后待同步归零 |  |  |
 
 没有条件执行的项目填 BLOCKED 和原因，不需要为了填满通过数而勉强测试。
