@@ -20,7 +20,7 @@
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
 | CloudBase 既有 A/B 双账号与成员权限 | PASS_REAL_6_OF_6 | 用户 2026-11-11 实际验证 A、B1、B2、B3、B4、C 全部通过；不得要求重复创建家庭 |
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
-| P2 真实云端部署前状态 | PASS_18_OF_18_APPROVED_BACKUP_GATE_PENDING | 011 为 11/11 true，013 为 7/7 true；用户已明确授权 P2-1 空表/RLS/两个 RPC 和 006/012，但要求先确认数据库备份恢复路径；仍未执行 DDL |
+| P2 真实云端部署前状态 | PRECHECK_PASS_18_OF_18_BACKUP_BLOCKED_SHARED | 011 为 11/11 true、013 为 7/7 true，P2-1 已获限定授权；截图显示 CloudBase PostgreSQL 17.11 **共享集群**，备份页提示共享集群暂不提供能力，腾讯云独立 PostgreSQL 实例列表为空。未验证可恢复备份，DDL **不得执行** |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -43,7 +43,7 @@
 
 ## B.2 P2 下一验收节点（2026-11-11）
 
-**2026-11-11 最新授权：P2-1 限定授权已收到。** 仅允许在现有 `xiaobao-family` 安装 7 张空业务表、RLS、两个 RPC，以及 006/012 的只读核对。不允许历史数据迁移、创建任何宝宝、合并分支或发布。**当前备份/恢复能力尚待用户核实，BACKUP_GATE=PENDING，绝不执行 SQL DDL。** 若目标 CloudBase 是共享 PostgreSQL 实例且备份入口不可见，应标记 BLOCKED；不得默认使用传统 CloudBase 文档数据库回档。备份检查步骤见 `P2_LIVE_ACCEPTANCE_RUNBOOK.md`。
+**2026-11-11 最新授权：P2-1 限定授权已收到。** 仅允许在现有 `xiaobao-family` 安装 7 张空业务表、RLS、两个 RPC，以及 006/012 的只读核对。不允许历史数据迁移、创建任何宝宝、合并分支或发布。**已根据用户截图确认目标是 CloudBase PG17.11 共享集群，备份页面不提供相关能力，BACKUP_GATE=BLOCKED_SHARED_INSTANCE；不得执行任何 P2 SQL DDL。** 未证明无后台备份，但用户侧没有可验证的恢复入口，不能按备份闸门通过处理。备份检查步骤见 `P2_LIVE_ACCEPTANCE_RUNBOOK.md`。
 
 
 
@@ -60,6 +60,17 @@
 - 已新增 `cloudbase/sql/012_xb_p2_postdeploy_readonly.sql`，首次安装后只读 12 项结构、RLS、事务/迁移空表和 RPC 签名检查；隔离数据库全 true。真实环境还未安装/运行。
 - `tests/postgres/p2_purchase_contract.sql` 在隔离 PG16 中覆盖 011、013、012 三个检查脚本；JS 安全测试保证三者为只读查询。
 - 具体操作见 `docs/v1.2.0/P2_LIVE_ACCEPTANCE_RUNBOOK.md`；用户确认前禁止执行 005/008/009/010，禁止部署 007。
+
+### B.3 2026-11-11 真实 CloudBase 备份恢复排查结果
+
+- 用户提供三张截图，显示 PostgreSQL **17.11**、实例类型 **共享集群**、状态运行中。
+- CloudBase 管理 → 备份页面明确提示“当前共享集群暂不提供相关能力，可以升级至独享集群后启用能力”。
+- 独立 TencentDB PostgreSQL 控制台在所选地域没有实例，不能假定共享 CloudBase PG 可由此控制台执行手动备份/回档。
+- **BACKUP_GATE=BLOCKED_SHARED_INSTANCE**，这只是确认“当前用户没有可操作的恢复通道”，不推断腾讯云后台一定没有任何备份。
+- 官方文档：<https://docs.cloudbase.net/database/backup> 明确 PG 模式与传统文档数据库回档机制不同；<https://docs.cloudbase.net/database/postgresql/branching> 环境分支在 2026-11-11 仍属 Private Alpha、邀请开通且无 SLA，不得视为已具备可靠的生产恢复能力。
+- 不升级独享实例，不购买额外服务，不执行 005/008/009/010，不创建新家庭或虚拟宝宝，不导入旧版数据。
+- 后续可通过腾讯云 CloudBase 工单确认共享 PG 是否支持逻辑导出、受控快照/恢复、恢复入口与权限，或者准备**严格受范围限制的回退 SQL**。逻辑备份/回退脚本的存在不等于经过验证的数据库备份；若要改用无可恢复备份的风险方案，必须单独告知并重新获用户明确同意。
+- 当前继续开展只读方案研究、编写离线隔离测试和安全审查即可。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
