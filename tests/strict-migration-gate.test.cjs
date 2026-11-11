@@ -135,6 +135,19 @@ test('unknown inventory / target / daily sizes and policy fields are explicit bl
  assert.ok(has(r,'replenishPolicy','UNKNOWN_POLICY_FIELD'));
  assert.ok(!JSON.stringify(r).includes('XXX'));
 });
+test('malformed or out-of-catalog reference override keys require review without leaking brand data',async()=>{
+ for(const invalidKey of ['missing-delimiters','好奇|小森林|XXL','|私密系列|S','私密品牌||NB','a|b|S|extra']){
+  const state=fixture();
+  state.referenceOverrides={};
+  state.referenceOverrides[invalidKey]=1.235;
+  const r=await review(wrap(state));
+  assert.equal(r.status,'SCHEMA_OR_RECORD_REVIEW_REQUIRED');
+  assert.ok(has(r,'referenceOverrides','UNMAPPED_REFERENCE_KEY'));
+  assert.ok(!JSON.stringify(r).includes('私密系列'));
+  assert.ok(!JSON.stringify(r).includes('私密品牌'));
+  denied(r);
+ }
+});
 test('invalid purchase total third decimal blocks, but three-decimal UNIT reference remains valid',async()=>{
  const good=await review(wrap(fixture()));
  assert.equal(good.status,'MAPPING_PREFLIGHT_CLEAN_UPLOAD_DISABLED');
