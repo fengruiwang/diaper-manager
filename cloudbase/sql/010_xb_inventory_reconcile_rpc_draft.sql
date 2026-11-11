@@ -75,6 +75,6 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.xb_read_inventory_reconciliation(uuid,uuid,uuid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.xb_read_inventory_reconciliation(uuid,uuid,uuid[]) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.xb_read_inventory_reconciliation(uuid,uuid,uuid[]) TO authenticated;
 COMMIT;
