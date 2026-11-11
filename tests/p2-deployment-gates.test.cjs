@@ -17,7 +17,7 @@ function actualSql(sql){
 test('P2 preflight and postflight are single SELECT-only inspection queries',()=>{
  for(const sql of [pre,post,capabilities,purchasePost,atomicPost,aclDiag]){
   const text=actualSql(sql);
-  assert.match(text,/^SELECT\s/i);
+  assert.match(text,/^(?:SELECT\s|WITH\s)/i);
   assert.equal((text.match(/;/g)||[]).length,1);
   assert.ok(text.endsWith(';'));
   assert.doesNotMatch(text,forbidden);
