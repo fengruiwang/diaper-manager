@@ -14,7 +14,7 @@
 
 | 范围 | 状态 | 证据 / 说明 |
 |---|---|---|
-| JavaScript 回归 | PASS_AUTOMATED | P2-4B 额外 10 项真实 v1.1.2 导入逻辑的内存投影差异用例加入后，完整 **326/326 PASS**；PG16 隔离合同 PASS；无正式应用导入和云端数据写入 |
+| JavaScript 回归 | PASS_AUTOMATED | P2-4C 新增 12 项**从正式 index.html 原样提取并执行 importData/save/load** 的一次性 Node VM 导入/重载合成测试后，完整 **338/338 PASS**；PG16 隔离合同 PASS；无真实手机/CloudBase 数据写入 |
 | P1 成员备注 RBAC、revision、审计 | PASS_ISOLATED_PG | 新增真实 SQL 隔离执行（owner 改本人/成员、member 改本人、拒绝越权/旧revision/直接UPDATE、陌生人、匿名伪造、审计条数）；https://github.com/fengruiwang/diaper-manager/actions/runs/42942398249 |
 | P2 采购/库存/撤销/RLS/回执 | PASS_ISOLATED_PG | PostgreSQL 16 临时测试容器通过；**并非腾讯云真实业务表部署** |
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
@@ -28,6 +28,7 @@
 | P2-3E 首次本地基线受控初始化 | DESIGN_ISOLATED_IDB_PASS_LIVE_UNDEPLOYED | 新增 inventory-bootstrap-coordinator.js，默认只读、需要可信历史迁移收据、双次服务器库存/revision 一致检查、IDB 无既有快照与队列；仅隔离模拟双开关可写 IDB 并第三次读取。17+3 合成用例通过：重复初始化阻止、模拟晚到 pending 队列导致事务拒绝、持久保存验证。**真实历史收据服务尚不存在，所有结果 uploadAllowed=false**，未在真实 CloudBase 运行 |
 | P2-4A 旧版备份完整性与恢复预览 | REAL_BROWSER_BACKUP_VAULT_PASS_RESTORE_IMPORT_NOT_TESTED | 2026-11-11 用户提交两张网页截图：选取正式 v1.1.2 导出 JSON，保护副本生成/自检 PASS；重新选择下载的保护副本后核验 PASS，原始文件字节长度 3265，SHA-256 一致，原始备份取回预览 PASS。此为**真实浏览器备份文件完整性验收**，非正式软件导入恢复、历史数据库迁移或业务记录逐项校验。JS 316/316 PASS，页面不写旧 localStorage/云端 |
 | P2-4B 旧版导入内存差异审计 | SYNTHETIC_PROJECTION_PASS_REAL_IMPORT_NOT_RUN | 新增 legacy-restore-projection.js：在内存模拟正式 index.html 导入默认值、六尺码修正及 XBGrowth.extras 处理，对原 JSON 逐字段比对；补字段、库存舍入、体重记录过滤、未知嵌套字段丢失均标记需审核，输出只有类别/差异计数不含个人资料。10 组合成测试 PASS，总 326/326。**不在用户手机运行真实导入，不代表真正恢复无损** |
+| P2-4C 旧版真实导入器隔离执行 | REAL_IMPORT_FUNCTION_IN_SYNTHETIC_VM_PASS_USER_DATA_UNTOUCHED | 从正式 index.html 提取**原样 importData/save/load** 代码，用一次性 Node VM、合成 FileReader/Map localStorage 执行导入及重载；12 项测试验证规范数据/购买和参考价保留、取消不写、库存修正、缺省/体重/未知字段变化、版本号未校验；完整 JS 338/338 PASS。**不是用户真实 3265 字节备份的正式导入，也不是 CloudBase 数据迁移** |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -289,6 +290,14 @@
 - `tests/legacy-restore-projection.test.cjs` 10 项涵盖合法状态原样投影、缺省值补入、库存舍入、体重异常过滤、嵌套未知字段损失、价格覆盖精度、源码合同漂移和零网络/零存储写入。CI 完整回归 **326/326 PASS**；隔离 PostgreSQL 合同保持 PASS。
 - 用户 P2-4A 实测的 3265 字节备份文件**没有提供给开发分支，也不需要提供**。P2-4B 只使用合成样本，下一阶段需在独立/可回滚的测试上下文验证正式导入器实际效果；不允许用户在当前使用的小宝管家里点击恢复。
 - 参见 `docs/v1.2.0/P2_4B_RESTORE_PROJECTION_REVIEW.md`。当前不需要用户执行额外文件测试，也没有授权云端历史迁移或正式版升级。
+
+### B.26 2026-11-11 P2-4C 正式旧版导入器原样执行与模拟重载
+
+- 完成 `tests/helpers/isolated-v1-import-harness.cjs`：在 GitHub Actions 的一次性 Node VM 提取正式 `index.html` 原样 `importData`、`save`、`load` 及辅助源码，用合成 `FileReader` 和**仅内存** `localStorage` Map 执行，不访问真实浏览器、用户历史或网络；实际 `growth.js` 参与字段规范化。
+- `tests/legacy-real-import-isolation.test.cjs` 12 项安全合同已通过：标准数据导入/持久 Map/模拟重开、一致性对照，取消替换、错误 JSON、库存负值/四舍五入/上限、目标库存及日用量界限、购买/比价/参考价三位小数、体重异常过滤和未知嵌套扩展字段去除等。新增发现：**v1.1.2 原始导入器不会检查版本号**，未来迁移必须显式拒绝未知版本，不能套用旧逻辑。
+- P2-4B 独立投影与 P2-4C 原始导入代码的多个合成样本结果一致。完整 JS CI **338/338 PASS**，隔离 PG16 合同 PASS。用户 P2-4A 浏览器封存核验已通过，无需重复上传备份。
+- 范围严格区分：只在合成内存执行原样导入函数，不是完整正式网页、真实用户备份或手机 localStorage 的恢复测试。测试仅写 VM 局部 Map；**未改 main、GitHub Pages、正式 PWA、CloudBase 业务表、两个真实成员或任何历史数据**。
+- 详见 `docs/v1.2.0/P2_4C_REAL_IMPORT_SANDBOX_REVIEW.md`。下一步设计无损/允许修正字段清单和严格版本预检、云端迁移的幂等收据，不用在正在使用的手机上做覆盖式恢复。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
