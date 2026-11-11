@@ -18,6 +18,11 @@ SELECT public.xb_test_assert(
    AND relrowsecurity),
  'new history/settings tables both enable RLS');
 
+-- Synthetic source digest is resolved by PG fixture admin, never by the
+-- authenticated role: private archive tables intentionally have NO SELECT.
+SELECT set_config('xb.test.promotion_digest',
+ current_setting('xb.test.promotion_digest'),false);
+
 -- Test signed-in family member cannot trigger an owner-only promotion.
 SET ROLE authenticated;
 SELECT set_config('xb.test.role','authenticated',false);
@@ -29,8 +34,7 @@ BEGIN
    '9b8d0e45-bf18-4c95-889c-6f19731a8ae5',
    '7b5f0e45-bf18-4c95-889c-6f19731a8ae5',
    '1c5f0e45-bf18-4c95-889c-6f19731a8ae5',
-   (SELECT source_sha256 FROM public.xb_legacy_staging
-    WHERE family_id='9b8d0e45-bf18-4c95-889c-6f19731a8ae5'));
+   current_setting('xb.test.promotion_digest'));
   RAISE EXCEPTION 'nonowner_promoted' USING ERRCODE='XX000';
  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
  END;
@@ -64,8 +68,7 @@ SELECT public.xb_test_assert(
    '9b8d0e45-bf18-4c95-889c-6f19731a8ae5',
    '7b5f0e45-bf18-4c95-889c-6f19731a8ae5',
    '1c5f0e45-bf18-4c95-889c-6f19731a8ae5',
-   (SELECT source_sha256 FROM public.xb_legacy_staging
-    WHERE family_id='9b8d0e45-bf18-4c95-889c-6f19731a8ae5')) AS r) x),
+   current_setting('xb.test.promotion_digest')) AS r) x),
  'one complete owner promotion writes receipt LAST, never enables outbox');
 
 -- Lost HTTP response and request UUID changed: no double stock/ledger.
@@ -74,8 +77,7 @@ SELECT public.xb_test_assert(
   '9b8d0e45-bf18-4c95-889c-6f19731a8ae5',
   '7b5f0e45-bf18-4c95-889c-6f19731a8ae5',
   '2c5f0e45-bf18-4c95-889c-6f19731a8ae5',
-  (SELECT source_sha256 FROM public.xb_legacy_staging
-   WHERE family_id='9b8d0e45-bf18-4c95-889c-6f19731a8ae5')
+  current_setting('xb.test.promotion_digest')
  )->>'status')='ALREADY_PROMOTED_SAME_SOURCE',
  'changing migration UUID on retry cannot double-promote');
 DO $different_digest$
@@ -174,7 +176,8 @@ REVOKE EXECUTE ON FUNCTION public.xb_promote_legacy_archive_draft(uuid,uuid,uuid
  FROM anon;
 
 -- Tampered archive count must not promote or create any business rows.
-SET ROLE authenticated;
+-- Admin-only synthetic mutation in an exception subtransaction rolls itself
+-- back, while the RPC still impersonates the authenticated owner GUC.
 SELECT set_config('xb.test.role','authenticated',false);
 SELECT set_config('xb.test.uid','rollback-owner',false);
 DO $tamper_count$
@@ -187,16 +190,12 @@ BEGIN
    'ba8d0e45-bf18-4c95-889c-6f19731a8ae5',
    'ca5f0e45-bf18-4c95-889c-6f19731a8ae5',
    '3c5f0e45-bf18-4c95-889c-6f19731a8ae5',
-   (SELECT source_sha256 FROM public.xb_legacy_staging
-    WHERE family_id='ba8d0e45-bf18-4c95-889c-6f19731a8ae5'));
+   current_setting('xb.test.promotion_digest'));
   RAISE EXCEPTION 'tampered_archive_count_accepted' USING ERRCODE='XX000';
  EXCEPTION WHEN SQLSTATE '23514' THEN NULL;
  END;
 END
 $tamper_count$;
--- NOTE: preceding UPDATE under authenticated should be denied! Run
--- tamper as privileged test with separate admin block below instead.
-RESET ROLE;
 
 -- Inject failure AT THE LAST RECEIPT INSERT, after all business rows exist
 -- inside the in-flight transaction. The whole migration must vanish.
@@ -222,8 +221,7 @@ BEGIN
    'ba8d0e45-bf18-4c95-889c-6f19731a8ae5',
    'ca5f0e45-bf18-4c95-889c-6f19731a8ae5',
    '3c5f0e45-bf18-4c95-889c-6f19731a8ae5',
-   (SELECT source_sha256 FROM public.xb_legacy_staging
-    WHERE family_id='ba8d0e45-bf18-4c95-889c-6f19731a8ae5'));
+   current_setting('xb.test.promotion_digest'));
   RAISE EXCEPTION 'migration_receipt_failure_was_not_seen' USING ERRCODE='XX000';
  EXCEPTION WHEN SQLSTATE '23514' THEN NULL;
  END;
@@ -260,8 +258,7 @@ SELECT public.xb_test_assert(
    'ba8d0e45-bf18-4c95-889c-6f19731a8ae5',
    'ca5f0e45-bf18-4c95-889c-6f19731a8ae5',
    '4c5f0e45-bf18-4c95-889c-6f19731a8ae5',
-   (SELECT source_sha256 FROM public.xb_legacy_staging
-     WHERE family_id='ba8d0e45-bf18-4c95-889c-6f19731a8ae5')
+   current_setting('xb.test.promotion_digest')
  )->>'status')='PROMOTED_HISTORY_AND_BASELINE',
  'after last-receipt fault rolled back, a clean retry can promote');
 RESET ROLE;
