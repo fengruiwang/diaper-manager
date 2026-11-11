@@ -9,7 +9,8 @@
 <button id="purchase" type="button">② 离线记录采购 +60 片</button>
 <button id="read" type="button">③ 重新读取并检查</button>
 <button id="confirm" type="button">④ 模拟云端收到全部操作</button>
-<p><small>可在点击②后断网、刷新页面，然后点击③；断网时请确保当前网页仍能打开或已缓存。这里的「模拟云端」不会访问真实 CloudBase。</small></p></div>
+<p><small>离线前须确认下方「离线页面缓存已就绪」。可先保持页面打开，断网后点击②；缓存就绪时还可断网刷新或重开本测试页。这里的「模拟云端」不会访问真实 CloudBase。</small></p></div>
+<div class="panel"><h2>离线页面缓存（仅测试页）</h2><p id="offlineShellStatus" role="status" aria-live="polite">正在检查离线页面缓存……</p><p><small>需将 <code>idb-offline-sw.js</code> 和本 HTML 放在同一个 HTTPS 测试目录；成功后才支持断网重新打开此测试页。不会缓存登录页面、访问 CloudBase，也不会清理 IndexedDB。</small></p></div>
 <div class="panel"><h2>本地持久化状态</h2><div class="stats">
 <div class="stat">S 码库存<div class="num" id="quantity">—</div></div>
 <div class="stat">待同步事件<div class="num" id="waiting">—</div></div>
@@ -713,6 +714,35 @@
     dbName:DB
   });
   function display(msg){$('result').textContent=msg;}
+  async function prepareOfflineShell(){
+    const indicator=$('offlineShellStatus');
+    if(!('serviceWorker' in navigator)||!('caches' in window)){
+      indicator.textContent='此浏览器暂不支持本测试的离线网页缓存；保持页面打开仍可测试离线录入。';
+      return;
+    }
+    if(location.protocol!=='https:'&&location.hostname!=='localhost'){
+      indicator.textContent='需要 HTTPS 托管后才能安装离线测试缓存；请勿使用 file:// 页面测试断网重开。';
+      return;
+    }
+    try{
+      // The filename-shaped scope prevents control of auth-test.html and all
+      // other CloudBase/production pages on the same host.
+      const registration=await navigator.serviceWorker.register(
+        './idb-offline-sw.js',{scope:'./idb-offline-test.html'});
+      const active=await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error('service_worker_activation_timeout')),12000))
+      ]);
+      if(active.scope!==registration.scope)throw Error('service_worker_scope_mismatch');
+      const cache=await caches.open('xiaobao-p3-idb-offline-shell-v1');
+      const page=new URL('./idb-offline-test.html',location.href).href;
+      if(!await cache.match(page))throw Error('offline_test_page_not_cached');
+      indicator.textContent='离线页面缓存已就绪。现在可以断网后刷新/重新打开此测试页，并检查本地数据。';
+    }catch(error){
+      indicator.textContent='离线页面缓存尚未就绪：'+String(error?.message||'unknown')+
+        '。请确认同目录上传了 idb-offline-sw.js，保持有网刷新后重试；不要清理正式小宝管家的站点数据。';
+    }
+  }
   function block(button,work){
     button.disabled=true;
     Promise.resolve().then(work).catch(e=>{
@@ -772,6 +802,7 @@
     await show('已模拟服务器确认所有本地操作（没有实际云端请求）。');
   });
   $('account').textContent=authName;
+  void prepareOfflineShell();
   display('准备就绪。先点击「创建虚拟库存」，之后可以刷新浏览器检查持久性。\n该页面不调用任何 CloudBase SDK，也不会请求验证码。');
 })();
 </script>
