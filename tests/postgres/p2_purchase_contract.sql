@@ -33,10 +33,11 @@ INSERT INTO public.family_app_access(family_id,user_uid,app_code,granted_by) VAL
 \i cloudbase/sql/013_xb_p2_capabilities_readonly.sql
 
 \i cloudbase/sql/005_xb_core_schema_draft.sql
+\i cloudbase/sql/006_xb_core_schema_postflight.sql
 \i cloudbase/sql/008_xb_transactions_schema_draft.sql
+\i cloudbase/sql/014_xb_p2_purchase_postflight_readonly.sql
 \i cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql
 \i cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql
-\i cloudbase/sql/006_xb_core_schema_postflight.sql
 \i cloudbase/sql/012_xb_p2_postdeploy_readonly.sql
 
 SELECT public.xb_test_assert(
