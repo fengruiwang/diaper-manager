@@ -30,7 +30,7 @@
 
 这不等于授权部署。即便 11 + 7 项全部通过，仍须取得用户对 005/008/009/010 数据库 DDL 的**明确同意**。
 
-## P2-1 — 已完成 005/006，008/014 等待真实 CloudBase 验收
+## P2-1 — 已完成 005/006 及 008/014，等待 009/015 RPC 验收
 
 2026-11-11 用户明确授权：**仅在现有 `xiaobao-family` PostgreSQL 执行 005/008/009/010 的空业务表、RLS、2 个 RPC，并执行 006/012 核验**。明确禁止真实历史数据迁移、虚拟/真实宝宝创建、向 main/develop 合并、生产发布。**授权不意味着现在可执行 DDL：用户要求先证实备份与恢复能力。2026-11-11 截图已确认 BACKUP_GATE=BLOCKED_SHARED_INSTANCE。**
 
@@ -61,7 +61,7 @@
 - **已完成**：用户执行 `005_xb_core_schema_draft.sql`（含 BEGIN/COMMIT），006 实测 19/19 true；不要重跑 005/006。
 - **已完成**：`006_xb_core_schema_postflight.sql` 实测 **19/19 true**，确认空业务表及原家庭权限正常。
 - 如 SQL 控制台报错，**不自动重跑**；反馈脱敏错误与阶段，先查看当前已创建对象。可能存在部分事务影响，须核对状态再处置。
-- **当前下一步**：`008` → 新增的只读 `014`（15/15 true）核验；收到实际结果后再进入 `009` → `010` → `012`。绝不执行旧 `007`。
+- **已完成**：用户执行 008 后运行 014，真实 CloudBase **15/15 true**；无需重跑。**当前下一步**：`009` → `015`（只读 21/21 true）；014 未通过前不能运行 009 的旧限制已经满足。009/015 通过后才进入 010 → 012。绝不执行旧 `007`。
 - 始终不创建真实或虚拟宝宝、不插入采购或库存、不迁移旧版 localStorage、不同步正式 PWA、不合并 main/develop。
 - 用户明示接受的是 P2-1 **增量空结构部署**的缺少可用备份风险，不代表同意其他高风险操作。该阶段可以在独立授权内推进，不需反复要求其购买/升级备份套餐。
 
@@ -84,9 +84,10 @@
 | 0b | 013_xb_p2_capabilities_readonly.sql | 验证实际 CloudBase RPC 运行依赖（7 项） | 否 |
 | 1 | 005_xb_core_schema_draft.sql | 仅建空宝宝、体重、库存、事件、迁移收据表 | 是，必须先审批 |
 | 2 | 006_xb_core_schema_postflight.sql | **真实 CloudBase 19/19 true，已完成** | 否 |
-| 3 | 008_xb_transactions_schema_draft.sql | 创建空采购历史表（当前下一步，已获 P2-1 授权） | 是 |
-| 4 | 014_xb_p2_purchase_postflight_readonly.sql | 核实新采购表、RLS、权限、索引和空数据（预计 15/15 true） | 否 |
-| 5 | 009_xb_purchase_atomic_rpc_draft.sql | 安装带采购详情的原子库存 RPC（须等 014 通过） | 是 |
+| 3 | 008_xb_transactions_schema_draft.sql | **已完成**，空采购流水表 | 是 |
+| 4 | 014_xb_p2_purchase_postflight_readonly.sql | **真实 CloudBase 15/15 true，已完成** | 否 |
+| 5 | 009_xb_purchase_atomic_rpc_draft.sql | **当前下一步**，创建原子写入 RPC 及撤销唯一约束 | 是 |
+| 5b | 015_xb_p2_atomic_purchase_postflight_readonly.sql | 009 安装后检查权限、旧接口、唯一约束和空数据（21/21 true） | 否 |
 | 6 | 010_xb_inventory_reconcile_rpc_draft.sql | 安装受权限限制的库存一致性读取 RPC | 是 |
 | 7 | 012_xb_p2_postdeploy_readonly.sql | 核实结构、权限、RPC、空数据状态 | 否 |
 
@@ -100,13 +101,21 @@
 - 任何 false 或 SQL 错误立即停止，不重跑 008，不开始 009/010，不清理真实家庭对象。仅反馈脱敏错误码或布尔字段，不上传数据库内容。
 - `014` 新增的单行只读 SQL 不改变原 P2-1 授权范围，其 CI 已与 008 集成在隔离 PostgreSQL 中验证。
 
+### 第三阶段：009 → 015（当前待用户执行）
+
+- **009** 仅安装 `xb_apply_inventory_operation` 10 参数原子采购/库存写入 RPC，删除可能存在的旧 9 参数只写库存入口，并增加撤销唯一索引和反向操作一致性约束。009 代码本身不调用该 RPC，不创建任何宝宝或业务数据。
+- 009 文件包含 `BEGIN;` 和 `COMMIT;`，**整份执行一次**；本次使用经过隔离 PostgreSQL 合同测试的开发分支版本。严禁执行 `007`。
+- 009 成功后单独执行 `015_xb_p2_atomic_purchase_postflight_readonly.sql`：**一行 21 个布尔字段，要求全部 true**。它只检查函数元数据、ACL、索引/约束、现有数据是否为空，不会真的执行写库存操作。
+- **015 通过前禁止执行 010。** 若任何字段 false（尤其 `untrusted_roles_cannot_create_public`、`anonymous_cannot_execute_purchase_rpc`），立即停止，并将布尔结果发给开发对话审查；不自行执行 GRANT/REVOKE 或修复脚本。
+- 009 和 015 不进行真实双账号购入测试，也不创建任何虚拟或真实宝宝；这一阶段仅验证数据库结构，实际联调后续另行授权。
+
 ### P2-1 具体授权边界与中止条件
 
 - 授权范围（若用户同意）：只在**现有** `xiaobao-family` 的 PostgreSQL `public` schema 建立 7 张**空**业务表（`xb_children`, `xb_baby_profiles`, `xb_weight_records`, `xb_inventory`, `xb_inventory_operations`, `xb_migrations`, `xb_transactions`）、相应索引/RLS 和 2 个函数（`xb_apply_inventory_operation` 与 `xb_read_inventory_reconciliation`）。
 - 005/008/009/010 含 `BEGIN`/`COMMIT`，应在 SQL 控制台**整份脚本**执行，不要手动截取分句；006 与 012 仅用于检查。
 - 现有的 `families`、`family_members`、`family_app_access`、`family_invites`、成员备注和审计表**不重建、不删除、不更新**；新表通过外键关联已有家庭。受控 DDL 可能在执行期间对关联表造成短暂元数据锁定，正式操作前可安排短暂空闲窗口。
 - **不创建任何宝宝（真实或虚拟）、库存数量、历史采购、体重；不做旧版备份导入、手机 PWA 更新或权限撤销。**
-- 每份写入脚本执行后必须立即核对：005/006 **已通过**；008 后运行 014，只有 15/15 true 才能继续 009；最后 010 后运行 012，预计 12/12 true。
+- 每份写入脚本执行后必须立即核对：005/006 **已通过**，008/014 **已通过**；009 后运行 015，只有 21/21 true 才能继续 010；010 后运行 012，预计 12/12 true。
 - **任何 SQL 报错或检查 false，都立即停止。** 不能自动重复执行全套流程，不用 `DROP TABLE`、`TRUNCATE` 等方法“重来”，也不能假设每份 SQL 执行失败都已自动回滚；要确认具体事务状态和已创建对象。对生产现有家庭数据的操作始终禁止。
 - 用户已明确接受本次 P2-1 缺少可验证云数据库备份的剩余风险，且已自行下载现有表数据 CSV。CSV 和 v1.1.2 JSON 均**不能替代云数据库 schema 备份**；该风险接受不延伸至历史迁移。
 
