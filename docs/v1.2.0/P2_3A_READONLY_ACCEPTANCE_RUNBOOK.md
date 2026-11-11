@@ -1,6 +1,6 @@
 # 小宝管家 v1.2.0 — P2-3A 真实 CloudBase 只读诊断验收手册
 
-更新：2026-11-11。状态：**用户已在现有 CloudBase 真实浏览器执行；A 管理员已登录 10/10 PASS，匿名因已有会话 BLOCKED，B 独立账号尚未确认；不要求重测 A。**
+更新：2026-11-11。状态：**A 管理员 10/10 PASS；手机新浏览器匿名检查 6 PASS + 1 个可识别拒绝但原因未分类（整体 INCONCLUSIVE），旧会话 BLOCKED 已排除；B 独立账号尚待核验。**
 
 ## 首次真实测试反馈与正确解读
 
@@ -10,7 +10,15 @@
 - **测试余项：匿名账户 7 项与 B 成员独立 10 项。管理员 A 不必再次登录或重测。**
 - CloudBase Web SDK v3 的登录状态由 `auth.getSession()` 返回的 `data.session` 判断，不能以当前页面是否刚刚输入过 OTP 为准。
 
-## 目的
+## 手机新浏览器复测（最新真实反馈）
+
+- 未登录状态点击④：`BLOCKED(LOGIN_REQUIRED)`，是正确拦截。用户手动抄录可能将字段 `authenticated_session` 写为 `anonymous_session`，不影响诊断。
+- ② 匿名检查中 6 项 `PASS`：`NO_SESSION`、家庭及四张业务表拒绝访问。既有登录会话污染问题已经解决。
+- 剩余 `anonymous_reconciliation_rpc=INCONCLUSIVE(DENIED_UNCLASSIFIED)`：这不是 RPC 成功，而是服务端返回拒绝信号，但 CloudBase SDK 没有保留或暴露函数体预期的 `authentication_required` 文本。测试工具在无法确认拒绝来源时故意不把它当作函数内部拒绝已证实。**不应反复重试、不需要重跑任何数据库 SQL。**
+- 记录实际情况为“匿名访问结果没有泄露数据，拒绝来源仍需后续专项验证”。A 管理员真机 10/10 有效，不再复测。下一项仅是已有成员 B 本人浏览器的 ④ 登录成员只读检查（已登录时不需要 OTP）。
+- 切勿为取得 7/7 PASS 而把 `INCONCLUSIVE` 强行改为通过，或跳过真正的 RPC 函数体权限验证。P2-3B/C 真实业务写入仍未授权。
+
+## 目的## 目的
 
 对已完成 P2-1 的现有 `xiaobao-family` PostgreSQL 17.11 共享环境，只进行**读表、查看现有登录会话、只读一致性 RPC 的拒绝测试**。不调用 `xb_apply_inventory_operation` 采购写入 RPC。
 
