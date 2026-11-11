@@ -1,6 +1,9 @@
--- XiaoBao v1.2.0: atomic read of authoritative inventory and selected operation receipts.
--- DRAFT ONLY. Requires 005 inventory tables and shared 001 auth/family foundation.
--- No writes, no migration, no access to any user's real CloudBase environment.
+-- XiaoBao v1.2.0 P2-1 STAGE 010: secure inventory reconciliation READ RPC.
+-- Requires 005/008/009 schema and real 015/016 ACL acceptance after 017.
+-- Scoped P2-1 deployment authorized by user. Creates a function/ACL only;
+-- does not call RPC, create babies, insert inventory or migrate history.
+-- Execute as one BEGIN/COMMIT script ONCE, then run read-only 018 and 012.
+-- Logic unchanged from isolated-PG-tested implementation.
 BEGIN;
 DO $$
 BEGIN
