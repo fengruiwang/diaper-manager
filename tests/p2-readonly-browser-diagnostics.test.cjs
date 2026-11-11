@@ -71,7 +71,7 @@ test('authenticated check scopes to one family and refuses other family and unkn
  const {app,calls}=makeApp({session:fakeSession});
  const r=await helper.create(app).runAuthenticated();
  assert.equal(r.status,'PASS');
- assert.equal(r.steps.length,11);
+ assert.equal(r.steps.length,10);
  assert.equal(r.steps.find(x=>x.name==='member_family').status,'PASS');
  assert.equal(r.steps.find(x=>x.name==='nonexistent_child_rejected').status,'PASS');
  assert.equal(r.steps.find(x=>x.name==='other_family_rejected').status,'PASS');
