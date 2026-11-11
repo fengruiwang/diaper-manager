@@ -30,7 +30,7 @@
 
 这不等于授权部署。即便 11 + 7 项全部通过，仍须取得用户对 005/008/009/010 数据库 DDL 的**明确同意**。
 
-## P2-1 — 已完成 005/006 及 008/014，等待 009/015 RPC 验收
+## P2-1 — 005/006、008/014 已通过；009/015 的 EXECUTE 权限检查异常（暂停）
 
 2026-11-11 用户明确授权：**仅在现有 `xiaobao-family` PostgreSQL 执行 005/008/009/010 的空业务表、RLS、2 个 RPC，并执行 006/012 核验**。明确禁止真实历史数据迁移、虚拟/真实宝宝创建、向 main/develop 合并、生产发布。**授权不意味着现在可执行 DDL：用户要求先证实备份与恢复能力。2026-11-11 截图已确认 BACKUP_GATE=BLOCKED_SHARED_INSTANCE。**
 
@@ -105,9 +105,18 @@
 
 - **009** 仅安装 `xb_apply_inventory_operation` 10 参数原子采购/库存写入 RPC，删除可能存在的旧 9 参数只写库存入口，并增加撤销唯一索引和反向操作一致性约束。009 代码本身不调用该 RPC，不创建任何宝宝或业务数据。
 - 009 文件包含 `BEGIN;` 和 `COMMIT;`，**整份执行一次**；本次使用经过隔离 PostgreSQL 合同测试的开发分支版本。严禁执行 `007`。
-- 009 成功后单独执行 `015_xb_p2_atomic_purchase_postflight_readonly.sql`：**一行 21 个布尔字段，要求全部 true**。它只检查函数元数据、ACL、索引/约束、现有数据是否为空，不会真的执行写库存操作。
+- **真实反馈：**009 已安装后，用户执行 015，返回 `authenticated_can_execute_purchase_rpc=false`，所以该阶段**尚未通过验收**。其他收到的检查字段为 true。不能因为函数存在就跳过该权限异常。015 自身只读、不执行库存 RPC。
 - **015 通过前禁止执行 010。** 若任何字段 false（尤其 `untrusted_roles_cannot_create_public`、`anonymous_cannot_execute_purchase_rpc`），立即停止，并将布尔结果发给开发对话审查；不自行执行 GRANT/REVOKE 或修复脚本。
 - 009 和 015 不进行真实双账号购入测试，也不创建任何虚拟或真实宝宝；这一阶段仅验证数据库结构，实际联调后续另行授权。
+
+### 009 / 015 权限异常：新增 016 只读诊断（当前唯一需要执行的 SQL）
+
+- 状态：**009 已安装，015 未通过，010 未执行**；已得到用户真实 PostgreSQL 结果 `authenticated_can_execute_purchase_rpc=false`。
+- 原因尚待核实：009 源文件有 `GRANT EXECUTE ... TO authenticated`，隔离 PG16 中 `has_function_privilege(..., 'EXECUTE')=true`，CloudBase 共享 PG17.11 的实际权限检查却为 false。不要推断是否是授权丢失、schema 使用权限或平台角色差异。
+- 现在仅在 CloudBase 原数据库执行 `cloudbase/sql/016_xb_p2_rpc_acl_diagnostic_readonly.sql`，一条只读 SELECT，返回 11 项诊断字段。**这里不要求全部 true**（例如 `effective_anon_execute=false` 是正常安全目标）；需按字段解释。
+- 016 会展示是否确实有 authenticated 的显式 EXECUTE ACL、authenticated 对 public schema 的 USAGE、当前有效 EXECUTE、与已验证可用的别名 RPC 权限对比，以及函数所有者是否为 `cloudbase_postgres`。只返回布尔元数据，不读取家庭记录或隐私值。
+- 如果 016 有异常，先提供字段名和值。后续只有确认根因之后才可制定**最小范围、仅针对该 RPC**的修复；不能直接重跑 009，不能修改任何已有家庭或身份系统对象，不修改整 schema 的授权。
+- 官方文档提醒 CloudBase HTTP RPC 网关可能不严格依照 PG 函数 EXECUTE ACL 拦截请求；即使修复 GRANT，仍需后续以实际 SDK 负面测试确认函数体的身份和家庭权限检查。参考：https://docs.cloudbase.net/database/postgresql/rpc
 
 ### P2-1 具体授权边界与中止条件
 
