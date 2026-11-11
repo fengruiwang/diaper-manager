@@ -20,7 +20,7 @@
 | CloudBase 家庭基础表 + 备注脚本 | PREVIOUSLY_VERIFIED | 此前反馈 002 为 15/15、004 为 12/12；未在本次真实数据库重跑 |
 | CloudBase 既有 A/B 双账号与成员权限 | PASS_REAL_6_OF_6 | 用户 2026-11-11 实际验证 A、B1、B2、B3、B4、C 全部通过；不得要求重复创建家庭 |
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
-| P2 真实 CloudBase 业务结构 | P2_STAGE_005_006_PASS_REAL_19_OF_19 | 011 11/11 true、013 7/7 true；用户执行 005 后反馈 006 全部 19/19 true；六张空表、RLS、原家庭/成员/xb 授权保留。008/009/010 尚未执行 |
+| P2 真实 CloudBase 业务结构 | P2_STAGE_008_014_PASS_REAL_15_OF_15 | 011 11/11 true、013 7/7 true；005→006 19/19 true；用户执行 008→014 并反馈 15/15 true，七张新业务表仍为空且原家庭/成员/授权正常；009/010 尚未执行 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -52,7 +52,7 @@
 
 **P2-0 真实腾讯云预检结果已收到**：011 的 11 个布尔结果全部 true（用户于 2026-11-11 手动运行），确认为现有 1 家庭/2 成员/2 个 xb 授权，已有别名权限基础保持正常，首次 P2 业务表/RPC 全部尚未部署。该项标记 PASS_REAL，不能与 PG16 CI 混淆。
 
-009 库存 RPC 依赖的 `pg_catalog.sha256`、`gen_random_uuid`、`hashtextextended` 和 `pg_advisory_xact_lock` 等已通过 `013_xb_p2_capabilities_readonly.sql` 的真实 CloudBase 7/7 检查。**下一步是单独请求用户授权 P2-1 的数据库结构变更，而不是再跑预检。**
+009 库存 RPC 依赖的 `pg_catalog.sha256`、`gen_random_uuid`、`hashtextextended` 和 `pg_advisory_xact_lock` 等已通过 `013_xb_p2_capabilities_readonly.sql` 的真实 CloudBase 7/7 检查。**P2-1 用户限定授权已落实；后续按 009→015→010→012 逐阶段验收。**
 
 
 
@@ -89,6 +89,16 @@
 - 下一阶段仅：`008`（创建空采购流水表）→`014`（只读15项结果）。**待用户反馈 014 全 true 后才进入009**。
 - **尚未实际执行 008、009、010、012**。本阶段也不创建测试宝宝、不迁移历史、不更新 v1.1.2 或 main/develop。
 - 本次用户已接受仅 P2-1 空结构变更缺少用户可操作备份的剩余风险，不能错误记为已有数据库备份。
+
+### B.6 2026-11-11 P2-1 第二阶段真实验收及下一检查
+
+- 用户提供 `014_xb_p2_purchase_postflight_readonly.sql` 的真实 CloudBase 一行 15 列结果：**15/15 true**，判定 008 创建采购流水表、约束、索引、RLS 和只读权限成功。
+- 新 `xb_transactions` 仍为空；已确认 `xb_inventory_operations` 的复合 UNIQUE 存在、采购表的组合外键存在；原有 1 家庭/2 成员/2 项 xb 应用授权保持不变。
+- **P2-1 阶段 008/014 标记 PASS_REAL，不再重跑；与 005/006 19/19 PASS_REAL 一起关闭。**
+- 下一阶段仅执行 `009_xb_purchase_atomic_rpc_draft.sql` 安装原子采购库存 RPC；之后执行新增 `015_xb_p2_atomic_purchase_postflight_readonly.sql`，需实际 CloudBase **21/21 true** 后才允许继续 010。
+- 015 核验 10 参数原子采购 RPC、旧 9 参数接口不存在、SECURITY DEFINER、只授予 authenticated 运行、anon 不可运行、反向撤销唯一索引/约束、七张表仍无新数据、原家庭成员不变和 public schema 对非可信角色不可 CREATE 等。
+- 015 是纯 SELECT 且只返回布尔值，不执行库存 RPC，也不创建测试宝宝、采购、库存或虚拟用户。
+- 当前 009、010、012 尚未在真实 CloudBase 执行；正式 main/develop 及 v1.1.2 历史业务数据保持不变。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
