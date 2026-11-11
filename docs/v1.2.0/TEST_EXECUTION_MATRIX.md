@@ -22,6 +22,7 @@
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
 | P2 真实 CloudBase 业务结构 | P2_1_SCHEMA_PASS_REAL | 011/013 真实预检 18/18；005→006 19/19、008→014 15/15、009→017→015 21/21 + 016 安全 ACL、010→018 20/20、012 12/12 均通过。7 张表全部空、RLS 生效、2 个 RPC 已安装；未开展真机业务调用 |
 | P2-3A 独立只读云端联调 | A_B_BOTH_PASS_ANON_RPC_ORIGIN_INCONCLUSIVE | 真实管理员 A 10/10 PASS；用户反馈老婆以自己的账号运行检查项全部 PASS，按 B 已登录 10/10 PASS 存档（未逐项抄录）；手机新浏览器的匿名 6/7 PASS，剩余只读 RPC 为 DENIED_UNCLASSIFIED，证明请求被拒绝但拒绝来源未确认；未写入宝宝、库存和采购 |
+| P2-3B 虚拟宝宝受控初始化 | DESIGN_AND_ISOLATED_PG_PASS_REAL_DB_UNTOUCHED | 019 仅设计草案：仅家庭 owner 且具 xb 授权可创建/停用同一专用测试宝宝，重复调用幂等、停用留审计不可复活；020 18/18 true（仅 PG16 隔离环境）；成员/陌生人/anon/已撤销 xb grant 的 owner 被拒，正式 primary 不受影响。真实 CloudBase 未安装 019/020，未创建虚拟宝宝，用户尚未批准 P2-3B 数据写入 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -191,6 +192,15 @@
 - 新浏览器匿名检查已确认 `NO_SESSION`，家庭及四张业务表拒绝访问，计 6 个 PASS；`anonymous_reconciliation_rpc=INCONCLUSIVE(DENIED_UNCLASSIFIED)` 仍只能表明请求被拒绝、未取得库存信息，**不能将网关拒绝冒充函数体鉴权证明，也不能强行记为 7/7**。
 - **最新 P2-3A 结论：夫妻 A/B 两账号已登录只读链路均通过；匿名读取无数据泄露的已覆盖项通过；匿名读取 RPC 的拒绝来源仍为已知的单独安全验收余项。** 不要求用户重跑 A、B 或 005–018 SQL。
 - 下一阶段可以在 feature 分支开展 P2-3B **虚拟宝宝受控创建入口的离线/隔离环境设计和验证**；但真实 CloudBase 写入测试宝宝、模拟采购和清理测试数据，均须另行获得用户明确授权；不得影响 v1.1.2 本地历史记录、家庭成员或生产版本。
+
+### B.15 2026-11-11 P2-3B 虚拟宝宝隔离代码与合同测试完成（仅模拟环境）
+
+- 已在 `feature/cloudbase-sync-v1.2.0` 新增 `cloudbase/sql/019_xb_smoke_child_rpc_draft_DO_NOT_DEPLOY.sql`（两个 owner-only 创建/软停用测试宝宝 RPC 草案）以及 `020_xb_smoke_child_postflight_draft_DO_NOT_DEPLOY.sql`（18 项只读检查）。
+- SQL 使用专用 `legacy_slot='__xb_smoke_v1__'`，避开正式 `primary`；同一家庭最多一个此版本的测试宝宝，重复创建返回原 ID，停用后不再复活。所有真实授权必须同时满足 `auth.role/uid`、`is_family_owner`、`can_use_app('xb')`；客户端仍不能直接 INSERT/UPDATE 宝宝表。
+- `tests/postgres/p2_smoke_child_contract.sql` **只在 GitHub Actions 一次性 PostgreSQL16 容器**中创建和停用合成测试宝宝，覆盖成员/陌生人/anon 拒绝、owner 无 xb grant 拒绝、重复创建、停用审计、错误 ID 不能停用正式 primary、停用后买入拒绝、库存/采购数据不变。020 **18/18 true**、整个 PG 合同 PASS；JS 还提供静态安全锁定用例。
+- 已整理 `docs/v1.2.0/P2_3B_SMOKE_CHILD_REVIEW.md`，列明不能再次创建已停用测试宝宝、不能删除测试审计、未来正式 UI 和历史迁移必须排除测试标识。
+- **从未运行 019/020 到真实腾讯云；也没有创建任何真实 CloudBase 虚拟宝宝、库存、采购、迁移记录**。019/020 仅草案，正式执行必须另行得到用户对新增测试数据、权限/函数安装以及软停用审计保留的明确授权。
+- 正式 main / develop 和生产 PWA 未修改；不让用户重跑旧版 005–018 SQL。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
