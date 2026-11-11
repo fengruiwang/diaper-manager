@@ -32,6 +32,7 @@
 | P2-4D 历史迁移严格预检及差异策略 | CODE_AND_ISOLATED_TEST_PASS_REAL_MIGRATION_FORBIDDEN | 新增 strict-migration-gate.js，严格校验 v1 JSON 外层来源/版本/时间、旧数据全字段、六尺码、采购/比价金额、参考价 0.001 元、宝宝资料/体重/未知扩展字段；仅 preset 缺失单列人工审核，阻断旧导入器静默修改。18 组合成测试通过，总 JS 356/356 PASS。**全部结果 canUpload=false，没有真实迁移收据/云端写入权限** |
 | P2-4E-A 私有迁移收据唯一性/只读预检 | SYNTHETIC_PG_DUAL_SESSION_PASS_REAL_DDL_UNAUTHORIZED | SQL 021 草案新增 xb_migrations 每宝宝首次迁移与同家庭源摘要唯一约束，owner-only 严格身份的只读预检 RPC；单独 Postgres16 合同测试涵盖正常/重试/冲突、匿名/成员/陌生人拒绝、事务失败回滚；独立两连接同时插入不同迁移 ID，**只有一笔提交成功**。JS SDK 8 项 Mock，全部返回 canCommit=false/canUpload=false；完整回归 364/364 PASS。**正式 CloudBase 未安装 021，完整原子数据迁移 RPC 尚未实现** |
 | P2-4E-B1 原始历史原子归档暂存 | SYNTHETIC_PG_ATOMIC_ARCHIVE_AND_2SESSION_PASS_LIVE_FORBIDDEN | SQL 022 草案（**禁止真实部署**）建立两张私有归档表，原文保存完整旧 JSON 与服务端 SHA-256；记录每条历史采购/消耗、比价、体重；严格校验 null、价格、六尺码、重复 JSON 键，owner-only + 原生事务锁。合成 PG16 归档/晚期失败全回滚 PASS；两个独立连接相同备份竞态：**1 首次成功 + 1 重复识别、4 条历史行，0 库存操作/0 正式迁移收据**。JS 364/364 PASS；B2 可用历史/库存原子迁移与完成收据尚未实现。 |
+| P2-4E-B2 历史及六尺码库存原子提交 | SYNTHETIC_PG_FULL_PROMOTION_AND_DUAL_SESSION_PASS_REAL_UNDEPLOYED | 新增 SQL 023 草案，六尺码旧版当前库存直接写绝对基线及六条 migration_baseline 操作；旧采购/消耗/比价另写独立家庭 RLS 历史表，成长原生映射、设置/三位小数参考价保留。独立核对库存、历史条数、历史采购总额，**最后写 xb_migrations 完成收据**；在收据 INSERT 注入失败时全部业务回滚，原归档保留。两独立 PG 连接竞态：**一次迁移成功、另一次识别重复**，最终 1 收据、6 库存/6 baseline、4 历史、0 重放采购。隔离 PG16 PASS；JavaScript 364/364 PASS。**真实 021/022/023 均未安装；历史编辑、手机同步尚未开放**。 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -328,6 +329,16 @@
 - `tests/postgres/p2_legacy_archive_concurrency.sh` 使用两个真实 PG 连接竞态提交相同合成备份，实测 **1 次首次暂存 + 1 次安全重复回复、4 条历史明细、0 条实时业务行及正式迁移收据**。完整 PG16 测试 PASSED，JS 回归保持 **364/364 PASS**。
 - 该功能保留了原始历史，但**还没有**完成新 UI 可用的购买/比价/参考价映射、六尺码库存原子初始化、全部记录核对后最后写正式收据的 B2；P2-3E 仍不得解锁。
 - 022 是包含 CREATE TABLE/FUNCTION 的未授权 DDL，**绝不在真实 xiaobao-family 执行**；没有读取用户真实备份或更改正式 main/v1.1.2。审查文档 `docs/v1.2.0/P2_4E_B1_ATOMIC_ARCHIVE_STAGE_REVIEW.md`。本轮无需用户执行操作。
+
+### B.30 2026-11-11 P2-4E-B2 完整业务数据迁移事务与最后收据原子提交
+
+- 新增 **023 SQL DRAFT（DO NOT DEPLOY）**：从 022 服务器核验归档出发，使用和 009 购买 RPC 相同的家庭级 advisory transaction lock；核对源 SHA-256、存档明细和数量、当前 owner/xb 授权/主宝宝、已有迁移收据和目标业务数据为空。
+- 六尺码按旧版**现存实际库存**建立六个 `revision=1` 的绝对 baseline，并分别生成 `migration_baseline` 操作；旧购买/消耗历史不是实时库存增量，不触发 `xb_transactions` buy 入库。
+- 建立受家庭 RLS 保护的 `xb_legacy_history_entries` 保存原 ID/顺序/交易、比价、成长 JSONB，以及 `xb_legacy_settings` 保存目标、日用量、参考价 0.001 元、其它设置。正式 `xb_baby_profiles` 与 `xb_weight_records` 也同步创建，原完整导出文本仍由私有 B1 归档保存。
+- 校验库存六尺码/总数、历史记录/成长记录/设置、历史买入总额分和件数，**最后一步**才写正式私有 `xb_migrations` 收据。专项 `tests/postgres/p2_legacy_promotion_atomic_contract.sql` 使用合成数据覆盖原生记录正确、owner 许可、成员只读、匿名拒绝、重复收据、非法源、在最后收据 INSERT 人为失败时的**全业务回滚**及清洁重试。
+- 新增 `tests/postgres/p2_legacy_promotion_concurrency.sh`：一次性 PG16 中两个独立 psql 连接同时迁移同一归档，最终**一端首次迁移、一端重复识别；1 条完成收据、6 库存、6 baseline、4 历史、1 原生体重、0 实时重放采购**。PG16 全合同 + 双连接竞态 PASS；全 JavaScript 回归 **364/364 PASS**（本轮无 JS 测试新增）。
+- 上述**均为合成 PostgreSQL 数据库**：真实腾讯云没有安装 021/022/023，旧版真实 JSON 没有上传。当前 B2 是可读的独立历史存储与库存事务原型，不代表新 UI 已实现历史编辑、两个手机持久化授权和同步。详见 `docs/v1.2.0/P2_4E_B2_ATOMIC_PROMOTION_REVIEW.md`。
+- 本轮**无需用户手动操作**，不修改 main/正式 PWA/v1.1.2 任何本地数据/云端家庭成员。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
