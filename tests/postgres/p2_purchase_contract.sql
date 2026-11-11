@@ -30,6 +30,7 @@ INSERT INTO public.family_app_access(family_id,user_uid,app_code,granted_by) VAL
  ('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-dad','xb','test-dad'),
  ('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-mom','xb','test-dad');
 \i cloudbase/sql/011_xb_p2_predeploy_readonly.sql
+\i cloudbase/sql/013_xb_p2_capabilities_readonly.sql
 
 \i cloudbase/sql/005_xb_core_schema_draft.sql
 \i cloudbase/sql/008_xb_transactions_schema_draft.sql
