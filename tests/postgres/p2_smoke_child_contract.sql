@@ -56,10 +56,8 @@ SELECT public.xb_test_assert(
  AND (SELECT count(*)=0 FROM public.xb_inventory_operations op
     JOIN public.xb_children c ON c.id=op.child_id WHERE c.legacy_slot='__xb_smoke_v1__')
  AND (SELECT count(*)=0 FROM public.xb_transactions tx
-    JOIN public.xb_children c ON c.id=tx.child_id WHERE c.legacy_slot='__xb_smoke_v1__')
- AND (SELECT count(*)=0 FROM public.xb_migrations m
-    JOIN public.xb_children c ON c.id=m.child_id WHERE c.legacy_slot='__xb_smoke_v1__'),
- 'creating smoke child does not create inventory, purchases or receipts');
+    JOIN public.xb_children c ON c.id=tx.child_id WHERE c.legacy_slot='__xb_smoke_v1__'),
+ 'creating smoke child does not create inventory or purchases');
 
 -- Owner cannot accidentally retire the real/legacy primary baby.
 DO $test_primary_retire_denied$
@@ -148,6 +146,13 @@ END
 $test_retired_purchase_denied$;
 
 RESET ROLE;
+-- Internal migration receipts are intentionally private to authenticated.
+-- Verify their absence only after RESET ROLE as the synthetic admin harness.
+SELECT public.xb_test_assert(
+ (SELECT count(*)=0 FROM public.xb_migrations m
+  JOIN public.xb_children c ON c.id=m.child_id
+  WHERE c.legacy_slot='__xb_smoke_v1__'),
+ 'smoke child never creates a private migration receipt');
 SELECT public.xb_test_assert(
  (SELECT count(*)=0 FROM public.xb_inventory inv
     JOIN public.xb_children c ON c.id=inv.child_id WHERE c.legacy_slot='__xb_smoke_v1__')
