@@ -1,5 +1,9 @@
--- XiaoBao P2 first schema slice - DESIGN DRAFT, DO NOT EXECUTE YET.
--- Review against the actual CloudBase xiaobao-family PostgreSQL instance before deployment.
+-- XiaoBao v1.2.0 P2-1 / STAGE 005: only empty business tables, RLS and indexes.
+-- User authorized scoped DDL in existing xiaobao-family and explicitly accepted
+-- no user-accessible shared-cluster backup risk on 2026-11-11. Never migrate data.
+-- Execute THIS FILE AS ONE TRANSACTION, then run 006 postflight independently.
+-- Do not run 008/009/010 until 006 is confirmed all true.
+-- SQL behavior unchanged from reviewed/isolated-PG-tested draft.
 -- Creates empty child/diaper/weight/migration tables. No family, member, invite, legacy PWA or other app data is modified.
 -- Real mutations must later use authorized, atomic, idempotent SECURITY DEFINER RPCs;
 -- ordinary browser users receive only RLS-scoped SELECT.
