@@ -21,7 +21,7 @@
 | CloudBase 既有 A/B 双账号与成员权限 | PASS_REAL_6_OF_6 | 用户 2026-11-11 实际验证 A、B1、B2、B3、B4、C 全部通过；不得要求重复创建家庭 |
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
 | P2 真实 CloudBase 业务结构 | P2_1_SCHEMA_PASS_REAL | 011/013 真实预检 18/18；005→006 19/19、008→014 15/15、009→017→015 21/21 + 016 安全 ACL、010→018 20/20、012 12/12 均通过。7 张表全部空、RLS 生效、2 个 RPC 已安装；未开展真机业务调用 |
-| P2-3A 独立只读云端联调 | ADMIN_10_OF_10_PASS_ANON_BLOCKED_MEMBER_B_UNCONFIRMED | 用户已在真实 CloudBase 独立测试页执行：管理员已登录检查 10/10 PASS；未手动输入验证码时点击登录成员检查同样 10/10 PASS，但页面报告 SESSION_PRESENT，故属于已有会话而非匿名/另一账号证据；匿名检查 BLOCKED（LOGIN_SESSION_PRESENT_USE_PRIVATE_WINDOW），未实际进行；尚未确认 B 独立账号；无业务写入 |
+| P2-3A 独立只读云端联调 | ADMIN_10_OF_10_PASS_ANON_6_PASS_1_DENIED_UNCLASSIFIED_B_PENDING | 真实 A 已登录 10/10 PASS；用户换手机新浏览器测试：未登录成员检查按预期 BLOCKED(LOGIN_REQUIRED)，匿名 session=NO_SESSION、家庭和四张业务表均被拒绝（6/7 PASS），匿名只读 RPC 返回 DENIED_UNCLASSIFIED（网关或函数拒绝，但具体来源不明），因此整体 INCONCLUSIVE 而非漏洞证据；B 独立身份待测；无业务写入 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -172,6 +172,17 @@
 - 下一步测试：A 的正式和诊断浏览器均保留会话、不清理 localStorage、不强制退出。为 anon 新建**独立 Chrome 访客浏览器档案**，或关闭**所有**无痕窗口后新开单一无痕窗口（同一无痕会话多标签会共享登录状态），在从未登录的窗口执行匿名检查。预计 7/7 PASS，若仍显示 BLOCKED 原样反馈。
 - B 已有家庭成员的测试仅在配偶本人独立手机/浏览器登录后进行；若已有有效会话直接执行 10 项，不重复验证码。未取得 B 单独反馈前，不能把两次 PASS 归为 A/B 双成员独立实测。
 - 所有检查仅只读。禁止创建测试宝宝、采购、库存，禁止旧版迁移、发布或再执行已经验收的 P2-1 DDL。
+
+### B.13 2026-11-11 手机新浏览器匿名复核：6 个 PASS + 1 个拒绝未分类
+
+用户说明结果是在手机上**手动转录，可能存在字段拼写误差**；以下以语义和已知代码流程解读，不根据可疑前缀作越权推断：
+
+- **未登录时点击④检查登录成员权限**：总体 `BLOCKED`，用户抄录 `anonymous_session: BLOCKED(LOGIN_REQUIRED)`。按照 `p2-readonly-diag.js` 源码，此流程的字段实际应为 `authenticated_session`，手动误写不影响结论：未登录者**不能通过已登录成员检查**，这是正确拦截。
+- **点击②检查匿名权限**：整体 `INCONCLUSIVE`，第一项 `anonymous_session=PASS(NO_SESSION)`；`anonymous_families` 和 `anonymous_xb_children` / `xb_inventory` / `xb_inventory_operations` / `xb_transactions` 共五项均 `PASS(DENIED_NO_ROWS)`。代表已排除上轮“浏览器保留登录会话”的测试阻塞，匿名无法通过 SDK 读到这批数据。
+- 最后一项 `anonymous_reconciliation_rpc=INCONCLUSIVE(DENIED_UNCLASSIFIED)`。源码 `denyReason` 仅在错误码为 `42501`、`DATABASE_42501`、`401`、`403` / `HTTP_401`、`HTTP_403` 但**错误文字未包含 `authentication_required`**时使用该标签。因此请求**确实被拒绝**，且没有返回成功的库存结果；但拒绝来自网关 ACL、函数体或 SDK 包装目前不可判定。不能记录为 `EXPECTED_DENIAL` 的 RPC 函数体已证实，也不属于访问成功或安全漏洞。
+- **阶段结论**：匿名访问控制（不暴露家庭和库存数据）已得到正面证据；严格的 P2-3A `7/7 PASS` 仍未达到（实际 `6 PASS + 1 INCONCLUSIVE`）。**不要求重复匿名测试或重传已有 SQL**。将“RPC 内部身份保护证明”保留为后续 SDK 负面测试覆盖点。
+- 管理员 A 的 10/10 真机 PASS 继续有效，无需重测。仍待现有成员 B 在独立账号上运行 ④ 检查（可直接使用持久会话，只有缺失才 OTP），不自动假设手机测试是 B 身份。
+- 本轮没有新增宝宝、模拟采购、修改库存或迁移历史数据。只更新文档；正式 main/develop 仍禁止修改。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
