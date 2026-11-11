@@ -30,7 +30,7 @@
 
 这不等于授权部署。即便 11 + 7 项全部通过，仍须取得用户对 005/008/009/010 数据库 DDL 的**明确同意**。
 
-## P2-1 — 005/006 与 008/014 已通过；009 ACL 待 017 最小修复与复验（暂停 010）
+## P2-1 — 005/006、008/014、009/017/015/016 均已验收；010/018/012 待执行
 
 2026-11-11 用户明确授权：**仅在现有 `xiaobao-family` PostgreSQL 执行 005/008/009/010 的空业务表、RLS、2 个 RPC，并执行 006/012 核验**。明确禁止真实历史数据迁移、虚拟/真实宝宝创建、向 main/develop 合并、生产发布。**授权不意味着现在可执行 DDL：用户要求先证实备份与恢复能力。2026-11-11 截图已确认 BACKUP_GATE=BLOCKED_SHARED_INSTANCE。**
 
@@ -88,7 +88,8 @@
 | 4 | 014_xb_p2_purchase_postflight_readonly.sql | **真实 CloudBase 15/15 true，已完成** | 否 |
 | 5 | 009_xb_purchase_atomic_rpc_draft.sql | **当前下一步**，创建原子写入 RPC 及撤销唯一约束 | 是 |
 | 5b | 015_xb_p2_atomic_purchase_postflight_readonly.sql | 009 安装后检查权限、旧接口、唯一约束和空数据（21/21 true） | 否 |
-| 6 | 010_xb_inventory_reconcile_rpc_draft.sql | 安装受权限限制的库存一致性读取 RPC | 是 |
+| 6 | 010_xb_inventory_reconcile_rpc_draft.sql | **下一步**：安装受权限限制的库存一致性读取 RPC | 是 |
+| 6b | 018_xb_p2_reconciliation_postflight_readonly.sql | **010 后立即执行**：读取 RPC 专项 20 项只读核验 | 否 |
 | 7 | 012_xb_p2_postdeploy_readonly.sql | 核实结构、权限、RPC、空数据状态 | 否 |
 
 **禁止执行 007**。009 已替换早期不安全的 9 参数无采购流水接口。
@@ -132,13 +133,25 @@
 
 **隔离回归证据**：PG16 里人为给 anon 授予 RPC EXECUTE，再运行 017、检查 anon=false/authenticated=true 并复查 015；只读权限修复的结构测试已加入 GitHub 回归。**这一步不触发任何真实数据写入**（除 017 对这一 RPC 的 ACL 变更）。
 
+### 2026-11-11 最新真实验收：017 ACL 修复成功，现进入 010 → 018 → 012
+
+- 用户已执行 017 并发送 015 的 **21/21 true**；016 当前 `effective_authenticated_execute=true`、`explicit_authenticated_execute_grant=true`、`effective_anon_execute=false`、`explicit_anon_execute_grant=false`、`public_execute_grant_present=false`。**009/017/015/016 标记 PASS_REAL；不再重跑 009 或 017。**
+- 016 `purchase_function_owned_by_cloudbase_postgres=false` 仅说明不是这个特定所有者，不影响本次验收。
+- 现已增加 `cloudbase/sql/018_xb_p2_reconciliation_postflight_readonly.sql`，20 列布尔只读结果，隔离 PostgreSQL16 中 **20/20 true**。新脚本核验 `010` 的 SECURITY DEFINER、`authenticated` 的有效/显式 EXECUTE、`anon` 没有有效/显式 EXECUTE、读取范围与本人操作回执检查、空数据、旧 RPC 的权限保留以及原家庭 1/成员 2/授权 2。
+- **只需要按顺序执行**：
+  1. `010_xb_inventory_reconcile_rpc_draft.sql`：完整复制执行一次，含 BEGIN/COMMIT，仅安装读取 RPC 和授权，不调用函数、不创建业务数据。
+  2. `018_xb_p2_reconciliation_postflight_readonly.sql`：只有一条 SELECT，预期 **20/20 true**；任何 false 则暂停，不执行 012，不做临时 GRANT 或重跑 010。
+  3. `012_xb_p2_postdeploy_readonly.sql`：完整 P2 首次部署后的最终只读验收，预期 **12/12 true**，重点核对 7 张表全部启用 RLS、原家庭/成员/授权保持、7 张新表空、客户端表权限、两个 RPC 均为 SECURITY DEFINER。
+- 如果某一步报错，停止并只提交脱敏的脚本名、错误码和字段结果。不清空数据库，不删除既有成员，不重建家庭。
+- **此阶段仍不运行真实 RPC 请求或创建测试宝宝**；真实 A/B 双端同步测试等 P2-3 之后另行审批。即使 018/012 全 true，也不代表正式软件已具备自动同步能力。
+
 ### P2-1 具体授权边界与中止条件
 
 - 授权范围（若用户同意）：只在**现有** `xiaobao-family` 的 PostgreSQL `public` schema 建立 7 张**空**业务表（`xb_children`, `xb_baby_profiles`, `xb_weight_records`, `xb_inventory`, `xb_inventory_operations`, `xb_migrations`, `xb_transactions`）、相应索引/RLS 和 2 个函数（`xb_apply_inventory_operation` 与 `xb_read_inventory_reconciliation`）。
 - 005/008/009/010 含 `BEGIN`/`COMMIT`，应在 SQL 控制台**整份脚本**执行，不要手动截取分句；006 与 012 仅用于检查。
 - 现有的 `families`、`family_members`、`family_app_access`、`family_invites`、成员备注和审计表**不重建、不删除、不更新**；新表通过外键关联已有家庭。受控 DDL 可能在执行期间对关联表造成短暂元数据锁定，正式操作前可安排短暂空闲窗口。
 - **不创建任何宝宝（真实或虚拟）、库存数量、历史采购、体重；不做旧版备份导入、手机 PWA 更新或权限撤销。**
-- 每份写入脚本执行后必须立即核对：005/006 **已通过**，008/014 **已通过**；009 后运行 015，只有 21/21 true 才能继续 010；010 后运行 012，预计 12/12 true。
+- 每阶段立即核对：005/006 **已通过**，008/014 **已通过**，009/017/015/016 **已通过**；现在 010 后必须先运行新增 018（20/20 true），再运行 012（12/12 true）。
 - **任何 SQL 报错或检查 false，都立即停止。** 不能自动重复执行全套流程，不用 `DROP TABLE`、`TRUNCATE` 等方法“重来”，也不能假设每份 SQL 执行失败都已自动回滚；要确认具体事务状态和已创建对象。对生产现有家庭数据的操作始终禁止。
 - 用户已明确接受本次 P2-1 缺少可验证云数据库备份的剩余风险，且已自行下载现有表数据 CSV。CSV 和 v1.1.2 JSON 均**不能替代云数据库 schema 备份**；该风险接受不延伸至历史迁移。
 
