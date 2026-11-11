@@ -391,4 +391,5 @@ BEGIN
  END;
 END $$;
 RESET ROLE;
+\i tests/postgres/p2_smoke_child_contract.sql
 \echo P2 PostgreSQL contract passed
