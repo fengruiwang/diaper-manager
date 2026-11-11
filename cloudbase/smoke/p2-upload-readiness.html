@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>小宝管家 · P2-3C 云端上传前置检查（仅只读）</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;background:#f6f7fb;color:#263349}
+*{box-sizing:border-box}body{max-width:700px;margin:auto;padding:18px 12px 55px}
+main{background:white;padding:21px;border:1px solid #dce3f0;border-radius:17px}
+h1{font-size:22px;margin:0 0 10px}h2{font-size:16px;margin:22px 0 8px}
+p{line-height:1.65;font-size:14px;color:#5b687b}
+.warning{border-left:4px solid #b68727;background:#fff9ed;color:#775c29;padding:11px 13px}
+label{display:block;margin:12px 0 6px;font-size:13px;font-weight:600}
+input{font:inherit;padding:11px;border-radius:9px;border:1px solid #cdd5e2;width:100%}
+button{font:inherit;font-weight:600;border:0;background:#4566ca;color:white;border-radius:9px;padding:12px 16px;margin:10px 8px 8px 0}
+button:disabled{background:#e3e7ef;color:#717f97}
+#status{white-space:pre-wrap;padding:13px;border-radius:9px;background:#eef2f8;min-height:58px;font-size:13px}
+ul{list-style:none;padding:0;margin:10px 0}li{margin:6px 0;padding:8px 12px;background:#f3f5fa;border-radius:7px;font-size:13px}
+.ok{border-left:3px solid #32815b}.pending{border-left:3px solid #aa832b}.failed{border-left:3px solid #af4244}
+small{color:#718096}
+</style>
+</head>
+<body><main>
+<h1>P2-3C · 云端上传安全前置检查</h1>
+<p class="warning"><strong>当前页面只有只读检查，不支持上传。</strong> 不创建测试宝宝、不购买、不修改库存、不迁移旧版历史。检查通过只代表账号和家庭权限符合预期，不能代表同步已经可用。</p>
+<h2>① 连接现有 CloudBase 环境</h2>
+<label for="envId">环境 ID</label>
+<input id="envId" autocomplete="off" placeholder="从已有测试环境复制">
+<label for="key">客户端 Publishable Key（禁止服务端密钥）</label>
+<input id="key" type="password" autocomplete="off" spellcheck="false">
+<button type="button" id="connect">连接（不会登录或写入）</button>
+<h2>② 检查已有登录会话与授权</h2>
+<p>在之前已登录 A/B 账号的浏览器中操作。如果本页检测不到会话，不会替你登出、登录或重新发送验证码。</p>
+<button type="button" id="verify" disabled>执行安全前置检查</button>
+<h2>③ 状态结果</h2>
+<div id="status" role="status" aria-live="polite">尚未连接。点击后才会加载 SDK。</div>
+<ul id="results"></ul>
+<p><small>反馈时只复制检查名称、PASS/BLOCKED/INCONCLUSIVE 和简短状态码。不要发送环境密钥、UID、家庭 ID、邮箱、验证码、Token 或完整网络日志。</small></p>
+<h2>真实上传入口</h2>
+<button type="button" disabled>创建宝宝（禁用）</button>
+<button type="button" disabled>上传采购（禁用）</button>
+<button type="button" disabled>历史迁移（禁用）</button>
+<p><small>上传闸门无法在此页开启。即使授权检查通过，缺少经核验的持久库存基线时，真实同步协调器仍必须拒绝上传。</small></p>
+</main>
+<script src="./p2-upload-readiness-bridge.js"></script>
+<script>
+(function(){
+ 'use strict';
+ const $=id=>document.getElementById(id);
+ let app=null,busy=false,bridge=null;
+ function say(msg){$('status').textContent=msg;}
+ function safe(error){
+  const raw=String(error?.message||error?.code||'UNKNOWN');
+  if(/^readiness:(?:[A-Z0-9_]+)$/.test(raw))return raw;
+  if(/^access_preflight:[a-z_]+$/.test(raw))return raw;
+  return 'SDK_OR_NETWORK_ERROR';
+ }
+ function list(rows){
+  const ul=$('results');ul.replaceChildren();
+  for(const row of rows){
+   const li=document.createElement('li');
+   li.className=row.status==='PASS'?'ok':row.status==='BLOCKED'?'pending':'failed';
+   li.textContent=row.name+'：'+row.status+'（'+row.code+'）';
+   ul.appendChild(li);
+  }
+ }
+ function onlyClick(button,fn){
+  if(busy)return;
+  busy=true;button.disabled=true;
+  Promise.resolve().then(fn).catch(e=>{
+   list([{name:'READINESS',status:'INCONCLUSIVE',code:safe(e)}]);
+   say('无法确认；未尝试任何云端写入。');
+  }).finally(()=>{busy=false;$('connect').disabled=false;$('verify').disabled=!bridge;});
+ }
+ function loadScript(src){
+  return new Promise((resolve,reject)=>{
+   const sc=document.createElement('script');
+   sc.src=src;sc.async=true;
+   const timeout=setTimeout(()=>{sc.remove();reject(Error('readiness:SDK_TIMEOUT'));},12000);
+   sc.onload=()=>{clearTimeout(timeout);resolve();};
+   sc.onerror=()=>{clearTimeout(timeout);sc.remove();reject(Error('readiness:SDK_UNAVAILABLE'));};
+   document.head.appendChild(sc);
+  });
+ }
+ async function sdk(){
+  if(window.cloudbase&&typeof window.cloudbase.init==='function')return;
+  for(const src of [
+   'https://static.cloudbase.net/cloudbase-js-sdk/3.0.1/cloudbase.full.js',
+   'https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js']){
+   try{await loadScript(src);if(window.cloudbase?.init)return;}catch(_){}
+  }
+  throw Error('readiness:SDK_UNAVAILABLE');
+ }
+ $('connect').onclick=()=>onlyClick($('connect'),async()=>{
+  if(!window.XBReadinessBridge)throw Error('readiness:BRIDGE_MISSING');
+  const env=$('envId').value.trim(),key=$('key').value.trim();
+  if(!/^[A-Za-z0-9_-]{3,80}$/.test(env)||!key)
+   throw Error('readiness:INPUT_REQUIRED');
+  await sdk();
+  const instance=window.cloudbase.init({env,accessKey:key,timeout:15000});
+  bridge=window.XBReadinessBridge.create(instance);
+  app=instance;$('key').value='';
+  $('verify').disabled=false;
+  say('已连接。可以检查现有会话；尚未读取或修改任何宝宝/库存数据。');
+ });
+ $('verify').onclick=()=>onlyClick($('verify'),async()=>{
+  const result=await bridge.run();
+  list(result.steps);
+  say('检查结束：'+result.status+'。\n此页面的所有云端写入入口始终禁用。');
+ });
+})();
+</script>
+</body></html>
