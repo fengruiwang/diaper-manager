@@ -739,6 +739,20 @@
       if(!await cache.match(page))throw Error('offline_test_page_not_cached');
       indicator.textContent='离线页面缓存已就绪。现在可以断网后刷新/重新打开此测试页，并检查本地数据。';
     }catch(error){
+      // Reopening from an already cached page with no network can make a
+      // redundant register() update check fail. A controlled, cached page
+      // remains usable; do not turn that into a false failure report.
+      const cachedPage=new URL('./idb-offline-test.html',location.href).href;
+      try{
+        const cache=await caches.open('xiaobao-p3-idb-offline-shell-v1');
+        const installed=await cache.match(cachedPage);
+        const controlling=navigator.serviceWorker.controller;
+        if(installed&&controlling&&
+          new URL(controlling.scriptURL).pathname.endsWith('/idb-offline-sw.js')){
+          indicator.textContent='离线页面缓存已就绪（当前可能断网，跳过在线更新检查）。可继续查看虚拟库存。';
+          return;
+        }
+      }catch(_){}
       indicator.textContent='离线页面缓存尚未就绪：'+String(error?.message||'unknown')+
         '。请确认同目录上传了 idb-offline-sw.js，保持有网刷新后重试；不要清理正式小宝管家的站点数据。';
     }
