@@ -77,6 +77,14 @@
 - 新增 18 项独立合成回归，完整 JavaScript **356/356 PASS**，隔离 PG16 合同 PASS。任何结果均 `canUpload:false` / `serverReceiptPresent:false`，不解锁 P2-3E 的首次本地库存初始化；用户旧版 v1.1.2 和真实 CloudBase 完全未修改。
 - 明确下一阶段 **P2-4E**：先设计服务端幂等迁移收据、跨设备并发/重试语义与逐条数据核验，然后隔离环境验收，再按用户**单独明确授权**进行真实数据库部署和写入。参考 `docs/v1.2.0/P2_4D_STRICT_MIGRATION_GATE_REVIEW.md`。
 
+## P2-4E-A 私有迁移收据去重与并发防护（2026-11-11）
+
+- **已完成隔离验证，真实部署仍被禁止**：`cloudbase/sql/021_xb_migration_receipt_preflight_DRAFT_DO_NOT_DEPLOY.sql` 仅为数据库迁移收据的唯一索引和 owner-only 只读预检函数草案；脚本包含 `CREATE UNIQUE INDEX` / `CREATE FUNCTION` DDL，**没有用户授予在真实 xiaobao-family 执行的权限**。
+- 为一个宝宝的一次旧版导入限制 `(family_id,child_id,source_format)` 唯一；同一份备份摘要不可被同一家庭重复分配给不同宝宝。所有只读预检响应 `receipt_committed:false,can_upload:false,can_commit:false`，不预留迁移、不开通上传。
+- `tests/postgres/p2_migration_receipt_preflight_contract.sql` 测试了模拟重试、不同摘要/ID、误选宝宝、匿名/普通成员/陌生人拒绝及数据库局部失败回滚；`tests/postgres/p2_migration_receipt_concurrency.sh` **真正在临时 PostgreSQL 服务中启动两个独立连接**，竞争同一宝宝，结果仅一个提交，另一个唯一索引拒绝。
+- `sync/cloudbase-migration-receipt-preview.js` 只读 SDK 适配器（未接入正式 PWA）新增 8 个合成场景，完整 Node **364/364 PASS**，隔离 PostgreSQL 单会话/双连接测试 PASS。
+- **当前不是完整云端历史迁移完成**：后续 P2-4E-B 要设计完整的权威原子写入，包括旧版六尺码库存基线和历史采购不可重复累加、全部报价/参考价/成长/设置不丢失、服务器真实源内容校验、库存与历史同事务提交、最后写收据、可验证恢复和跨设备对账；才可能在单独授权后实际部署。详情 `docs/v1.2.0/P2_4E_A_RECEIPT_IDEMPOTENCY_REVIEW.md`。
+
 ## 采购编辑（正式版必备）
 
 详细需求见 `PURCHASE_EDIT_CORRECTION_REQUIREMENTS.md`。当前 009 RPC 仅支持 `buy/use/stocktake/reverse`，未实现编辑。页面应提供普通「编辑购买记录」，服务端按字段类型选择不变库存的元数据变更或原子差量库存更新，必须记录修改历史、修改人和时间。
