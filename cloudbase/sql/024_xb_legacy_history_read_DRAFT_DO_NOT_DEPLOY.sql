@@ -54,8 +54,8 @@ BEGIN
  SELECT * INTO v_receipt FROM public.xb_migrations
   WHERE family_id=p_family_id AND child_id=p_child_id
    AND source_format='xiaobao-diapers:v1';
- IF NOT FOUND OR v_receipt.counts->>'archiveVerified'<>'true'
-   OR v_receipt.counts->>'migration_schema'<>'legacy-history-v1' THEN
+ IF NOT FOUND OR v_receipt.counts->>'archiveVerified' IS DISTINCT FROM 'true'
+   OR v_receipt.counts->>'migration_schema' IS DISTINCT FROM 'legacy-history-v1' THEN
   RAISE EXCEPTION 'committed_history_receipt_required' USING ERRCODE='42501';
  END IF;
  -- Read only if the COMPLETE immutable ledger still matches the
@@ -136,8 +136,8 @@ BEGIN
  SELECT * INTO v_receipt FROM public.xb_migrations
   WHERE family_id=p_family_id AND child_id=p_child_id
    AND source_format='xiaobao-diapers:v1';
- IF NOT FOUND OR v_receipt.counts->>'archiveVerified'<>'true'
-   OR v_receipt.counts->>'migration_schema'<>'legacy-history-v1' THEN
+ IF NOT FOUND OR v_receipt.counts->>'archiveVerified' IS DISTINCT FROM 'true'
+   OR v_receipt.counts->>'migration_schema' IS DISTINCT FROM 'legacy-history-v1' THEN
   RAISE EXCEPTION 'committed_history_receipt_required' USING ERRCODE='42501';
  END IF;
  SELECT * INTO v_settings FROM public.xb_legacy_settings
