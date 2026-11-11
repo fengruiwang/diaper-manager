@@ -5,6 +5,8 @@
 -- Reserved legacy_slot '__xb_smoke_v1__' never equals production 'primary'.
 -- At most ONE smoke child per family lifetime. Retired child is NEVER revived.
 -- No direct client INSERT/UPDATE, no changes to family/member/transaction tables.
+-- First-install CREATE FUNCTION (not REPLACE): never overwrite unknown RPCs.
+-- Both RPCs use the SAME family advisory lock key as 009 inventory writes.
 BEGIN;
 
 DO $xb_smoke_requirements$
@@ -17,7 +19,7 @@ BEGIN
 END
 $xb_smoke_requirements$;
 
-CREATE OR REPLACE FUNCTION public.xb_create_smoke_child(p_family_id uuid)
+CREATE FUNCTION public.xb_create_smoke_child(p_family_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog,public,pg_temp
@@ -39,10 +41,11 @@ BEGIN
    RAISE EXCEPTION 'permission_denied' USING ERRCODE='42501';
  END IF;
 
- -- Serialize test-child creation by family; existing partial unique index
- -- on (family_id,legacy_slot) is the final race-safe protection.
+ -- Use EXACTLY the same family advisory key as live 009 purchase RPC.
+ -- Creation and retirement cannot interleave with a stock write in flight.
+ -- Existing partial UNIQUE index is the final duplicate-creation guard.
  PERFORM pg_catalog.pg_advisory_xact_lock(
-  pg_catalog.hashtextextended('xb:smoke-v1:'||p_family_id::text,0));
+  pg_catalog.hashtextextended('xb.inventory.family:'||p_family_id::text,0));
  SELECT id,deleted_at INTO v_child_id,v_retired
  FROM public.xb_children
  WHERE family_id=p_family_id AND legacy_slot='__xb_smoke_v1__'
@@ -60,7 +63,7 @@ BEGIN
 END;
 $xb_create_smoke$;
 
-CREATE OR REPLACE FUNCTION public.xb_retire_smoke_child(
+CREATE FUNCTION public.xb_retire_smoke_child(
  p_family_id uuid,p_child_id uuid
 )
 RETURNS jsonb
@@ -81,8 +84,10 @@ BEGIN
     OR NOT xb_private.can_use_app(p_family_id,'xb') THEN
    RAISE EXCEPTION 'permission_denied' USING ERRCODE='42501';
  END IF;
+ -- Serialize retirement with 009 stock writes. A transaction that observes an
+ -- active child will complete before a retirement can commit, and vice versa.
  PERFORM pg_catalog.pg_advisory_xact_lock(
-  pg_catalog.hashtextextended('xb:smoke-v1:'||p_family_id::text,0));
+  pg_catalog.hashtextextended('xb.inventory.family:'||p_family_id::text,0));
  SELECT id,deleted_at INTO v_child_id,v_deleted
  FROM public.xb_children
  WHERE family_id=p_family_id AND id=p_child_id
