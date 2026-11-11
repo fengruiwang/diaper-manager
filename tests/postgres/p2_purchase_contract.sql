@@ -392,4 +392,7 @@ BEGIN
 END $$;
 RESET ROLE;
 \i tests/postgres/p2_smoke_child_contract.sql
+-- P2-4E DRAFT / SYNTHETIC CI ONLY: not installed in the real family DB.
+\i cloudbase/sql/021_xb_migration_receipt_preflight_DRAFT_DO_NOT_DEPLOY.sql
+\i tests/postgres/p2_migration_receipt_preflight_contract.sql
 \echo P2 PostgreSQL contract passed
