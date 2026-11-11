@@ -18,6 +18,7 @@ END;
 $$;
 
 \i cloudbase/sql/001_shared_foundation.sql
+\i cloudbase/sql/003_member_alias_migration.sql
 \i cloudbase/sql/005_xb_core_schema_draft.sql
 \i cloudbase/sql/008_xb_transactions_schema_draft.sql
 \i cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql
@@ -42,6 +43,86 @@ INSERT INTO public.family_app_access(family_id,user_uid,app_code,granted_by) VAL
 INSERT INTO public.xb_children(id,family_id,legacy_slot,display_name,created_by)
  VALUES('6b3d0e45-bf18-4c95-889c-6f19731a8ae5',
   '29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','primary','TEST BABY','test-dad');
+
+-- P1: verify nickname RBAC, revision, non-destructive audit in disposable PG.
+-- Existing real CloudBase membership is NEVER accessed by this contract.
+\echo P1 isolated alias permissions contract
+SET ROLE authenticated;
+SELECT set_config('xb.test.role','authenticated',false);
+SELECT set_config('xb.test.uid','test-dad',false);
+SELECT public.xb_test_assert(
+ (public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-dad','我',0)->>'alias_revision')::bigint=1,
+ 'owner can update own alias');
+SELECT public.xb_test_assert(
+ (public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-mom','老婆',0)->>'alias_revision')::bigint=1,
+ 'owner can update another xb member alias');
+
+SELECT set_config('xb.test.uid','test-mom',false);
+SELECT public.xb_test_assert(
+ (SELECT COUNT(*)=2 FROM public.family_members),
+ 'member sees both people in authorized family');
+SELECT public.xb_test_assert(
+ (public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-mom','妈妈',1)->>'alias_revision')::bigint=2,
+ 'member can update self alias with current revision');
+DO $
+BEGIN
+ BEGIN
+  PERFORM public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-dad','越权修改',1);
+  RAISE EXCEPTION 'expected owner alias change to be denied';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+END $;
+SELECT public.xb_test_assert(
+ (SELECT member_alias='我' AND alias_revision=1 FROM public.family_members
+ WHERE user_uid='test-dad'), 'member cannot alter owner alias');
+DO $
+BEGIN
+ BEGIN
+  PERFORM public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-mom','过期版本',1);
+  RAISE EXCEPTION 'expected stale alias revision to be denied';
+ EXCEPTION WHEN SQLSTATE '40001' THEN NULL;
+ END;
+END $;
+DO $
+BEGIN
+ BEGIN
+  UPDATE public.family_members SET member_alias='绕过RPC' WHERE user_uid='test-mom';
+  RAISE EXCEPTION 'expected direct member table update to be denied';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+END $;
+
+SELECT set_config('xb.test.uid','test-stranger',false);
+SELECT public.xb_test_assert(
+ (SELECT COUNT(*)=0 FROM public.family_members),
+ 'stranger cannot read household membership');
+DO $
+BEGIN
+ BEGIN
+  PERFORM public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-mom','陌生账号',2);
+  RAISE EXCEPTION 'expected stranger alias change to be denied';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+END $;
+SELECT set_config('xb.test.role','anon',false);
+SELECT set_config('xb.test.uid','test-dad',false);
+DO $
+BEGIN
+ BEGIN
+  PERFORM public.xb_set_member_alias('29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5','test-dad','匿名伪造',1);
+  RAISE EXCEPTION 'expected anonymous alias change to be denied';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+END $;
+SELECT set_config('xb.test.role','authenticated',false);
+SELECT public.xb_test_assert(
+ (SELECT COUNT(*)=3 FROM public.family_member_alias_audit),
+ 'exactly three valid edits created immutable audit records');
+SELECT public.xb_test_assert(
+ (SELECT member_alias='妈妈' AND alias_revision=2 FROM public.family_members
+ WHERE user_uid='test-mom'),
+ 'rejected requests never changed member nickname');
+\echo P1 isolated alias permissions contract passed
 
 SET ROLE authenticated;
 SELECT set_config('xb.test.role','authenticated',false);
