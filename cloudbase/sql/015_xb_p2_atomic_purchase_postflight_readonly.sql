@@ -18,8 +18,10 @@ SELECT
     WHERE p.oid=to_regprocedure('public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb)')
       AND p.prorettype='pg_catalog.jsonb'::regtype) AS purchase_rpc_returns_jsonb,
   EXISTS(SELECT 1 FROM pg_catalog.pg_proc p
+    CROSS JOIN LATERAL unnest(p.proconfig) AS setting(config)
     WHERE p.oid=to_regprocedure('public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb)')
-      AND 'search_path=pg_catalog,public,pg_temp'=ANY(p.proconfig))
+      AND regexp_replace(setting.config,'[[:space:]]','','g')=
+        'search_path=pg_catalog,public,pg_temp')
     AS purchase_rpc_search_path_fixed,
   NOT has_schema_privilege('authenticated','public','CREATE')
     AND NOT has_schema_privilege('anon','public','CREATE')
