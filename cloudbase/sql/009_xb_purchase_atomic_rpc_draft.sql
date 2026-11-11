@@ -290,7 +290,7 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.xb_apply_inventory_operation(
- uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb) FROM PUBLIC;
+ uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.xb_apply_inventory_operation(
  uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz,jsonb) TO authenticated;
 
