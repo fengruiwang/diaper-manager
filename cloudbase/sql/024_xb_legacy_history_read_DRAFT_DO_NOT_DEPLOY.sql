@@ -26,6 +26,8 @@ AS $read_page$
 DECLARE
  v_receipt public.xb_migrations%ROWTYPE;
  v_count integer;
+ v_total integer;
+ v_expected integer;
  v_rows jsonb;
 BEGIN
  IF COALESCE(auth.role(),'')<>'authenticated'
@@ -56,10 +58,31 @@ BEGIN
    OR v_receipt.counts->>'migration_schema'<>'legacy-history-v1' THEN
   RAISE EXCEPTION 'committed_history_receipt_required' USING ERRCODE='42501';
  END IF;
+ -- Read only if the COMPLETE immutable ledger still matches the
+ -- final receipt: filtering out wrong-source/corrupt rows would silently
+ -- hide history. Do not permit partial recovery pages.
+ SELECT count(*) INTO v_total FROM public.xb_legacy_history_entries
+  WHERE family_id=p_family_id AND child_id=p_child_id;
+ IF v_total<>(v_receipt.counts->>'historyEntries')::integer
+   OR EXISTS(
+    SELECT 1 FROM public.xb_legacy_history_entries
+    WHERE family_id=p_family_id AND child_id=p_child_id
+     AND source_sha256<>v_receipt.source_sha256) THEN
+  RAISE EXCEPTION 'committed_history_integrity_mismatch' USING ERRCODE='23514';
+ END IF;
+ v_expected:=CASE p_record_kind
+   WHEN 'all' THEN (v_receipt.counts->>'historyEntries')::integer
+   WHEN 'transaction' THEN (v_receipt.counts->>'transactions')::integer
+   WHEN 'quote' THEN (v_receipt.counts->>'quotes')::integer
+   WHEN 'weight' THEN (v_receipt.counts->>'weightRecords')::integer
+  END;
  SELECT count(*) INTO v_count FROM public.xb_legacy_history_entries
   WHERE family_id=p_family_id AND child_id=p_child_id
    AND source_sha256=v_receipt.source_sha256
    AND (p_record_kind='all' OR record_kind=p_record_kind);
+ IF v_expected IS NULL OR v_count<>v_expected THEN
+  RAISE EXCEPTION 'committed_history_count_mismatch' USING ERRCODE='23514';
+ END IF;
  -- This immutable migration ledger cannot be edited. A stable sort by
  -- category+ordinal+ID makes bounded OFFSET pages deterministic.
  SELECT COALESCE(jsonb_agg(jsonb_build_object(
@@ -120,7 +143,11 @@ BEGIN
  SELECT * INTO v_settings FROM public.xb_legacy_settings
   WHERE family_id=p_family_id AND child_id=p_child_id
    AND source_sha256=v_receipt.source_sha256;
- IF NOT FOUND THEN
+ IF NOT FOUND OR v_settings.revision<>0
+   OR jsonb_typeof(v_settings.settings_data->'referenceOverrides')<>'object'
+   OR (SELECT count(*) FROM jsonb_object_keys(
+        v_settings.settings_data->'referenceOverrides'))
+      <>(v_receipt.counts->>'referenceOverrides')::integer THEN
   RAISE EXCEPTION 'legacy_settings_mismatch' USING ERRCODE='23514';
  END IF;
  RETURN jsonb_build_object(
