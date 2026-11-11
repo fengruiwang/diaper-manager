@@ -77,6 +77,40 @@ $v1_date$;
 REVOKE ALL ON FUNCTION xb_private.xb_v1_valid_date(text)
  FROM PUBLIC,anon,authenticated;
 
+-- PostgreSQL jsonb keeps only the final value of duplicate object keys.
+-- Detect duplicates in the ORIGINAL JSON (including nested records) first.
+-- Otherwise a crafted document could archive one text but project another.
+CREATE FUNCTION xb_private.xb_v1_unique_json_keys(
+ p_value json,p_depth integer DEFAULT 0
+)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE
+SET search_path=pg_catalog,pg_temp
+AS $unique_keys$
+DECLARE v_child json;
+BEGIN
+ IF p_depth>32 THEN RETURN false; END IF;
+ IF json_typeof(p_value)='object' THEN
+  IF (SELECT count(*)<>count(DISTINCT key) FROM json_each(p_value)) THEN
+   RETURN false;
+  END IF;
+  FOR v_child IN SELECT value FROM json_each(p_value) LOOP
+   IF NOT xb_private.xb_v1_unique_json_keys(v_child,p_depth+1) THEN
+    RETURN false;
+   END IF;
+  END LOOP;
+ ELSIF json_typeof(p_value)='array' THEN
+  FOR v_child IN SELECT value FROM json_array_elements(p_value) LOOP
+   IF NOT xb_private.xb_v1_unique_json_keys(v_child,p_depth+1) THEN
+    RETURN false;
+   END IF;
+  END LOOP;
+ END IF;
+ RETURN true;
+END;
+$unique_keys$;
+REVOKE ALL ON FUNCTION xb_private.xb_v1_unique_json_keys(json,integer)
+ FROM PUBLIC,anon,authenticated;
+
 CREATE FUNCTION public.xb_stage_legacy_archive_draft(
  p_family_id uuid,p_child_id uuid,p_stage_id uuid,p_export_text text
 )
@@ -158,6 +192,9 @@ BEGIN
   RAISE EXCEPTION 'target_business_data_not_empty' USING ERRCODE='23505';
  END IF;
  BEGIN
+  IF NOT xb_private.xb_v1_unique_json_keys(p_export_text::json,0) THEN
+   RAISE EXCEPTION 'duplicate_or_deep_legacy_json_keys' USING ERRCODE='22023';
+  END IF;
   v_export:=p_export_text::jsonb;
  EXCEPTION WHEN invalid_text_representation THEN
   RAISE EXCEPTION 'invalid_legacy_export_json' USING ERRCODE='22023';
@@ -247,7 +284,8 @@ BEGIN
   OR v_state->>'autoSize'<>ALL(ARRAY['NB','S','M','L','XL','XXL'])
   OR v_state->>'sizeMode'<>ALL(ARRAY['manual','auto'])
   OR (v_state ? 'preset' AND
-      v_state->>'preset'<>ALL(ARRAY['balanced','cautious','relaxed','custom']))
+      (jsonb_typeof(v_state->'preset')<>'string'
+       OR v_state->>'preset'<>ALL(ARRAY['balanced','cautious','relaxed','custom'])))
   OR v_state->'replenishPolicy'->>'mode'<>ALL(ARRAY['custom','days'])
   OR v_state->'replenishPolicy'->>'days' NOT IN ('5','7','10')
   OR jsonb_typeof(v_state->'goalPrice')<>'number'
