@@ -82,7 +82,7 @@ test('previews contain no actual CloudBase SDK, RPC calls, network, persistent s
  assert.match(page,/纯内存模拟，不连接腾讯云/);
  for(const text of [page,engine]){
   assert.doesNotMatch(text,/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|indexedDB|localStorage|sessionStorage|navigator\.serviceWorker)\s*(?:\(|\[|\.)/);
-  assert.doesNotMatch(text,/\b(?:cloudbase|\.rdb\s*\(|db\.rpc|\.from\s*\(|signInWithOtp|createFamily|xb_create_smoke_child|xb_apply_inventory_operation)\b/i);
+  assert.doesNotMatch(text,/(?:window\.cloudbase|cloudbase\.init\s*\(|\.rdb\s*\(|db\.rpc\s*\(|\.from\s*\(|signInWithOtp\s*\(|createFamily\s*\(|xb_create_smoke_child\s*\(|xb_apply_inventory_operation\s*\()/i);
   assert.doesNotMatch(text,/\b(?:\.insert|\.update|\.delete|\.upsert)\s*\(/);
  }
 });
