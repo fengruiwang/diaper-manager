@@ -232,7 +232,15 @@ BEGIN
    END IF;
   END LOOP;
  END LOOP;
- IF NOT xb_private.xb_v1_valid_date(v_state->>'dueDate')
+ IF jsonb_typeof(v_state->'dueDate')<>'string'
+  OR jsonb_typeof(v_state->'birthDate')<>'string'
+  OR jsonb_typeof(v_state->'currentSize')<>'string'
+  OR jsonb_typeof(v_state->'autoSize')<>'string'
+  OR jsonb_typeof(v_state->'sizeMode')<>'string'
+  OR jsonb_typeof(v_state->'babyWeight')<>'string'
+  OR jsonb_typeof(v_state->'replenishPolicy'->'mode')<>'string'
+  OR jsonb_typeof(v_state->'replenishPolicy'->'days')<>'number'
+  OR NOT xb_private.xb_v1_valid_date(v_state->>'dueDate')
   OR (v_state->>'birthDate'<>''
       AND NOT xb_private.xb_v1_valid_date(v_state->>'birthDate'))
   OR v_state->>'currentSize'<>ALL(ARRAY['NB','S','M','L','XL','XXL'])
@@ -251,7 +259,12 @@ BEGIN
   RAISE EXCEPTION 'invalid_legacy_prices' USING ERRCODE='22023';
  END IF;
  -- A member profile is not allowed to silently discard unknown extensions.
- IF EXISTS(SELECT 1 FROM jsonb_object_keys(v_state->'babyProfile') key
+ IF NOT ((v_state->'babyProfile') ?&
+   ARRAY['name','sex','birthTime','birthWeight','birthLength'])
+  OR EXISTS(SELECT 1 FROM jsonb_each(v_state->'babyProfile') item
+    WHERE jsonb_typeof(item.value)<>'string')
+  OR char_length(btrim(v_state->'babyProfile'->>'name')) NOT BETWEEN 1 AND 80
+  OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_state->'babyProfile') key
    WHERE key<>ALL(ARRAY['name','sex','birthTime','birthWeight','birthLength']))
   OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_state->'replenishPolicy') key
    WHERE key<>ALL(ARRAY['mode','days'])) THEN
@@ -272,6 +285,9 @@ BEGIN
    OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_rec) key
      WHERE key<>ALL(ARRAY['id','type','date','brand','series','size','pieces','price']))
    OR jsonb_typeof(v_rec->'id')<>'string'
+   OR jsonb_typeof(v_rec->'type')<>'string'
+   OR jsonb_typeof(v_rec->'date')<>'string'
+   OR jsonb_typeof(v_rec->'size')<>'string'
    OR char_length(v_rec->>'id') NOT BETWEEN 1 AND 200
    OR v_rec->>'type'<>ALL(ARRAY['buy','use'])
    OR NOT xb_private.xb_v1_valid_date(v_rec->>'date')
@@ -307,6 +323,10 @@ BEGIN
                            'per','packs','pieces','price','unit']))
     OR jsonb_typeof(v_rec->'id')<>'string'
     OR char_length(v_rec->>'id') NOT BETWEEN 1 AND 200
+    OR jsonb_typeof(v_rec->'date')<>'string'
+    OR jsonb_typeof(v_rec->'brand')<>'string'
+    OR jsonb_typeof(v_rec->'series')<>'string'
+    OR jsonb_typeof(v_rec->'size')<>'string'
     OR NOT xb_private.xb_v1_valid_date(v_rec->>'date')
     OR char_length(btrim(v_rec->>'brand')) NOT BETWEEN 1 AND 120
     OR char_length(btrim(v_rec->>'series')) NOT BETWEEN 1 AND 120
@@ -343,6 +363,7 @@ BEGIN
       WHERE key<>ALL(ARRAY['id','date','time','weight','note']))
     OR jsonb_typeof(v_rec->'id')<>'string'
     OR char_length(v_rec->>'id') NOT BETWEEN 1 AND 200
+    OR jsonb_typeof(v_rec->'date')<>'string'
     OR NOT xb_private.xb_v1_valid_date(v_rec->>'date')
     OR jsonb_typeof(v_rec->'weight')<>'number' THEN
    RAISE EXCEPTION 'invalid_legacy_weight' USING ERRCODE='22023';
