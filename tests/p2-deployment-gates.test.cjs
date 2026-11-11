@@ -8,7 +8,7 @@ const post=read('cloudbase/sql/012_xb_p2_postdeploy_readonly.sql');
 const contract=read('tests/postgres/p2_purchase_contract.sql');
 const forbidden=/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|CREATE|GRANT|REVOKE|DO|COPY|CALL|EXECUTE|PERFORM|SET|RESET)\b/i;
 function actualSql(sql){
- return sql.replace(/--[^\n]*/g,'').trim();
+ return sql.replace(/--[^\n]*/g,'').replace(/'(?:''|[^'])*'/g,"''").trim();
 }
 test('P2 preflight and postflight are single SELECT-only inspection queries',()=>{
  for(const sql of [pre,post]){
