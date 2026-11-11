@@ -1,6 +1,10 @@
--- XiaoBao v1.2.0 P2: purchase history schema (DRAFT, DO NOT DEPLOY).
--- Requires 005_xb_core_schema_draft.sql. NO REAL TRANSACTIONS OR USER RECORDS INSERTED.
--- To be deployed only alongside 009_purchase_atomic_rpc_draft.sql after security review.
+-- XiaoBao v1.2.0 P2-1 / STAGE 008: empty purchase history schema.
+-- User authorized the bounded schema installation and accepted the lack of
+-- user-accessible shared-cluster backups on 2026-11-11.
+-- Requires 005 + 006 real postflight (19/19 TRUE). Create no purchase rows.
+-- Execute this entire BEGIN/COMMIT SQL exactly once, then run 014 READ-ONLY
+-- postflight. Do NOT install 009/010 before user reports 014 15/15 TRUE.
+-- Database logic unchanged from reviewed and isolated-PG-tested draft.
 BEGIN;
 DO $$
 BEGIN
