@@ -2,6 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
+const vm=require('node:vm');
 const html=fs.readFileSync(path.join(__dirname,'../cloudbase/smoke/legacy-backup-check.html'),'utf8');
 const ui=fs.readFileSync(path.join(__dirname,'../cloudbase/smoke/legacy-backup-check.js'),'utf8');
 test('backup page loads exactly two same-origin scripts and denies outbound connections',()=>{
@@ -36,4 +37,8 @@ test('backup page never writes browser storage, calls cloud APIs, or logs person
  }
  assert.match(ui,/textContent=value/);
  assert.match(html,/不要将它们发给开发对话/);
+});
+
+test('browser page controller parses as strict JavaScript before user receives upload instructions',()=>{
+ assert.doesNotThrow(()=>new vm.Script(ui,{filename:'legacy-backup-check.js'}));
 });
