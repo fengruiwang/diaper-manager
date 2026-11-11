@@ -1,6 +1,12 @@
--- XiaoBao P2 v1.2.0: full-purchase inventory RPC DRAFT; not deployed.
--- Requires 005_xb_core_schema_draft.sql and 008_xb_transactions_schema_draft.sql. SQL 007 is NOT deployed.
--- This migration creates functions/indexes only: NO child, inventory, or historical rows inserted.
+-- XiaoBao v1.2.0 P2-1 / STAGE 009: atomic purchase + inventory RPC.
+-- Requires the already verified 005/006 (19/19) and 008/014 (15/15).
+-- 007 is NEVER deployed. User authorized P2-1 schema/RPC installation
+-- and accepted the shared PG backup limitation on 2026-11-11.
+-- Execute entire BEGIN/COMMIT script ONCE, then run 015 read-only postflight.
+-- Do NOT deploy 010 before 015 returns all true.
+-- Creates function, reverse-uniqueness index and check only: NO baby,
+-- inventory, purchase, family or historical rows inserted.
+-- SQL behavior unchanged from isolated-PG-tested draft.
 BEGIN;
 
 DO $$
