@@ -26,7 +26,7 @@
 | P2-3C 库存上传前置检查 | PC_AND_PHONE_READONLY_PASS_UPLOAD_BLOCKED | 用户提供真实浏览器截图：session PASS(SESSION_PRESENT)、family PASS(ONE_VISIBLE_FAMILY)、member PASS(MEMBERSHIP_VERIFIED)、grant PASS(XB_GRANT_VERIFIED)、upload_gate BLOCKED(DURABLE_BASELINE_NOT_VERIFIED)，总体 AUTH_PASS_UPLOAD_BLOCKED；用户反馈手机侧相同。两端均存在已有 SDK 登录会话，无需本页重新登录；未显示账号角色，因此不能仅由两端同结果断言是不同 UID。未上传库存/历史或安装 019/020 |
 | P2-3D 首次库存基线核验 | CODE_AND_MOCK_PASS_LIVE_NOT_RUN | 新增只读 sync/inventory-baseline-inspector.js：受控读取真实家庭/非测试宝宝、当前设备 IDB 含 ACK 的完整队列、云端六尺码库存和操作回执；对未迁移历史、待同步、错 ID、已 ACK 回执消失、六尺码缺失/版本不同等全部拒绝自动上传。**所有结果 uploadAllowed=false、localUnchanged=true**。15 组合成安全测试已加入 Node 回归；真实 CloudBase 未跑该核验、无测试宝宝或库存写入 |
 | P2-3E 首次本地基线受控初始化 | DESIGN_ISOLATED_IDB_PASS_LIVE_UNDEPLOYED | 新增 inventory-bootstrap-coordinator.js，默认只读、需要可信历史迁移收据、双次服务器库存/revision 一致检查、IDB 无既有快照与队列；仅隔离模拟双开关可写 IDB 并第三次读取。17+3 合成用例通过：重复初始化阻止、模拟晚到 pending 队列导致事务拒绝、持久保存验证。**真实历史收据服务尚不存在，所有结果 uploadAllowed=false**，未在真实 CloudBase 运行 |
-| P2-4A 旧版备份完整性与恢复预览 | CODE_AND_CI_PASS_BROWSER_USER_PENDING | 审核正式 index.html 的导出/导入格式后新增 legacy-backup-vault.js：封存原始导出 JSON 文本、SHA256 检测变化、验证后准确提取原始文本；本地独立静态网页采用 CSP connect-src none，不读取/修改 localStorage、不上传备份。新增 8+4 测试使总回归 316/316 PASS。**用户尚未对真实备份执行浏览器测试；不是正式导入恢复验证或云端迁移** |
+| P2-4A 旧版备份完整性与恢复预览 | REAL_BROWSER_BACKUP_VAULT_PASS_RESTORE_IMPORT_NOT_TESTED | 2026-11-11 用户提交两张网页截图：选取正式 v1.1.2 导出 JSON，保护副本生成/自检 PASS；重新选择下载的保护副本后核验 PASS，原始文件字节长度 3265，SHA-256 一致，原始备份取回预览 PASS。此为**真实浏览器备份文件完整性验收**，非正式软件导入恢复、历史数据库迁移或业务记录逐项校验。JS 316/316 PASS，页面不写旧 localStorage/云端 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -273,6 +273,13 @@
 - `tests/legacy-backup-vault.test.cjs` 8 项和 `tests/legacy-backup-check-browser.test.cjs` 4 项新增测试，完整 JavaScript **316/316 PASS**，PG16 隔离合同 PASS。正式业务数据从未被写入；用户浏览器/真实备份的校验仍待用户自行执行。
 - 完整三文件链接、`xb-test/` 上传目录、原版导出步骤、保护副本二次验证、脱敏反馈与禁止真实恢复操作见 `docs/v1.2.0/P2_4A_LEGACY_BACKUP_RESTORE_RUNBOOK.md`；**本轮在对话正文也要发送相同的具体测试文件和步骤**。
 - SHA-256 验证只能防意外破坏，**不是来源身份签名、正式恢复成功或历史迁移审批**。后续另做完全隔离的应用数据恢复及幂等迁移收据，不触碰现有 `main` 或用户手机原记录。
+
+### B.24 2026-11-11 P2-4A 用户真实浏览器两步验证通过（已接收截图）
+
+- 用户上传两个页面截图，第一张：已经选择从正式小宝管家 v1.1.2 导出的 JSON，页面显示“原始导出文件：格式正确”“保护副本：生成并自检 PASS”“可恢复原始文件：EXACT_ORIGINAL_EXPORT_AVAILABLE”。第二张：重新选择下载后的保护包，页面显示“保护副本核验 PASS”“原始文件字节长度：3265”“SHA-256 校验：一致”“原始备份完整恢复预览：PASS”以及“不会自动覆盖原有库存、采购或参考价”“真实云端迁移：仍然禁止”。
+- 状态更新为 **P2-4A REAL_BROWSER_BACKUP_VAULT_PASS**；该结果是真实用户备份经过浏览器内完整性校验，并不证明正式旧版 `importData()` 回写后的数据逐字段一致，也不证明原始备份的服务器授权、CloudBase 收据、真实库存/采购同步。
+- 页面网络连接禁用、文件只在本地处理。没有让用户分享 JSON/金额/家庭资料；正式 `main`、手机 `localStorage['xiaobao_diaper_planner_v1']` 和真实 CloudBase 业务数据保持不变。**不要求用户重复运行 P2-4A。**
+- 下一项应进入 **P2-4B 隔离恢复差异审计**：在模拟状态/临时隔离容器对原始 v1.1.2 导入行为进行字段一致性对照，绝不建议用户直接在已使用的手机上点击「从备份恢复」。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
