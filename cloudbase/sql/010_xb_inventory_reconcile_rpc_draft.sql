@@ -32,7 +32,7 @@ BEGIN
  IF p_family_id IS NULL OR p_child_id IS NULL OR p_operation_ids IS NULL
     OR cardinality(p_operation_ids)>50
     OR array_position(p_operation_ids,NULL) IS NOT NULL
-    OR (SELECT COUNT(DISTINCT x) FROM unnest(p_operation_ids) x)
+    OR (SELECT COUNT(DISTINCT op_id) FROM unnest(p_operation_ids) AS checked(op_id))
        <>cardinality(p_operation_ids) THEN
   RAISE EXCEPTION 'invalid_inventory_read_request' USING ERRCODE='22023';
  END IF;

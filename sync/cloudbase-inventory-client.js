@@ -103,6 +103,49 @@
     duplicate:result.duplicate===true
    });
   }
+  async function readReconciliation({familyId,childId,operationIds=[]}={}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   if(!Array.isArray(operationIds)||operationIds.length>50
+      ||new Set(operationIds).size!==operationIds.length)
+    fail('invalid_reconciliation_ids');
+   for(const oid of operationIds)id(oid,'operation_id');
+   await checkSession();
+   const response=await db.rpc('xb_read_inventory_reconciliation',{
+    p_family_id:family,p_child_id:child,p_operation_ids:operationIds
+   });
+   if(response?.error)safeRpcError(response.error);
+   const data=Array.isArray(response?.data)?response.data[0]:response?.data;
+   if(!data||data.complete!==true||data.family_id!==family
+      ||data.child_id!==child
+      ||typeof data.actor_uid!=='string'||!data.actor_uid
+      ||!Array.isArray(data.checked_operation_ids)
+      ||!Array.isArray(data.seen_operation_ids)
+      ||!Array.isArray(data.rows)||data.rows.length!==SIZES.size)
+    fail('invalid_reconciliation_response');
+   if(data.checked_operation_ids.length!==operationIds.length
+      ||new Set(data.checked_operation_ids).size!==operationIds.length
+      ||operationIds.some(x=>!data.checked_operation_ids.includes(x)))
+    fail('reconciliation_checked_ids_incomplete');
+   const checked=new Set(operationIds),serverSeen=new Set();
+   for(const oid of data.seen_operation_ids){
+    if(typeof oid!=='string'||!checked.has(oid)||serverSeen.has(oid))
+     fail('invalid_reconciliation_receipts');
+    serverSeen.add(oid);
+   }
+   const found=new Set();
+   const rows=data.rows.map(row=>{
+    if(!row||!SIZES.has(row.size)||found.has(row.size)
+       ||!Number.isSafeInteger(row.quantity)||row.quantity<0||row.quantity>100000
+       ||!Number.isSafeInteger(row.revision)||row.revision<0)
+     fail('invalid_reconciliation_stock');
+    found.add(row.size);
+    return {size:row.size,quantity:row.quantity,revision:row.revision};
+   });
+   return {
+    complete:true,familyId:family,childId:child,actorUid:data.actor_uid,
+    checkedOperationIds:[...operationIds],seenOperationIds:[...serverSeen],rows
+   };
+  }
   async function readPurchases({familyId,childId}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
    await checkSession();
@@ -140,7 +183,7 @@
      updatedAt:row.updated_at};
    });
   }
-  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases});
+  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases,readReconciliation});
  }
  const api=Object.freeze({create});
  if(root)root.XBInventoryClient=api;

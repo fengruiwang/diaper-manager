@@ -21,6 +21,7 @@ $$;
 \i cloudbase/sql/005_xb_core_schema_draft.sql
 \i cloudbase/sql/008_xb_transactions_schema_draft.sql
 \i cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql
+\i cloudbase/sql/010_xb_inventory_reconcile_rpc_draft.sql
 
 SELECT public.xb_test_assert(
  to_regprocedure('public.xb_apply_inventory_operation(uuid,uuid,uuid,text,text,integer,bigint,uuid,timestamptz)') IS NULL,
@@ -231,4 +232,45 @@ RESET ROLE;
 DROP TRIGGER xb_test_reject_purchase_trigger ON public.xb_transactions;
 DROP FUNCTION public.xb_test_reject_purchase();
 
+-- Validate the dedicated consistent read is authorized and cannot
+-- attribute another member's operations to the logged-in actor.
+SET ROLE authenticated;
+SELECT set_config('xb.test.role','authenticated',false);
+SELECT set_config('xb.test.uid','test-dad',false);
+SELECT public.xb_test_assert(
+  (SELECT (r->'rows'->1->>'quantity')::integer=60
+      AND jsonb_array_length(r->'rows')=6
+      AND jsonb_array_length(r->'seen_operation_ids')=1
+      AND r->'seen_operation_ids' ? '397b1791-b8d0-4d63-82d6-c5b829240f42'
+   FROM (SELECT public.xb_read_inventory_reconciliation(
+    '29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',
+    '6b3d0e45-bf18-4c95-889c-6f19731a8ae5',
+    ARRAY['397b1791-b8d0-4d63-82d6-c5b829240f42',
+          'e26ec34a-30cd-4e4f-8f3f-cc5a6cd6ed64']::uuid[]
+   ) AS r) AS checked),
+  'receipt check matches logged-in actor only and includes six sizes');
+SELECT set_config('xb.test.uid','test-mom',false);
+SELECT public.xb_test_assert(
+  (SELECT jsonb_array_length(r->'seen_operation_ids')=1
+      AND r->'seen_operation_ids' ? 'e26ec34a-30cd-4e4f-8f3f-cc5a6cd6ed64'
+   FROM (SELECT public.xb_read_inventory_reconciliation(
+    '29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',
+    '6b3d0e45-bf18-4c95-889c-6f19731a8ae5',
+    ARRAY['397b1791-b8d0-4d63-82d6-c5b829240f42',
+          'e26ec34a-30cd-4e4f-8f3f-cc5a6cd6ed64']::uuid[]
+   ) AS r) AS checked),
+  'member receipt check cannot see owner receipt');
+SELECT set_config('xb.test.uid','test-stranger',false);
+DO $
+BEGIN
+ BEGIN
+  PERFORM public.xb_read_inventory_reconciliation(
+   '29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',
+   '6b3d0e45-bf18-4c95-889c-6f19731a8ae5',
+   ARRAY[]::uuid[]);
+  RAISE EXCEPTION 'expected stranger inventory read denial';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+END $;
+RESET ROLE;
 \echo P2 PostgreSQL contract passed

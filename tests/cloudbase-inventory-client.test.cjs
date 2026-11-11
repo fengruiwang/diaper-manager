@@ -158,3 +158,55 @@ test('SQL final purchase RPC removes old 9-parameter signature and rejects orpha
  assert.equal((rpc.match(/\bCOMMIT;/g)||[]).length,1);
  assert.equal((rpc.match(/CREATE OR REPLACE FUNCTION public\.xb_apply_inventory_operation/g)||[]).length,1);
 });
+
+test('server reconciliation RPC returns complete six-size snapshot and exactly checked operation IDs',async()=>{
+ const calls=[],auth={getSession:async()=>({data:{session:{access_token:'hidden'}},error:null})};
+ const db={rpc:async(name,params)=>{
+  calls.push({name,params});
+  return {data:{
+   complete:true,family_id:F,child_id:C,actor_uid:'test-dad',
+   checked_operation_ids:[O],seen_operation_ids:[O],
+   rows:['NB','S','M','L','XL','XXL'].map(size=>({
+    size,quantity:size==='S'?60:0,revision:size==='S'?1:0
+   }))
+  },error:null};
+ },from:()=>{}};
+ const c=create({auth,rdb:()=>db});
+ const received=await c.readReconciliation({familyId:F,childId:C,operationIds:[O]});
+ assert.equal(received.rows.length,6);
+ assert.equal(received.actorUid,'test-dad');
+ assert.deepEqual(received.seenOperationIds,[O]);
+ assert.equal(calls[0].name,'xb_read_inventory_reconciliation');
+ assert.deepEqual(calls[0].params,{
+  p_family_id:F,p_child_id:C,p_operation_ids:[O]
+ });
+});
+test('invalid local receipt-check requests do not send network calls',async()=>{
+ let count=0;
+ const auth={getSession:async()=>{count++;return {data:{session:{}},error:null}}};
+ const c=create({auth,rdb:()=>({rpc:async()=>{},from(){}})});
+ await assert.rejects(()=>c.readReconciliation({familyId:F,childId:C,operationIds:[O,O]}),
+  /invalid_reconciliation_ids/);
+ await assert.rejects(()=>c.readReconciliation({familyId:F,childId:C,
+  operationIds:Array.from({length:51},(_,i)=>'00000000-0000-4000-8000-'+String(i+1).padStart(12,'0'))}),
+  /invalid_reconciliation_ids/);
+ assert.equal(count,0);
+});
+test('refuse incomplete, mismatched or foreign receipts even from a backend response',async()=>{
+ const auth={getSession:async()=>({data:{session:{}},error:null})};
+ const valid={
+  complete:true,family_id:F,child_id:C,actor_uid:'dad',
+  checked_operation_ids:[O],seen_operation_ids:[O],
+  rows:['NB','S','M','L','XL','XXL'].map(size=>({size,quantity:0,revision:0}))
+ };
+ for(const altered of [
+  {checked_operation_ids:[]},{seen_operation_ids:['e26ec34a-30cd-4e4f-8f3f-cc5a6cd6ed64']},
+  {rows:valid.rows.slice(0,5)},{family_id:C},{complete:false}
+ ]){
+  const c=create({auth,rdb:()=>({
+   rpc:async()=>({data:{...valid,...altered},error:null}),from:()=>{}
+  })});
+  await assert.rejects(()=>c.readReconciliation({familyId:F,childId:C,operationIds:[O]}),
+   /reconciliation_/);
+ }
+});
