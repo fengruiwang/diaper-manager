@@ -22,7 +22,7 @@
 | CloudBase 陌生账号 C / 撤权 | PENDING_REAL | 不能为了测试擅自撤销当前家庭成员 |
 | P2 真实 CloudBase 业务结构 | P2_1_SCHEMA_PASS_REAL | 011/013 真实预检 18/18；005→006 19/19、008→014 15/15、009→017→015 21/21 + 016 安全 ACL、010→018 20/20、012 12/12 均通过。7 张表全部空、RLS 生效、2 个 RPC 已安装；未开展真机业务调用 |
 | P2-3A 独立只读云端联调 | A_B_BOTH_PASS_ANON_RPC_ORIGIN_INCONCLUSIVE | 真实管理员 A 10/10 PASS；用户反馈老婆以自己的账号运行检查项全部 PASS，按 B 已登录 10/10 PASS 存档（未逐项抄录）；手机新浏览器的匿名 6/7 PASS，剩余只读 RPC 为 DENIED_UNCLASSIFIED，证明请求被拒绝但拒绝来源未确认；未写入宝宝、库存和采购 |
-| P2-3B 虚拟宝宝受控初始化 | DESIGN_PG_CI_PASS_MEMORY_ONLY_UI_READY | 019/020 仍仅设计草案，020 PG16 18/18 true；已修正 019 与 009 家庭级并发锁保持一致、首次 CREATE 不覆盖；新增 12 步纯内存手机演练页面和 child-scope-guard 过滤测试标识/停用记录，JS 245/245 PASS。真实 CloudBase 未运行 019/020、没有创建宝宝/库存或采购，尚无 P2-3B 写入授权 |
+| P2-3B 虚拟宝宝受控初始化 | MEMORY_BROWSER_12_OF_12_PASS_REAL_CLOUD_UNTOUCHED | 用户 2026-11-11 反馈已在真实网页端测试 p2-smoke-preview 的全部 12 步，全部 PASS（未逐项转录）；该结果仅为真实浏览器内存模拟，**不代表真实云端购买/库存**。019/020 仍仅隔离 PG16 18/18 true，未在 CloudBase 安装、未写宝宝/库存/采购，尚无 P2-3B 写入授权 |
 | P3 Edge IndexedDB 浏览器测试 | PASS_REAL | D1 虚拟库存及刷新、D2a 离线录入、D2b 离线刷新重开、D2c 模拟回执：用户 2026-11-11 反馈全部正常；不代表真实云端同步 |
 | P3 云同步 UI、云端补传、真机双端 | NOT_INTEGRATED | 现有模块只在隔离代码/模拟器中 |
 | 全业务同步、v1.1.2 迁移、CloudBase 故障恢复 | NOT_IMPLEMENTED_END_TO_END | 不得宣告通过 |
@@ -209,6 +209,13 @@
 - 新增 `sync/child-scope-guard.js` 及纯函数测试：未来正式云端宝宝列表必须同时查询 `legacy_slot`、`deleted_at`，排除 `__xb_smoke_` 及停用记录；历史数据迁移只能匹配活跃的 `primary`。缺字段即报错，不能把测试宝宝混入真实宝宝。**该守卫尚未集成生产 PWA**。
 - `tests/p2-smoke-preview.test.cjs` 与 `tests/p2-child-scope-guard.test.cjs` 已加入 Node 回归；最新 245/245 PASS，isolated PG16 PASS。预演运行和真实两账号云端同步严格分开。
 - `docs/v1.2.0/P2_3B_PREVIEW_RUNBOOK.md` 记录可选手机预览步骤、12 项预期和后续真实授权闸门。P2-3B 真实安装 019/020/创建测试宝宝、采购、软停用依然**未获授权**。历史本地数据、1 家庭/2 成员/2 授权以及 main/develop 不变。
+
+### B.17 2026-11-11 虚拟宝宝网页模拟全部 PASS；采购编辑需求与测试交付格式
+
+- 用户反馈：通过 P2-3B 独立网页测试页面，**全部步骤 PASS**。按预定共 12 项标记 `BROWSER_MEMORY_ONLY_12_OF_12_PASS_REAL`（用户汇总反馈，未传逐项日志）。它只测试本地内存模拟的 A/B +60/+80、ACK、撤销权限和停用，不是云端数据库读写。正式 CloudBase 019/020 仍未部署且原业务表继续视为未经 P2-3B 写入。
+- 用户明确提出后期购买录入错误需要**支持编辑已存购买信息**：品牌/系列/日期/价格为元数据修改、数量/尺码为事务差量库存调整，需要追踪修订历史、冲突、幂等和两端一致性。现有已部署 009 只有 `buy/use/stocktake/reverse`，**还没有云端编辑 API**。新增完整需求文档 `docs/v1.2.0/PURCHASE_EDIT_CORRECTION_REQUIREMENTS.md`，要求正式发布前实现和验证，不承诺现已支持。
+- 用户明确要求：**后续每次发送测试任务时，在聊天对话正文同时给出测试文件直接链接、测试页面上传位置/地址、逐步操作步骤、预期结果、错误反馈格式和安全注意事项**，不可只把步骤写在 GitHub MD 后让用户自己寻找。
+- 仍维持不触碰 v1.1.2 旧版历史、只在 Feature 开发、非授权不在真实 CloudBase 写测试宝宝/采购或迁移数据的闸门。
 
 ## C. 第一批：P1 已有家庭的两账号真实权限测试（已验收存档，不要求重复）
 
