@@ -38,8 +38,13 @@
   }
   async function rpc(name,args){
    const response=await db.rpc(name,args);
-   if(response?.error||!response)
+   if(response?.error){
+    const code=String(response.error.code||response.error.errorCode||'');
+    if(code==='40001')throw Error('primary_docs:revision_conflict');
+    if(code==='23505')throw Error('primary_docs:duplicate_request_conflict');
     throw Error('primary_docs:rpc_unverified');
+   }
+   if(!response)throw Error('primary_docs:rpc_unverified');
    const value=Array.isArray(response.data)?
     (response.data.length===1?response.data[0]:null):response.data;
    if(!object(value))throw Error('primary_docs:invalid_reply');
@@ -112,7 +117,12 @@
      kind:input.kind,revision:d.revision,
      duplicate:d.duplicate===true,requestId:input.requestId
     });
-   }catch(_){
+   }catch(error){
+    // A real 40001 conflict never gets promoted to "maybe committed".
+    if(error?.message==='primary_docs:revision_conflict')
+     return result('PRIMARY_DOCUMENT_VERSION_CONFLICT',{requestId:input.requestId});
+    if(error?.message==='primary_docs:duplicate_request_conflict')
+     return result('PRIMARY_DOCUMENT_REQUEST_ID_CONFLICT',{requestId:input.requestId});
     // No auto re-submit with a new UUID. The next action is receipt check.
     return result('PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID',
      {requestId:input.requestId});
