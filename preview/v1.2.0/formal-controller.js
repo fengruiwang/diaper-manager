@@ -23,7 +23,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    ||!ui?.show||!ui?.clear||!ui?.defaults||typeof scriptLoader!=='function')
   throw Error('formal_entry:dependencies_required');
  const $=id=>doc.getElementById(id);
- let controller=null,primary=null,attached=null;
+ let controller=null,primary=null,attached=null,pendingGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
  function screen(next,message=''){
   mode=next;doc.body.dataset.formalState=next;
@@ -34,6 +34,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  function clear(){
   ui.clear();actor=null;family=null;primary=null;
+  if(attached){attached.detach();attached=null;}
   $('formalCurrentAccount').textContent='—';
   $('formalCurrentFamily').textContent='—';
   // Per-account IndexedDB operation queues are NEVER deleted here.
@@ -78,7 +79,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     const activation=await p.activate();
     if(activation.status!=='PRIMARY_OUTBOX_READ_ONLY_READY')
      throw Error('formal_entry:primary_outbox_unverified');
-    primary=p;
+    primary=p;pendingGuard=p;
     const commands=commandsFactory.create({
      primary:p,uuid:()=>host.crypto.randomUUID(),
      clock:()=>new Date().toISOString()
@@ -117,8 +118,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  async function signOut(){
   if(busy)return 'BUSY';
-  if(primary){
-   const pending=await primary.pending();
+  if(pendingGuard){
+   const pending=await pendingGuard.pending();
    if(pending?.status!=='PRIMARY_QUEUE_COUNTS_VERIFIED'
       ||pending.outstanding>0){
     $('formalSyncState').textContent='存在未同步或无法核实的本地操作；已阻止退出，不会清理原操作 ID。';
@@ -127,8 +128,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   }
   const result=await controller.signOut();
   if(result==='LOGIN_REQUIRED'){
-   revision++;if(attached){attached.detach();attached=null;}
-   clear();screen('login',notes.LOGIN_REQUIRED);
+   revision++;clear();pendingGuard=null;
+   screen('login',notes.LOGIN_REQUIRED);
   }
   return result;
  }
@@ -160,6 +161,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalRetry',restore);
   on('formalRefresh',restore);
   on('formalSignOut',signOut);
+  on('formalGateSignOut',signOut);
   host.addEventListener('online',restore);
   doc.addEventListener('visibilitychange',()=>{
    if(doc.visibilityState==='visible'&&host.navigator?.onLine!==false)
