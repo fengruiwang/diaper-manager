@@ -13,6 +13,12 @@ const notes={
  LOGIN_REQUIRED:'首次使用请邮箱验证码登录；后续使用 CloudBase 已保持的会话。',
  OFFLINE_LOCAL_ONLY:'当前离线，未清除登录会话。请联网后重试。',
  SESSION_UNVERIFIED:'暂时不能验证会话，请联网重试；不会自动退出。',
+ CONNECT_FAILED:'云端连接暂时失败，请检查网络后重新检查。不会自动退出登录。',
+ CLOUD_READ_UNVERIFIED:'暂时无法核验家庭权限或云端数据，请稍后重新检查。',
+ NO_VISIBLE_FAMILY:'当前账号尚未关联可访问的家庭，请核实家庭授权。',
+ FAMILY_REVIEW_REQUIRED:'发现多个家庭或家庭信息未核实，需要重新检查权限。',
+ CHILD_SELECTION_REQUIRED:'家庭已登录，但正式宝宝作用域尚未准备好。',
+ FAMILY_READY_NO_BUSINESS_CHILD:'家庭已登录，但正式宝宝尚未创建或迁移。',
  PRIMARY_NOT_READY:'正式宝宝数据尚未准备好。登录状态已确认，但正式宝宝尚未创建或完成历史迁移。',
  MIGRATION_READ_NOT_READY:'正式宝宝迁移未完成；不会显示合成数据或测试宝宝库存。',
  FAMILY_PERMISSION_DENIED:'家庭授权未通过，已隐藏业务内容。'
