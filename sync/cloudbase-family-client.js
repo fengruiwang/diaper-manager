@@ -36,7 +36,27 @@
    const normalized=String(email||'').trim().toLowerCase();
    if(normalized.length>254||!emailRx.test(normalized))fail('invalid_email');
    // OTP is sent only by explicit user action, not on page render.
-   const data=unwrap(await auth.signInWithOtp({email:normalized,options:{shouldCreateUser:true}}));
+   let response;
+   try{
+    response=await auth.signInWithOtp({
+     email:normalized,options:{shouldCreateUser:true}
+    });
+   }catch(e){
+    const code=String(e?.code??e?.statusCode??e?.status??'').toUpperCase();
+    if(/^(429|TOO.?MANY.?REQUESTS|RATE.?LIMIT(?:ED)?|RESOURCE_EXHAUSTED)$/.test(code))
+     fail('rate_limited');
+    throw e;
+   }
+   // Do not guess at backend rate limits. Recognize authoritative HTTP/code
+   // only; never surface raw CloudBase errors or sensitive request metadata.
+   const serverError=response?.error;
+   if(serverError){
+    const code=String(serverError.code??serverError.statusCode??
+     serverError.status??'').toUpperCase();
+    if(/^(429|TOO.?MANY.?REQUESTS|RATE.?LIMIT(?:ED)?|RESOURCE_EXHAUSTED)$/.test(code))
+     fail('rate_limited');
+   }
+   const data=unwrap(response);
    if(!data||typeof data.verifyOtp!=='function')fail('invalid_verifier');
    verifier=data.verifyOtp;
    pendingEmail=normalized;
