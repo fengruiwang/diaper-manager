@@ -147,4 +147,15 @@ test('CloudBase explicit OTP rate limits are sanitized, unknown errors stay gene
   .requestCode('a@example.com'),/family_client: rate_limited/);
  await assert.rejects(()=>Family.create(sdk({error:{code:'SOMETHING_ELSE'}}))
   .requestCode('a@example.com'),/family_client: cloudbase_request_failed/);
+ const rejected=Family.create({auth:{
+  getSession:async()=>({data:{session:null}}),
+  signInWithOtp:async()=>{const error=Error('private server response');
+   error.statusCode=429;throw error;}
+ },rdb:()=>({rpc(){}})});
+ await assert.rejects(()=>rejected.requestCode('a@example.com'),
+  /family_client: rate_limited/);
+ const sdkSource=fs.readFileSync(path.join(__dirname,
+  '../sync/cloudbase-family-client.js'),'utf8');
+ assert.ok(PAGE.includes(sdkSource.trim()),
+  'deployed formal HTML must embed the same rate-limit-aware SDK adapter');
 });
