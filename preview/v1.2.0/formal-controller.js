@@ -6,12 +6,14 @@
 (function(root){
 'use strict';
 const FORMAL_WRITE_ENABLED=false;
+const OTP_COOLDOWN_MS=60000;
+const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
 const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED']);
 const notes={
  LOGIN_REQUIRED:'首次使用请邮箱验证码登录；后续使用 CloudBase 已保持的会话。',
  OFFLINE_LOCAL_ONLY:'当前离线，未清除登录会话。请联网后重试。',
  SESSION_UNVERIFIED:'暂时不能验证会话，请联网重试；不会自动退出。',
- PRIMARY_NOT_READY:'正式宝宝尚未创建或迁移，没有真实云端数据。',
+ PRIMARY_NOT_READY:'正式宝宝数据尚未准备好。登录状态已确认，但正式宝宝尚未创建或完成历史迁移。',
  MIGRATION_READ_NOT_READY:'正式宝宝迁移未完成；不会显示合成数据或测试宝宝库存。',
  FAMILY_PERMISSION_DENIED:'家庭授权未通过，已隐藏业务内容。'
 };
@@ -29,10 +31,82 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let controller=null,primary=null,attached=null,pendingGuard=null,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
+ let otpSending=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
+     otpFailure='';
+ const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
+ function restoreOtpCooldown(){
+  try{
+   const raw=host.localStorage?.getItem(OTP_STORAGE_KEY);
+   const n=Number(raw);
+   if(raw&&Number.isSafeInteger(n)&&n>now()
+     &&n<=now()+OTP_COOLDOWN_MS+2000){
+    otpExpiresAt=n;otpSentBefore=true;
+   }
+  }catch(_){/* only saves resend expiry, never tokens or email */}
+ }
+ function redrawOtpButton(){
+  const button=$('formalSendOtp'),left=Math.ceil((otpExpiresAt-now())/1000);
+  if(left>0){
+   button.disabled=true;button.textContent=left+' 秒后重新发送';
+   return;
+  }
+  if(otpExpiresAt){
+   otpExpiresAt=0;otpSentBefore=true;
+   try{host.localStorage?.removeItem(OTP_STORAGE_KEY);}catch(_){}
+  }
+  button.disabled=otpSending;
+  button.textContent=otpSending?'发送中…':
+   otpSentBefore?'重新发送验证码':'发送验证码';
+  if(otpTimer!==null&&typeof host.clearInterval==='function'){
+   host.clearInterval(otpTimer);otpTimer=null;
+  }
+ }
+ function startOtpTicker(){
+  redrawOtpButton();
+  if(otpTimer===null&&otpExpiresAt>now()
+    &&typeof host.setInterval==='function'){
+   otpTimer=host.setInterval(redrawOtpButton,1000);
+  }
+ }
+ async function sendOtp(){
+  // Busy/cooldown checks happen before calling the CloudBase SDK.
+  if(otpSending||otpExpiresAt>now())return 'OTP_REQUEST_BLOCKED';
+  otpSending=true;otpFailure='';
+  $('formalLoginMessage').textContent='正在向邮箱发送验证码…';
+  redrawOtpButton();
+  let code='OTP_REQUEST_FAILED';
+  try{
+   code=await controller.requestOtp($('formalEmail').value.trim());
+   if(code==='OTP_REQUESTED'){
+    otpSentBefore=true;otpExpiresAt=now()+OTP_COOLDOWN_MS;
+    try{host.localStorage?.setItem(OTP_STORAGE_KEY,
+     String(otpExpiresAt));}catch(_){}
+    $('formalLoginMessage').textContent=
+     '验证码发送成功，请检查邮箱（包括垃圾邮件）。60 秒后可重新发送。';
+   }else{
+    // Server rate-limit verdict always takes precedence over local timer.
+    $('formalLoginMessage').textContent=
+     otpFailure==='family_client: rate_limited'?
+      '发送过于频繁，服务器已限制请求，请稍后重试。':
+     code==='EMAIL_REQUIRED'?'请输入有效的邮箱地址。':
+     code==='CONFIG_REQUIRED'?'登录配置暂不可用，请刷新后重试。':
+     code==='OTP_REQUEST_FAILED'?
+      '验证码发送失败，请检查网络和邮箱地址后再试。':
+      '验证码未发送成功：'+code;
+   }
+  }catch(_){
+   $('formalLoginMessage').textContent=
+    '验证码发送请求未完成，请检查网络后再试。';
+  }finally{
+   otpSending=false;startOtpTicker();
+  }
+  return code;
+ }
  function screen(next,message=''){
   mode=next;doc.body.dataset.formalState=next;
   $('formalLoginCard').hidden=next!=='login';
-  $('formalLoadingCard').hidden=next==='login'||next==='ready';
+  $('formalLoadingCard').hidden=next!=='boot';
+  $('formalGateActions').hidden=next==='boot'||next==='login'||next==='ready';
   $('formalGateMessage').textContent=message;
   $('formalAccountState').textContent=next;
  }
@@ -44,7 +118,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   // Per-account IndexedDB operation queues are NEVER deleted here.
  }
  function authView(){
-  return {status(){},needsKey(){},identity(){},family(){},cloudStock(){}};
+  return {status(code,detail){if(code==='OTP_REQUEST_FAILED')otpFailure=detail||'';},needsKey(){},identity(){},family(){},cloudStock(){}};
  }
  async function restore(){
   if(busy)return mode;
@@ -212,6 +286,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   controller=loginController.create({
    host,storage:null,view:authView(),scriptLoader
   });
+  restoreOtpCooldown();startOtpTicker();
   function on(id,fn){
    $(id).addEventListener('click',()=>{
     Promise.resolve().then(fn).catch(()=>{
@@ -219,11 +294,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     });
    });
   }
-  on('formalSendOtp',async()=>{
-   const code=await controller.requestOtp($('formalEmail').value.trim());
-   $('formalLoginMessage').textContent=code==='OTP_REQUESTED'?
-    '验证码已发出，请查看邮箱。':'发送未确认：'+code;
-  });
+  on('formalSendOtp',sendOtp);
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   on('formalRefresh',restore);
@@ -246,6 +317,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalSignOut',signOut);
   on('formalGateSignOut',signOut);
   host.addEventListener('online',restore);
+  host.addEventListener('storage',event=>{
+   if(event?.key!==OTP_STORAGE_KEY)return;
+   restoreOtpCooldown();startOtpTicker();
+  });
   doc.addEventListener('visibilitychange',()=>{
    if(doc.visibilityState==='visible'&&host.navigator?.onLine!==false)
     restore();
