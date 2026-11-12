@@ -47,7 +47,8 @@
    const key=row.kind+':'+row.id;
    if(seen.has(key))fail('duplicate_history');
    seen.add(key);
-   if(row.kind==='transaction')state.transactions.push(clone(row.payload));
+   if(row.kind==='transaction')state.transactions.push({
+    ...clone(row.payload),origin:'legacy_migration'});
    else if(row.kind==='quote')state.quotes.push(clone(row.payload));
    else state.weightRecords.push(clone(row.payload));
   }
@@ -63,7 +64,7 @@
    state.transactions.push({
     id,type:'buy',date:row.purchaseDate,brand:row.brand,
     series:row.series,size:row.size,pieces:row.pieces,
-    price:row.totalFen/100
+    price:row.totalFen/100,origin:'cloud_post_migration'
    });
   }
   return Object.freeze({
