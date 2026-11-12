@@ -79,6 +79,8 @@ BEGIN
 END;
 $primary$;
 
-REVOKE ALL ON FUNCTION public.xb_create_primary_child(uuid) FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.xb_create_primary_child(uuid) TO authenticated;
+-- PHASE A OBJECTS ONLY: no authenticated EXECUTE by default.
+-- A separate, explicitly authorized Phase B change must grant this call.
+REVOKE ALL ON FUNCTION public.xb_create_primary_child(uuid)
+ FROM PUBLIC,anon,authenticated;
 COMMIT;
