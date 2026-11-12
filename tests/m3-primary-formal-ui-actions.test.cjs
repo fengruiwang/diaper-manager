@@ -51,7 +51,7 @@ test('no formal selection allows original editor handlers to keep working in non
 });
 test('default formal mode intercepts buy/use/stock/reverse without any cloud or local write',async()=>{
  const f=fixture({selected:true});
- for(const [id,attrs] of [['buyNow',{}],['','',{action:'consume',size:'S',count:'1'}],
+ for(const [id,attrs] of [['buyNow',{}],['',{action:'consume',size:'S',count:'1'}],
   ['saveStocks',{}]]){const props=attrs||{};
   await f.click(id,props);}
  assert.equal(f.log.length,0);
