@@ -18,7 +18,8 @@ const notes={
 function create({host,doc,loginController,readModelFactory,primaryFactory,
  commandsFactory,actionsFactory,projection,ui,scriptLoader,
  documentsFactory=null,documentsOverlay=null,
- documentOpsFactory=null,documentCommandsFactory=null}={}){
+ documentOpsFactory=null,documentCommandsFactory=null,
+ batchStocktakeFactory=null}={}){
  if(!host||!doc||!loginController?.create||typeof readModelFactory!=='function'
    ||typeof primaryFactory!=='function'||!commandsFactory?.create
    ||!actionsFactory?.create||!projection?.project
@@ -26,7 +27,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   throw Error('formal_entry:dependencies_required');
  const $=id=>doc.getElementById(id);
  let controller=null,primary=null,attached=null,pendingGuard=null,
-     documentsGuard=null;
+     documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
  function screen(next,message=''){
   mode=next;doc.body.dataset.formalState=next;
@@ -114,8 +115,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        uuid:()=>host.crypto.randomUUID()
       });
      }
+     if(typeof batchStocktakeFactory==='function'){
+      batchGuard=batchStocktakeFactory({controller,host,primary:p});
+     }
      attached=actionsFactory.create({
       primary:p,commands,documentCommands,
+      batchStocktake:batchGuard,
+      createBatchId:()=>host.crypto.randomUUID(),
       readDocumentInput:el=>root.XBFormalUIData.documentAction(el),
       prepareQuoteEdit:id=>root.XBFormalUIData.prepareQuoteEdit(id),
       buildAllowsWrites:FORMAL_WRITE_ENABLED,
@@ -167,9 +173,16 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return 'PENDING_DOCUMENTS_BLOCK_SIGNOUT';
    }
   }
+  if(batchGuard){
+   const batches=await batchGuard.pending();
+   if(batches.status!=='BATCH_QUEUE_VERIFIED'||batches.outstanding>0){
+    $('formalSyncState').textContent='多尺码盘点尚有待同步操作；已阻止退出，保留原批量 ID。';
+    return 'PENDING_STOCKTAKE_BATCH_BLOCK_SIGNOUT';
+   }
+  }
   const result=await controller.signOut();
   if(result==='LOGIN_REQUIRED'){
-   revision++;clear();pendingGuard=null;documentsGuard=null;
+   revision++;clear();pendingGuard=null;documentsGuard=null;batchGuard=null;
    screen('login',notes.LOGIN_REQUIRED);
   }
   return result;
@@ -206,12 +219,16 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     $('formalSyncState').textContent='正式业务写入尚未授权，未发送任何云端操作。';
     return;
    }
-   if(!primary||!documentsGuard)return;
+   if(!primary||!documentsGuard||!batchGuard)return;
    const a=await primary.flush({operatorApproved:true});
    const b=await documentsGuard.send({operatorApproved:true});
-   $('formalSyncState').textContent='库存：'+a.status+'；其他业务：'+b.status;
+   const c=await batchGuard.send({operatorApproved:true});
+   $('formalSyncState').textContent='库存：'+a.status+
+    '；其他业务：'+b.status+'；盘点：'+c.status;
    if(a.status==='PRIMARY_CLOUD_SYNCED_VERIFIED'
-     &&b.status==='DOCUMENT_SYNC_CONFIRMED')await restore();
+     &&b.status==='DOCUMENT_SYNC_CONFIRMED'
+     &&['BATCH_ATOMIC_COMMIT_ACKED','BATCH_ACK_RECOVERED',
+      'BATCH_NO_READY_OPERATION'].includes(c.status))await restore();
   });
   on('formalSignOut',signOut);
   on('formalGateSignOut',signOut);
@@ -256,6 +273,13 @@ function browserStart(){
     cloudWritesEnabled:FORMAL_WRITE_ENABLED
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,
+  batchStocktakeFactory:({controller,host,primary})=>
+   root.XBPrimaryStocktakeBatchClient.create({
+    controller,host,primary,
+    outboxFactory:root.XBDurableOutbox,
+    contract:root.XBOutboxContract,
+    cloudWritesEnabled:FORMAL_WRITE_ENABLED
+   }),
   readModelFactory:cloud=>root.XBPrimaryCloudReadModel.create({
    app:cloud,childReader:root.XBCloudbaseChildReader,
    scopeGuard:root.XBChildScopeGuard,
