@@ -17,14 +17,16 @@ const notes={
 };
 function create({host,doc,loginController,readModelFactory,primaryFactory,
  commandsFactory,actionsFactory,projection,ui,scriptLoader,
- documentsFactory=null,documentsOverlay=null}={}){
+ documentsFactory=null,documentsOverlay=null,
+ documentOpsFactory=null,documentCommandsFactory=null}={}){
  if(!host||!doc||!loginController?.create||typeof readModelFactory!=='function'
    ||typeof primaryFactory!=='function'||!commandsFactory?.create
    ||!actionsFactory?.create||!projection?.project
    ||!ui?.show||!ui?.clear||!ui?.defaults||typeof scriptLoader!=='function')
   throw Error('formal_entry:dependencies_required');
  const $=id=>doc.getElementById(id);
- let controller=null,primary=null,attached=null,pendingGuard=null;
+ let controller=null,primary=null,attached=null,pendingGuard=null,
+     documentsGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
  function screen(next,message=''){
   mode=next;doc.body.dataset.formalState=next;
@@ -77,9 +79,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    // Once separately approved SQL 026 exists, A/B shared documents replace
    // the migrated read-only defaults. An unavailable RPC is NOT a local edit
    // fallback and cannot be called "sync successful".
-   let documentsVerified=false;
+   let documentsVerified=false,documentsClient=null;
    if(typeof documentsFactory==='function'&&documentsOverlay?.apply){
-    const snapshot=await documentsFactory(ctx.app).readAll({
+    documentsClient=documentsFactory(ctx.app);
+    const snapshot=await documentsClient.readAll({
      familyId:ctx.familyId,actorUid:ctx.actorUid
     });
     if(snapshot.status==='PRIMARY_DOCUMENTS_FULLY_READ'){
@@ -99,8 +102,23 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      clock:()=>new Date().toISOString()
     });
     if(!attached){
+     let documentCommands=null;
+     if(documentsClient&&typeof documentOpsFactory==='function'
+       &&documentCommandsFactory?.create){
+      const queue=documentOpsFactory({
+       controller,host,documentsClient
+      });
+      documentsGuard=queue;
+      documentCommands=documentCommandsFactory.create({
+       client:documentsClient,queue,
+       uuid:()=>host.crypto.randomUUID()
+      });
+     }
      attached=actionsFactory.create({
-      primary:p,commands,buildAllowsWrites:FORMAL_WRITE_ENABLED,
+      primary:p,commands,documentCommands,
+      readDocumentInput:el=>root.XBFormalUIData.documentAction(el),
+      prepareQuoteEdit:id=>root.XBFormalUIData.prepareQuoteEdit(id),
+      buildAllowsWrites:FORMAL_WRITE_ENABLED,
       operatorApproved:()=>false,
       formalModeSelected:()=>mode==='ready',
       readPurchase:()=>root.XBFormalUIData.purchase(),
@@ -137,13 +155,21 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const pending=await pendingGuard.pending();
    if(pending?.status!=='PRIMARY_QUEUE_COUNTS_VERIFIED'
       ||pending.outstanding>0){
-    $('formalSyncState').textContent='存在未同步或无法核实的本地操作；已阻止退出，不会清理原操作 ID。';
+    $('formalSyncState').textContent='库存待同步操作未清理；已阻止退出，保留原 ID。';
     return 'PENDING_OPERATIONS_BLOCK_SIGNOUT';
+   }
+  }
+  if(documentsGuard){
+   const docs=await documentsGuard.pending();
+   if(docs?.status!=='DOCUMENT_QUEUE_COUNTS_VERIFIED'
+      ||docs.outstanding>0){
+    $('formalSyncState').textContent='候选价、成长或设置操作仍待同步；已阻止退出，保留原 ID。';
+    return 'PENDING_DOCUMENTS_BLOCK_SIGNOUT';
    }
   }
   const result=await controller.signOut();
   if(result==='LOGIN_REQUIRED'){
-   revision++;clear();pendingGuard=null;
+   revision++;clear();pendingGuard=null;documentsGuard=null;
    screen('login',notes.LOGIN_REQUIRED);
   }
   return result;
@@ -175,6 +201,18 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   on('formalRefresh',restore);
+  on('formalSyncNow',async()=>{
+   if(!FORMAL_WRITE_ENABLED){
+    $('formalSyncState').textContent='正式业务写入尚未授权，未发送任何云端操作。';
+    return;
+   }
+   if(!primary||!documentsGuard)return;
+   const a=await primary.flush({operatorApproved:true});
+   const b=await documentsGuard.send({operatorApproved:true});
+   $('formalSyncState').textContent='库存：'+a.status+'；其他业务：'+b.status;
+   if(a.status==='PRIMARY_CLOUD_SYNCED_VERIFIED'
+     &&b.status==='DOCUMENT_SYNC_CONFIRMED')await restore();
+  });
   on('formalSignOut',signOut);
   on('formalGateSignOut',signOut);
   host.addEventListener('online',restore);
@@ -210,6 +248,14 @@ function browserStart(){
    cloudWritesEnabled:FORMAL_WRITE_ENABLED
   }),
   documentsOverlay:root.XBPrimaryDocumentsOverlay,
+  documentOpsFactory:({controller,host,documentsClient})=>
+   root.XBPrimaryDocumentsOperations.create({
+    controller,host,documentsClient,
+    outboxFactory:root.XBDurableOutbox,
+    contract:root.XBOutboxContract,
+    cloudWritesEnabled:FORMAL_WRITE_ENABLED
+   }),
+  documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,
   readModelFactory:cloud=>root.XBPrimaryCloudReadModel.create({
    app:cloud,childReader:root.XBCloudbaseChildReader,
    scopeGuard:root.XBChildScopeGuard,
