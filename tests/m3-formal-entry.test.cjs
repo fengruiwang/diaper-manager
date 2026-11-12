@@ -5,7 +5,8 @@ const html=fs.readFileSync(path.join(__dirname,
  '../preview/v1.2.0/formal/index.html'),'utf8');
 const base=()=>({inventory:{NB:0,S:140,M:0,L:0,XL:0,XXL:0},
  transactions:[],quotes:[],weightRecords:[]});
-function setup({session=false,primaryReady=false,pending=0,offline=false}={}){
+function setup({session=false,primaryReady=false,pending=0,offline=false,
+  otpStatus='CLOUD_READ_ONLY_CONNECTED'}={}){
  const trace=[],items=new Map(),handlers=new Map();
  const element=id=>{
   if(!items.has(id))items.set(id,{
@@ -30,7 +31,7 @@ function setup({session=false,primaryReady=false,pending=0,offline=false}={}){
   verifiedContext:()=>authed?{app:sdk,familyId:'29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',
    actorUid:'A'}:null,
   requestOtp:async()=> 'OTP_REQUESTED',
-  confirmOtp:async()=>{authed=true;return 'CLOUD_READ_ONLY_CONNECTED'},
+  confirmOtp:async()=>{authed=true;return otpStatus},
   signOut:async()=>{authed=false;trace.push('auth.signOut');return 'LOGIN_REQUIRED'}
  };
  const ui={defaults:base,show:()=>trace.push('ui.show'),
@@ -131,4 +132,28 @@ test('active account logout blocked when durable outbox has pending operations',
  assert.equal(f.trace.filter(x=>x==='auth.signOut').length,1);
  assert.ok(f.trace.includes('ui.clear'));
  assert.ok(f.trace.includes('detach'));
+});
+
+test('successful OTP but unprovisioned family stays authenticated, not falsely labeled invalid code',async()=>{
+ const f=setup({otpStatus:'FAMILY_READY_NO_BUSINESS_CHILD'});
+ await f.app.start();
+ assert.equal(f.app.mode,'login');
+ f.element('formalOtp').value='729381';
+ f.handlers.get('formalConfirmOtp:click')();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.app.mode,'unverified');
+ assert.match(f.element('formalGateMessage').textContent,/正式宝宝|正式云端/);
+ assert.equal(f.element('formalLoginCard').hidden,true);
+ assert.equal(f.trace.includes('ui.show'),false);
+ assert.equal(f.element('formalLoginMessage').textContent,'');
+ assert.equal(f.trace.filter(x=>x==='session.restore').length,2);
+});
+test('startup while offline does not attempt SDK initialization, does not clear SDK credentials',async()=>{
+ const f=setup({session:true,offline:true});
+ await f.app.start();
+ assert.equal(f.app.mode,'offline');
+ assert.equal(f.trace.filter(x=>x==='session.restore').length,0);
+ assert.equal(f.trace.filter(x=>x==='auth.signOut').length,0);
+ assert.equal(f.doc.body.dataset.formalState,'offline');
+ assert.equal(f.trace.includes('ui.show'),false);
 });
