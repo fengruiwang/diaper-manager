@@ -24,6 +24,9 @@
   async function cloud(){
    if(busy)return publish('BUSY');
    if(host.XBM102?.isActive())return publish('EXIT_SMOKE_MODE_FIRST');
+   // Do not keep a synthetic/previous snapshot visible while a real
+   // primary receipt is being checked. Unavailable cloud always shows no view.
+   view.clear();
    busy=true;publish('VERIFYING_PRIMARY_RECEIPT');
    try{
     const controller=host.XBM1Preview;
