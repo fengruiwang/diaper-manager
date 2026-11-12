@@ -9,7 +9,7 @@
  */
 (function(root){
  'use strict';
- const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const SIZES=['NB','S','M','L','XL','XXL'];
  function ret(status,extras={}){return Object.freeze({status,...extras});}
  function create({primary,uuid,clock}={}){
