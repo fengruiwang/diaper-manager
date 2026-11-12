@@ -19,13 +19,15 @@
  const deny=(code)=>Object.freeze({status:code,verified:false,cloudWritesAuthorized:false});
  function create({app,cutoverGate,strictReview,digest,receiptPreview,
   resolvePrimary,readHistory,readInventory,readPurchases,readProfile,
-  cloudWritesEnabled=false}={}){
+  readBaselineOperations,readNativeWeights,cloudWritesEnabled=false}={}){
   if(!app||typeof app.rdb!=='function'||!cutoverGate?.verifyBeforeUpload
     ||typeof strictReview!=='function'||typeof digest!=='function'
     ||!receiptPreview?.inspect||typeof resolvePrimary!=='function'
     ||!readHistory?.readAll||!readHistory?.readSettings
     ||typeof readInventory!=='function'||typeof readPurchases!=='function'
-    ||typeof readProfile!=='function')
+    ||typeof readProfile!=='function'
+    ||typeof readBaselineOperations!=='function'
+    ||typeof readNativeWeights!=='function')
    throw Error('m2_executor:dependencies_required');
   let busy=false;
   const stable=cutoverGate.stable;
@@ -115,19 +117,24 @@
    });
    if(receipt?.status!=='ALREADY_RECEIPTED_SAME_SOURCE')
     return deny('FINAL_RECEIPT_NOT_VERIFIED');
-   let settings,history,stocks,purchases,profile;
+   let settings,history,stocks,purchases,profile,baselineOps,nativeWeights;
    try{
     settings=await readHistory.readSettings({familyId,childId});
     history=await readHistory.readAll({familyId,childId,kind:'all',limit:50});
     stocks=await readInventory({familyId,childId});
     purchases=await readPurchases({familyId,childId});
     profile=await readProfile({familyId,childId});
+    baselineOps=await readBaselineOperations({familyId,childId});
+    nativeWeights=await readNativeWeights({familyId,childId});
    }catch(_){return deny('CLOUD_READBACK_UNVERIFIED');}
    if(settings?.complete!==true||settings.canEdit!==false
      ||history?.complete!==true||history.hasMore!==false
      ||history.total!==history.rows?.length
      ||!Array.isArray(stocks)||stocks.length!==6
      ||!Array.isArray(purchases)||purchases.length!==0
+     ||!Array.isArray(baselineOps)||baselineOps.length!==6
+     ||!Array.isArray(nativeWeights)
+     ||nativeWeights.length!==source.weightRecords.length
      ||!object(profile))
     return deny('INCOMPLETE_CLOUD_READBACK');
    const seen=new Set();
@@ -139,6 +146,45 @@
    }
    if(!SIZES.every(s=>seen.has(s))||!assertHistory(history.rows,source))
     return deny('HISTORY_OR_INVENTORY_MISMATCH');
+   const opSizes=new Set();
+   for(const operation of baselineOps){
+    if(!operation||!SIZES.includes(operation.size)
+      ||opSizes.has(operation.size)||operation.family_id!==familyId
+      ||operation.child_id!==childId
+      ||operation.kind!=='migration_baseline'||operation.delta!==null
+      ||operation.old_quantity!==0
+      ||operation.new_quantity!==source.inventory[operation.size]
+      ||operation.resulting_revision!==1
+      ||operation.expected_revision!==null
+      ||operation.legacy_transaction_id!==null
+      ||operation.reverses_operation_id!==null)
+     return deny('BASELINE_OPERATION_EVENTS_MISMATCH');
+    opSizes.add(operation.size);
+   }
+   if(opSizes.size!==6)return deny('BASELINE_OPERATION_EVENTS_MISMATCH');
+   const originalWeights=new Map(source.weightRecords.map(w=>[w.id,w]));
+   const observedWeights=new Set();
+   const normalizeTime=v=>{
+    if(typeof v!=='string')return null;
+    if(/^\\d{2}:\\d{2}$/.test(v))return v+':00';
+    return /^\\d{2}:\\d{2}:\\d{2}$/.test(v)?v:null;
+   };
+   for(const w of nativeWeights){
+    const original=w&&originalWeights.get(w.legacy_record_id);
+    if(!original||observedWeights.has(w.legacy_record_id)
+      ||w.family_id!==familyId||w.child_id!==childId
+      ||w.deleted_at!==null
+      ||w.measured_on!==original.date
+      ||normalizeTime(w.measured_at)!==
+         normalizeTime(original.time||'00:00')
+      ||!Number.isFinite(Number(w.weight_kg))
+      ||Number(w.weight_kg)!==Number(original.weight)
+      ||w.note!==(original.note||''))
+     return deny('NATIVE_GROWTH_RECORDS_MISMATCH');
+    observedWeights.add(w.legacy_record_id);
+   }
+   if(observedWeights.size!==originalWeights.size)
+    return deny('NATIVE_GROWTH_RECORDS_MISMATCH');
    const expectedSettings={...source};
    for(const k of ['inventory','transactions','quotes','weightRecords','babyProfile'])
     delete expectedSettings[k];
