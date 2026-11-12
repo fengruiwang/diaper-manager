@@ -7,6 +7,8 @@
  'use strict';
  const ENV_ID='f495637659-d2gnuzz2jf5657da8'; // Existing verified PUBLIC environment identifier
  const KEY_NAME='xiaobao_v120_m1_preview_public_key';
+ // Public anon-role key, intended for frontend use; NOT a service-role API secret.
+ const DEFAULT_PUBLIC_KEY='eyJhbGciOiJSUzI1NiIsImtpZCI6ImY0NWE0ZTE1LWFkZjEtNDdmYi1iODEzLTY2MzRiOWFjZGE5NiJ9.eyJpc3MiOiJodHRwczovL2Y0OTU2Mzc2NTktZDJnbnV6ejJqZjU2NTdkYTguYXAtc2hhbmdoYWkudGNiLWFwaS50ZW5jZW50Y2xvdWRhcGkuY29tIiwic3ViIjoiYW5vbiIsImF1ZCI6ImY0OTU2Mzc2NTktZDJnbnV6ejJqZjU2NTdkYTgiLCJleHAiOjQwOTc5NzI1OTgsImlhdCI6MTc5NDI4OTM5OCwibm9uY2UiOiJuc1dON2dqSlJvbWFLOG1VWWF0OHl3IiwiYXRfaGFzaCI6Im5zV043Z2pKUm9tYUs4bVVZYXQ4eXciLCJuYW1lIjoiQW5vbnltb3VzIiwic2NvcGUiOiJhbm9ueW1vdXMiLCJwcm9qZWN0X2lkIjoiZjQ5NTYzNzY1OS1kMmdudXp6MmpmNTY1N2RhOCIsIm1ldGEiOnsicGxhdGZvcm0iOiJQdWJsaXNoYWJsZUtleSJ9LCJyb2xlIjoiYW5vbiIsImlzX2Fub255bW91cyI6dHJ1ZSwiYXBwX21ldGFkYXRhIjp7InByb3ZpZGVyIjoiYW5vbnltb3VzIiwicHJvdmlkZXJzIjpbImFub255bW91cyJdfSwidXNlcl9tZXRhZGF0YSI6eyJuYW1lIjoiQW5vbnltb3VzIn0sInVzZXJfdHlwZSI6IiIsImNsaWVudF90eXBlIjoiY2xpZW50X3VzZXIiLCJpc19zeXN0ZW1fYWRtaW4iOmZhbHNlfQ.a5QWbOEnmtwX-ObV8jbsAamCQgWyAZMgqiJbUxUWbYFfmP-tHVBwFqUScAUdnXggT0K5oQkkSgBquj8FT_m6dKs57h2NCSk0Rz1O6pa21Dztu0kWOL7IGBZ-W4LKL2DgafmtUZah5_wxM1jnfYSM4MBC2stMxRUAI5BC5-nWZZzkbJij5otS7ZZxZ7m2facJgODfnaE5NFyE2Li_IG_awfUCYmaTWOarCAivSNIsuozlDN8Pa56Ka_lQjN5AyoUjYcHzG0IJieZrLnloI9qJl0VAABaT5q7H2o5bKh4F38szNpq3De_xTdc8mgLOeuLPGqTgTNrhjCMjJskZWZ6FPQ';
  const SDK_URLS=[
   'https://static.cloudbase.net/cloudbase-js-sdk/3.0.1/cloudbase.full.js',
   'https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js'
@@ -39,7 +41,7 @@
    let cached='';
    try{cached=storage&&storage.getItem(KEY_NAME)||'';}catch(_){}
    const cfg=host.XBM1PublicConfig||null;
-   return parsePublicKey(cfg&&cfg.publishableKey,cached);
+   return parsePublicKey(cfg&&cfg.publishableKey||DEFAULT_PUBLIC_KEY,cached);
   };
   function emit(code,detail){
    view.status(code,detail||'');
