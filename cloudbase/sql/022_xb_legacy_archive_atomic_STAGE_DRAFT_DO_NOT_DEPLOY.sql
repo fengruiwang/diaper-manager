@@ -470,8 +470,8 @@ BEGIN
   'archived_weight_count',v_count_w);
 END;
 $stage$;
+-- Phase A MUST NOT allow even a family owner to archive private data.
+-- Explicit, separately approved Phase B GRANT is required.
 REVOKE ALL ON FUNCTION public.xb_stage_legacy_archive_draft(uuid,uuid,uuid,text)
- FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.xb_stage_legacy_archive_draft(uuid,uuid,uuid,text)
- TO authenticated;
+ FROM PUBLIC,anon,authenticated;
 COMMIT;
