@@ -167,11 +167,20 @@
         <strong>☁️ M1-02 · 原有采购入口 / 专用测试宝宝云端模式</strong>
         <p class="fine" style="margin:8px 0">默认仍是本机演练。进入云端模式后，原有“已购买 · 立即入库”和候选价入库按钮将使用专用测试宝宝的库存和云端采购流水；不切换正式宝宝或导入 V1.1.2 历史。云端模式暂不支持消耗、撤销或盘点。</p>
         <div id="m102Status" role="status" aria-live="polite">M1-02 初始化中：真实写入默认关闭。</div>
+        <p id="m102ChildInfo" class="fine" aria-live="polite">当前未选择专用测试宝宝。</p>
         <div class="action-row">
-          <button class="btn secondary sm" id="m102Mode" type="button">进入隔离云端模式</button>
+          <button class="btn secondary sm" id="m102Create" type="button" disabled>创建专用测试宝宝（仅管理员，单独授权）</button>
+          <button class="btn secondary sm" id="m102Mode" type="button">选择 / 进入专用测试宝宝</button>
           <button class="btn ghost sm" id="m102Refresh" type="button" disabled>刷新权威库存 / 采购流水</button>
           <button class="btn ghost sm" id="m102Retry" type="button" disabled>重试原操作 ID 待同步队列</button>
         </div>
+        <details style="margin-top:10px"><summary class="fine">测试结束后才使用：永久软停用（默认禁止）</summary>
+          <p class="fine">同一家庭仅有一个测试标识；停用后无法重建，也不删除采购/库存审计。只有你单独批准停用、两个设备所有操作都已完成后才能执行。</p>
+          <div class="action-row">
+            <input id="m102RetireConfirmation" type="text" placeholder="手动输入 确认停用" autocomplete="off" style="flex:1;min-width:150px"/>
+            <button id="m102Retire" class="btn danger sm" type="button" disabled>永久停用专用测试宝宝</button>
+          </div>
+        </details>
         <p class="fine" style="margin-top:8px">测试宝宝必须另行授权创建；当前代码的写入审批闸门关闭，即使能读取库存也不能提交采购。离线队列使用独立 IndexedDB，正式历史不参与。</p>
       </section>
       <div class="head"><h2>🏷️ 购买前先比一比</h2><span class="sub">实付单价 vs 对应品牌系列尺码参考价</span></div>
