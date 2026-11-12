@@ -18,7 +18,8 @@
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   notify,formalModeSelected,buildAllowsWrites=false,
   operatorApproved=()=>false,documentCommands=null,
-  readDocumentInput=null,prepareQuoteEdit=null}={}){
+  readDocumentInput=null,prepareQuoteEdit=null,
+  batchStocktake=null,createBatchId=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -53,9 +54,18 @@
     if(n!==read.inventory[size])changed.push({size,count:n});
    }
    if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
-   // A six-size local editor behaves atomically. Six separate 009 RPCs do
-   // not. Never silently commit the first N changes and fail on the N+1th.
-   if(changed.length!==1)return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
+   // Entire original stock editor must be all-or-none. If multiple sizes
+   // differ, use 027 one SQL transaction with one durable batch UUID. Never
+   // submit six separate 009 stocktakes that might partially succeed.
+   if(changed.length>1){
+    if(!batchStocktake?.queue||typeof createBatchId!=='function')
+     return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
+    const items=changed.map(x=>({...x,
+     expectedRevision:read.revisions[x.size]}));
+    return batchStocktake.queue({
+     items,batchId:createBatchId(),operatorApproved:true
+    });
+   }
    return invoke('stocktake',changed[0]);
   }
   async function handle(el,doc){
