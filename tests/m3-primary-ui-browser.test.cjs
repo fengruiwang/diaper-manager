@@ -81,7 +81,7 @@ test('standalone M3 page has the original five tabs but no M1-02 purchase RPC la
  assert.doesNotMatch(standalone,/id="m102Create"/);
  assert.doesNotMatch(standalone,/id="m102Arm"/);
  assert.doesNotMatch(standalone,/m102-cloud\.js/);
- assert.match(standalone,/src="\.\.\/m1-controller\.js"/);
+ assert.match(standalone,/src="\.\/m1-controller\.js"/);
  assert.match(standalone,/SYNTHETIC_DEMO_READ_ONLY/);
  for(const code of [...standalone.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)]){
   if(code[1].trim())assert.doesNotThrow(()=>new Function(code[1]));
