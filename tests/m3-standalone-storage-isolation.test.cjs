@@ -17,7 +17,9 @@ function shell(){
    setItem(){hits.write++;throw Error('FORBIDDEN_WRITE')},
    removeItem(){hits.write++;throw Error('FORBIDDEN_WRITE')},
    clear(){hits.write++;throw Error('FORBIDDEN_WRITE')}};
- const context={SIZES:['NB','S','M','L','XL','XXL'],localStorage:storage,sessionStorage:storage,
+ const context={SIZES:['NB','S','M','L','XL','XXL'],
+   VALID_TABS:new Set(['overview','compare','history','growth','settings']),
+   localStorage:storage,sessionStorage:storage,
    indexedDB:{open(){throw Error('FORBIDDEN_IDB')}},
    document:{querySelectorAll:()=>tabViews},
    window:{scrollTo(){}},renderHistory(){},renderSettings(){},renderGrowth(){},
