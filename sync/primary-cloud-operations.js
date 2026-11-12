@@ -181,6 +181,18 @@
     const runner=runnerFactory.create({outbox,remote,verifyAccess:authInitialized});
     remote.normalizeOperation(runner.toRemote(op));
     await authInitialized();
+    // Prevent one device from basing a new use/stocktake on yesterday's
+    // snapshot. Reuse the existing ACK-aware reconciliation just as M1-02
+    // does. Pending, ambiguous, or conflicting operations block a NEW ID.
+    const synchronizer=syncFactory.create({
+     outbox,remote,verifyAccess:authInitialized
+    });
+    const refresh=await synchronizer.reconcile({familyId:scope.familyId,
+     childId:scope.childId,actorUid:scope.actorUid,readEnabled:true});
+    const pending=await outbox.stats(scope);
+    if(refresh.status!=='verified-as-of-server-read'
+       ||pending.outstanding!==0)
+     return result('PRIMARY_PENDING_OR_CONFLICT_REVIEW_BEFORE_NEW_OPERATION');
     const written=await outbox.commitInventory(scope,op);
     return result(written.duplicate?
      'PRIMARY_OPERATION_ALREADY_QUEUED':'PRIMARY_OPERATION_DURABLY_QUEUED',
