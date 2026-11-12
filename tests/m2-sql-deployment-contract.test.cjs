@@ -41,7 +41,7 @@ test('receipt, staging and promotion all scope checks to active primary and per-
 test('023 migrates old stock as absolute baseline and receipt last, not as replayed buys',()=>{
  const s=sql['023'];
  assert.match(s,/v_state->'inventory'/);
- assert.match(s,/\b'migration_baseline'\b/);
+ assert.match(s,/'migration_baseline'/);
  assert.match(s,/INSERT INTO public\.xb_legacy_history_entries/);
  assert.match(s,/INSERT INTO public\.xb_inventory/);
  assert.match(s,/INSERT INTO public\.xb_migrations/);
