@@ -17,6 +17,11 @@ function create({client,queue,uuid}={}){
   const next=clone(body);
   if(kind==='quotes'||kind==='growth'){
    if(!Array.isArray(next.items))throw Error('invalid_list');
+   if(action==='clear'){
+    if(kind!=='quotes')throw Error('unsupported_list_action');
+    next.items=[];
+    return next;
+   }
    if(!object(record))throw Error('invalid_record');
    if(action==='add'){
     if(typeof record.id!=='string'||!record.id
