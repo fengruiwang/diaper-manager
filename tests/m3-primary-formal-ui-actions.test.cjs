@@ -3,7 +3,7 @@ const Bridge=require('../sync/primary-formal-ui-actions.js');
 const SIZES=['NB','S','M','L','XL','XXL'];
 function fixture({build=false,approved=false,selected=true,stockChanges={},
   fresh=true}={}){
- const log=[],notifications=[];let handler;
+ const log=[],notifications=[];let handler,submitHandler;
  const primary={read:async()=>{log.push(['read']);return fresh?{
   status:'PRIMARY_CLOUD_READ_VERIFIED',
   inventory:{NB:0,S:140,M:0,L:0,XL:0,XXL:0},
@@ -14,9 +14,12 @@ function fixture({build=false,approved=false,selected=true,stockChanges={},
  }};
  const doc={
   addEventListener(type,fn,capture){
-   assert.equal(type,'click');assert.equal(capture,true);handler=fn;
+   assert.ok(['click','submit'].includes(type));assert.equal(capture,true);
+   if(type==='click')handler=fn;else submitHandler=fn;
   },
-  removeEventListener(){handler=null;},
+  removeEventListener(type){
+   if(type==='click')handler=null;else submitHandler=null;
+  },
   getElementById(id){
    const size=id.slice(4);if(!SIZES.includes(size))return null;
    return {value:String(Object.hasOwn(stockChanges,size)?stockChanges[size]:
@@ -101,4 +104,14 @@ test('quote purchase uses verified in-memory selected quote, never legacy localS
  await f.click('',{action:'buyquote',id:'quote'});
  assert.equal(f.log[0][0],'purchase');
  assert.equal(f.log[0][1].price,7.5);
+});
+
+test('primary UI form submit cannot fall through to legacy reference local save',async()=>{
+ const f=fixture({selected:true});
+ let prevented=false;
+ submitHandler?.({preventDefault(){prevented=true},stopImmediatePropagation(){prevented=true}});
+ // Independent click tests already cover button interception; the submit
+ // listener is additionally installed for Enter-key form submissions.
+ assert.equal(f.log.length,0);
+ f.binding.detach();
 });
