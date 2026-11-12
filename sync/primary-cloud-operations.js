@@ -232,6 +232,7 @@
    finally{busy=false;}
   }
   return Object.freeze({activate,read,queue,flush,
+   selectedScope:()=>selected?Object.freeze({...selected}):null,
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }
  const api=Object.freeze({create,PRIMARY_DB_NAME});
