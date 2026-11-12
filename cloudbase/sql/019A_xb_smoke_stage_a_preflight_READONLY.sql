@@ -84,7 +84,10 @@ SELECT
   (SELECT count(*)=0 FROM public.xb_children WHERE legacy_slot='__xb_smoke_v1__')
     AS reserved_smoke_slot_not_used,
   (SELECT count(*)=0 FROM public.xb_children)
+    AND (SELECT count(*)=0 FROM public.xb_baby_profiles)
+    AND (SELECT count(*)=0 FROM public.xb_weight_records)
     AND (SELECT count(*)=0 FROM public.xb_inventory)
     AND (SELECT count(*)=0 FROM public.xb_inventory_operations)
+    AND (SELECT count(*)=0 FROM public.xb_migrations)
     AND (SELECT count(*)=0 FROM public.xb_transactions)
-    AS no_existing_child_inventory_or_purchase_records;
+    AS all_seven_business_tables_still_empty;
