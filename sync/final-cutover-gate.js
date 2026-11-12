@@ -37,7 +37,7 @@
    !Object.hasOwn(a,key)||!Object.hasOwn(b,key)||stable(a[key])!==stable(b[key]));
  }
  async function prepare({sources,selectedSlot,allDevicesEnumerated=false,
-   oldWritesStopped=false,strictReview,digest}={}){
+   oldWritesStopped=false,freezeAt=null,strictReview,digest}={}){
   if(!Array.isArray(sources)||!sources.length||sources.length>MAX_SOURCES)
    fail('source_count_invalid');
   if(!Number.isInteger(selectedSlot)||selectedSlot<0||selectedSlot>=sources.length)
@@ -59,6 +59,12 @@
   const winner=reviewed[selectedSlot],issues=[];
   if(!allDevicesEnumerated)issues.push('DEVICE_INVENTORY_UNCONFIRMED');
   if(!oldWritesStopped)issues.push('OLD_VERSION_WRITES_NOT_STOPPED');
+  // An export predating the declared write-stop point is necessarily stale.
+  const frozenAt=typeof freezeAt==='string'&&Number.isFinite(Date.parse(freezeAt))
+    ?Date.parse(freezeAt):null;
+  if(frozenAt===null)issues.push('FREEZE_TIMESTAMP_MISSING');
+  else if(reviewed.some(x=>Date.parse(x.envelope.exportedAt)<frozenAt))
+   issues.push('SOURCE_EXPORTED_BEFORE_FREEZE');
   if(!reviewed.every(x=>x.review?.status==='MAPPING_PREFLIGHT_CLEAN_UPLOAD_DISABLED'))
    issues.push('STRICT_PREFLIGHT_NOT_PASSED');
   const differences=[];
