@@ -168,6 +168,11 @@
         <p class="fine" style="margin:8px 0">默认仍是本机演练。进入云端模式后，原有“已购买 · 立即入库”和候选价入库按钮将使用专用测试宝宝的库存和云端采购流水；不切换正式宝宝或导入 V1.1.2 历史。云端模式暂不支持消耗、撤销或盘点。</p>
         <div id="m102Status" role="status" aria-live="polite">M1-02 初始化中：真实写入默认关闭。</div>
         <p id="m102ChildInfo" class="fine" aria-live="polite">当前未选择专用测试宝宝。</p>
+        <p class="fine">阶段 B 候选构建：创建与采购功能已经接入，但每个浏览器标签页首次真实写入前须手动输入授权短语；**本页面准备完成不代表已获业务写入授权**。A（owner）仅提交 S60，B（member）仅提交 S80，禁止额外新购。</p>
+        <div class="action-row">
+          <input id="m102ArmText" type="text" autocomplete="off" placeholder="批准后输入：阶段B已正式授权" style="flex:1;min-width:180px"/>
+          <button class="btn secondary sm" id="m102Arm" type="button" disabled>解锁本标签页阶段 B 写入</button>
+        </div>
         <div class="action-row">
           <button class="btn secondary sm" id="m102Create" type="button" disabled>创建专用测试宝宝（仅管理员，单独授权）</button>
           <button class="btn secondary sm" id="m102Mode" type="button">选择 / 进入专用测试宝宝</button>
@@ -181,7 +186,7 @@
             <button id="m102Retire" class="btn danger sm" type="button" disabled>永久停用专用测试宝宝</button>
           </div>
         </details>
-        <p class="fine" style="margin-top:8px">测试宝宝必须另行授权创建；当前代码的写入审批闸门关闭，即使能读取库存也不能提交采购。离线队列使用独立 IndexedDB，正式历史不参与。</p>
+        <p class="fine" style="margin-top:8px">测试宝宝必须另行授权创建；在批准并手动解锁之前，本页面不会发起真实写 RPC。离线队列使用独立 IndexedDB，正式历史不参与。测试宝宝验收结束前禁止停用。</p>
       </section>
       <div class="head"><h2>🏷️ 购买前先比一比</h2><span class="sub">实付单价 vs 对应品牌系列尺码参考价</span></div>
       <div class="card">
