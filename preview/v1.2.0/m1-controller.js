@@ -250,7 +250,7 @@
   on('m1SaveKey',async()=>{const code=app.savePublicKeyOnce($('m1Key').value);$('m1Key').value='';
    if(code==='PUBLIC_KEY_CONFIGURED')await app.connect();});
   on('m1SendOtp',()=>app.requestOtp($('m1Email').value.trim()));
-  on('m1ConfirmOtp',()=>app.confirmOtp($('m1Otp').value.trim()));
+  on('m1ConfirmOtp',()=>{const code=$('m1Otp').value.trim();$('m1Otp').value='';return app.confirmOtp(code);});
   on('m1Refresh',()=>app.connect());
   on('m1SignOut',()=>app.signOut());
   root.addEventListener('online',()=>app.connect());

@@ -82,6 +82,9 @@ test('public key is opt-in and local test only, without leaking service credenti
  assert.equal(M.parsePublicKey('some key',''),'');
  assert.doesNotMatch(controller,/(service_secret|secret_key|API_SECRET_KEY)\s*[:=]\s*['"]/i);
 });
+test('one-time OTP field is cleared immediately on submit',()=>{
+ assert.match(controller,/m1Otp'\)\.value=''/);
+});
 test('M1-01 controller exposes no mutation or historical migration endpoint',()=>{
  for(const bad of [
   /\.applyOperation\s*\(/, /\.enqueue\s*\(/,/\.initializeInventory\s*\(/,
