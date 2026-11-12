@@ -72,7 +72,7 @@ SELECT public.xb_test_assert(
  AND (SELECT count(*)=0 FROM public.xb_inventory i JOIN public.xb_children c
    ON c.family_id=i.family_id AND c.id=i.child_id
    WHERE c.family_id='ac0b0e45-bf18-4c95-889c-6f19731a8ae5' AND c.legacy_slot='primary')
- AND (SELECT quantity=140 AND revision=2
+ AND (SELECT i.quantity=140 AND i.revision=2
    FROM public.xb_inventory i JOIN public.xb_children c
     ON c.family_id=i.family_id AND c.id=i.child_id
    WHERE c.family_id='ac0b0e45-bf18-4c95-889c-6f19731a8ae5'
