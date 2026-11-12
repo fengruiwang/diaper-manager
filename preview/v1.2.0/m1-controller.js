@@ -250,7 +250,10 @@
    script.onerror=()=>{clearTimeout(timer);reject(Error('SDK_UNAVAILABLE'));};
    doc.head.append(script);
   });
-  const app=create({host:root,storage:root.localStorage,view,scriptLoader});
+  // M3 standalone uses the configured public key but NEVER reads or persists
+  // M1 local preferences. The CloudBase auth SDK owns login sessions.
+  const standalone=doc.body?.dataset?.m3Standalone==='true';
+  const app=create({host:root,storage:standalone?null:root.localStorage,view,scriptLoader});
   root.XBM1Preview=app;
   const on=(id,fn)=>$(id).addEventListener('click',()=>{Promise.resolve(fn()).catch(()=>{
    view.status('ACTION_UNVERIFIED');
@@ -261,15 +264,17 @@
   on('m1ConfirmOtp',()=>{const code=$('m1Otp').value.trim();$('m1Otp').value='';return app.confirmOtp(code);});
   on('m1Refresh',()=>app.connect());
   on('m1SignOut',()=>app.signOut());
-  root.addEventListener('online',()=>app.connect());
+  root.addEventListener('online',()=>{if(!standalone)app.connect();});
   root.addEventListener('offline',()=>view.status('OFFLINE_LOCAL_ONLY'));
   doc.addEventListener('visibilitychange',()=>{
-   if(doc.visibilityState==='visible')app.connect();
+   if(!standalone&&doc.visibilityState==='visible')app.connect();
   });
   view.cloudStock(null);view.identity(false);view.family(false,0);
   view.needsKey(!app.configured);
-  if(app.configured)app.connect();
-  else view.status('CONFIG_REQUIRED');
+  if(app.configured){
+   if(standalone)view.status('M3_ON_DEMAND_CLOUD_READ_ONLY');
+   else app.connect();
+  }else view.status('CONFIG_REQUIRED');
  }
  const api=Object.freeze({create,parsePublicKey,sessionUid});
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
