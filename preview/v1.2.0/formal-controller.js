@@ -16,7 +16,8 @@ const notes={
  FAMILY_PERMISSION_DENIED:'家庭授权未通过，已隐藏业务内容。'
 };
 function create({host,doc,loginController,readModelFactory,primaryFactory,
- commandsFactory,actionsFactory,projection,ui,scriptLoader}={}){
+ commandsFactory,actionsFactory,projection,ui,scriptLoader,
+ documentsFactory=null,documentsOverlay=null}={}){
  if(!host||!doc||!loginController?.create||typeof readModelFactory!=='function'
    ||typeof primaryFactory!=='function'||!commandsFactory?.create
    ||!actionsFactory?.create||!projection?.project
@@ -71,8 +72,21 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      '正式云端数据尚未核实；不显示演示数据。');
     return mode;
    }
-   const data=projection.project(verified,ui.defaults());
+   let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
+   // Once separately approved SQL 026 exists, A/B shared documents replace
+   // the migrated read-only defaults. An unavailable RPC is NOT a local edit
+   // fallback and cannot be called "sync successful".
+   let documentsVerified=false;
+   if(typeof documentsFactory==='function'&&documentsOverlay?.apply){
+    const snapshot=await documentsFactory(ctx.app).readAll({
+     familyId:ctx.familyId,actorUid:ctx.actorUid
+    });
+    if(snapshot.status==='PRIMARY_DOCUMENTS_FULLY_READ'){
+     data=documentsOverlay.apply(data,snapshot);
+     documentsVerified=data.sharedBusinessDocumentsVerified===true;
+    }
+   }
    // Primary outbox must be verified before business UI becomes visible.
    if(!primary){
     const p=primaryFactory({controller,host});
@@ -108,8 +122,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     typeof email==='string'&&email?email:ctx.actorUid;
    $('formalCurrentFamily').textContent=ctx.familyId;
    screen('ready');
-   $('formalSyncState').textContent=
-    '正式宝宝和迁移历史已验证；当前测试版本关闭正式写入。';
+   $('formalSyncState').textContent=documentsVerified?
+    '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。':
+    '已验证正式宝宝与历史；非库存文档服务尚未部署，无法编辑或宣称双端同步。';
    return mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
@@ -189,6 +204,12 @@ function browserStart(){
   host:root,doc,scriptLoader:loader,
   loginController:root.XBM1PreviewModule,
   projection:root.XBPrimaryUIProjection,ui:root.XBM3UI,
+  documentsFactory:app=>root.XBPrimaryDocumentsClient?.create({
+   app,accessPreflight:root.XBCloudbaseAccessPreflight,
+   childReader:root.XBCloudbaseChildReader,scopeGuard:root.XBChildScopeGuard,
+   cloudWritesEnabled:FORMAL_WRITE_ENABLED
+  }),
+  documentsOverlay:root.XBPrimaryDocumentsOverlay,
   readModelFactory:cloud=>root.XBPrimaryCloudReadModel.create({
    app:cloud,childReader:root.XBCloudbaseChildReader,
    scopeGuard:root.XBChildScopeGuard,
