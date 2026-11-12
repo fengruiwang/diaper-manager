@@ -4,6 +4,7 @@ const UI=require('../sync/primary-ui-projection.js');
 const Bridge=require('../preview/v1.2.0/m3-primary-preview.js');
 const html=fs.readFileSync(path.join(__dirname,'../preview/v1.2.0/index.html'),'utf8');
 const controller=fs.readFileSync(path.join(__dirname,'../preview/v1.2.0/m3-primary-preview.js'),'utf8');
+const standalone=fs.readFileSync(path.join(__dirname,'../preview/v1.2.0/m3/index.html'),'utf8');
 const defaults=()=>({inventory:{},transactions:[],quotes:[],weightRecords:[],
  babyProfile:{name:'default'},dueDate:'',birthDate:'',target:{},daily:{},referenceOverrides:{},
  currentSize:'NB',plannedBudget:100,goalPrice:1.5});
@@ -70,4 +71,19 @@ test('original five-tab browser preview contains M3 read-only controls and block
  assert.match(controller,/event\.stopImmediatePropagation\(\)/);
  assert.match(controller,/PRIMARY_NOT_READY_NO_CLOUD_VIEW/);
  assert.doesNotMatch(html,/xiaobao_diaper_planner_v1/);
+});
+
+test('standalone M3 page has the original five tabs but no M1-02 purchase RPC launcher',()=>{
+ for(const tab of ['overview','compare','history','growth','settings'])
+  assert.match(standalone,new RegExp('data-tab="'+tab+'"'));
+ for(const id of ['m3Demo','m3Cloud','m3Exit'])
+  assert.match(standalone,new RegExp('id="'+id+'"'));
+ assert.doesNotMatch(standalone,/id="m102Create"/);
+ assert.doesNotMatch(standalone,/id="m102Arm"/);
+ assert.doesNotMatch(standalone,/m102-cloud\.js/);
+ assert.match(standalone,/src="\.\.\/m1-controller\.js"/);
+ assert.match(standalone,/SYNTHETIC_DEMO_READ_ONLY/);
+ for(const code of [...standalone.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)]){
+  if(code[1].trim())assert.doesNotThrow(()=>new Function(code[1]));
+ }
 });
