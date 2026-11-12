@@ -64,7 +64,8 @@
    state.transactions.push({
     id,type:'buy',date:row.purchaseDate,brand:row.brand,
     series:row.series,size:row.size,pieces:row.pieces,
-    price:row.totalFen/100,origin:'cloud_post_migration'
+    price:row.totalFen/100,operationId:row.operationId,
+    reversed:row.reversed===true,origin:'cloud_post_migration'
    });
   }
   return Object.freeze({
