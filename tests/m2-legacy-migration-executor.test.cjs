@@ -55,7 +55,12 @@ function fixture({enabled=false,receipt=false,stageAckLost=false,
  }};
  const executor=Executor.create({
   app:{rdb:()=>db},
-  cutoverGate:{stable:x=>JSON.stringify(x,Object.keys(x||{}).sort()),
+  cutoverGate:{stable:function stable(x){
+   if(Array.isArray(x))return '['+x.map(stable).join(',')+']';
+   if(x!==null&&typeof x==='object')
+    return '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+stable(x[k])).join(',')+'}';
+   return JSON.stringify(x);
+  },
    verifyBeforeUpload:async(p,s)=>({status:s===raw?
     'SOURCE_UNCHANGED_LOCAL_CHECK':'FINAL_EXPORT_CHANGED',canUpload:false})},
   strictReview:async()=>({status:'MAPPING_PREFLIGHT_CLEAN_UPLOAD_DISABLED'}),
