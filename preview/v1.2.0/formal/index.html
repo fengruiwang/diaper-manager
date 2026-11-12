@@ -3397,7 +3397,8 @@ restoreActiveTab();
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   notify,formalModeSelected,buildAllowsWrites=false,
   operatorApproved=()=>false,documentCommands=null,
-  readDocumentInput=null,prepareQuoteEdit=null}={}){
+  readDocumentInput=null,prepareQuoteEdit=null,
+  batchStocktake=null,createBatchId=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -3432,9 +3433,18 @@ restoreActiveTab();
     if(n!==read.inventory[size])changed.push({size,count:n});
    }
    if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
-   // A six-size local editor behaves atomically. Six separate 009 RPCs do
-   // not. Never silently commit the first N changes and fail on the N+1th.
-   if(changed.length!==1)return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
+   // Entire original stock editor must be all-or-none. If multiple sizes
+   // differ, use 027 one SQL transaction with one durable batch UUID. Never
+   // submit six separate 009 stocktakes that might partially succeed.
+   if(changed.length>1){
+    if(!batchStocktake?.queue||typeof createBatchId!=='function')
+     return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
+    const items=changed.map(x=>({...x,
+     expectedRevision:read.revisions[x.size]}));
+    return batchStocktake.queue({
+     items,batchId:createBatchId(),operatorApproved:true
+    });
+   }
    return invoke('stocktake',changed[0]);
   }
   async function handle(el,doc){
@@ -3518,165 +3528,177 @@ restoreActiveTab();
 })(typeof window!=='undefined'?window:null);
 
 </script>
-<script>/* M3 CloudBase primary document client: quotes/reference/growth/profile/settings.
- * Reuses SDK sessions and family preflight, SQL 026 CAS + request receipts.
- * No import-time network, no token storage, no independent local writes.
- * SQL 026 is currently an UNDEPLOYED DRAFT. Write default: OFF.
+<script>/* M3 multi-size stocktake: one PostgreSQL 027 RPC, durable batch ID,
+ * separate IndexedDB outbox, no partial per-size 009 writes. NOT deployed.
+ * Build write gate OFF unless separately reviewed and authorized.
  */
 (function(root){
- 'use strict';
- const KINDS=Object.freeze(['quotes','reference','growth','profile','settings']);
- const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
- const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
- function result(status,extra={}){return Object.freeze({status,...extra});}
- function create({app,accessPreflight,childReader,scopeGuard,
-  cloudWritesEnabled=false}={}){
-  if(!app?.auth?.getSession||!app?.rdb||!accessPreflight?.create
-    ||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget)
-   throw Error('primary_docs:dependencies_required');
-  let busy=false;
-  const db=app.rdb();
-  if(typeof db.rpc!=='function')throw Error('primary_docs:rpc_required');
-  const reader=childReader.create(app,scopeGuard);
-  async function scope(input){
-   if(!input||!UUID.test(String(input.familyId))
-     ||typeof input.actorUid!=='string'||!input.actorUid)
-    throw Error('primary_docs:invalid_scope');
-   const {familyId,actorUid}=input;
-   const access=await accessPreflight.create(app).verifyAccess({
-    familyId,actorUid
-   });
-   if(access.member!==true||access.familyId!==familyId
-     ||access.actorUid!==actorUid||access.appCode!=='xb')
-    throw Error('primary_docs:grant_unverified');
-   const primary=await reader.inspectLegacyTarget({familyId});
-   if(!primary||primary.familyId!==familyId
-     ||!UUID.test(String(primary.childId))
-     ||primary.readyForMigration!==false)
-    throw Error('primary_docs:primary_unverified');
-   return {familyId,actorUid,childId:primary.childId};
+'use strict';
+const DB_NAME='xiaobao-primary-stocktake-batches-v120';
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SIZES=['NB','S','M','L','XL','XXL'];
+const answer=(status,rest={})=>Object.freeze({status,...rest});
+function create({controller,host,primary,outboxFactory,contract,
+ cloudWritesEnabled=false}={}){
+ if(!controller?.verifiedContext||!primary?.selectedScope||!primary?.read
+   ||!outboxFactory?.create||!contract?.createOperation||!host?.indexedDB)
+  throw Error('batch_client:dependencies_required');
+ const store=outboxFactory.create({
+  indexedDB:host.indexedDB,contract,dbName:DB_NAME
+ });
+ if(!store?.enqueue||!store?.ready||!store?.stats
+   ||!store?.recordResult||!store?.get)
+  throw Error('batch_client:outbox_unavailable');
+ let busy=false;
+ const connected=()=>host.navigator?.onLine!==false;
+ function scope(){
+  const identity=primary.selectedScope();
+  const verified=controller.verifiedContext();
+  if(!identity||!verified||!UUID.test(identity.familyId)
+    ||!UUID.test(identity.childId)||!identity.actorUid
+    ||identity.familyId!==verified.familyId
+    ||identity.actorUid!==verified.actorUid)
+   throw Error('batch_client:verified_primary_required');
+  return identity;
+ }
+ function validate(items,stock,revisions){
+  if(!Array.isArray(items)||items.length<1||items.length>6)
+   throw Error('batch_client:invalid_items');
+  const seen=new Set(),result=[];
+  for(const value of items){
+   if(!value||!SIZES.includes(value.size)||seen.has(value.size)
+     ||!Number.isSafeInteger(value.count)||value.count<0||value.count>100000
+     ||!Number.isSafeInteger(value.expectedRevision)||value.expectedRevision<0
+     ||!Number.isSafeInteger(stock[value.size])
+     ||!Number.isSafeInteger(revisions[value.size])
+     ||value.expectedRevision!==revisions[value.size]
+     ||value.count===stock[value.size])
+    throw Error('batch_client:invalid_or_stale_stock');
+   seen.add(value.size);
+   result.push({size:value.size,count:value.count,
+    expectedRevision:value.expectedRevision});
   }
-  async function rpc(name,args){
-   const response=await db.rpc(name,args);
+  result.sort((a,b)=>a.size.localeCompare(b.size));
+  return result;
+ }
+ async function pending(){
+  try{
+   const id=scope(),t=await store.stats(id);
+   if(!Number.isSafeInteger(t.outstanding)||t.outstanding<0)
+    throw Error('batch_client:bad_counts');
+   return answer('BATCH_QUEUE_VERIFIED',t);
+  }catch(_){return answer('BATCH_QUEUE_UNVERIFIED');}
+ }
+ async function queue({items,batchId,operatorApproved=false}={}){
+  if(cloudWritesEnabled!==true||operatorApproved!==true)
+   return answer('BATCH_WRITES_NOT_AUTHORIZED');
+  if(!connected())return answer('BATCH_OFFLINE_NOT_ACCEPTED');
+  if(busy)return answer('BATCH_BUSY');
+  if(!UUID.test(String(batchId)))return answer('BATCH_INVALID_ID');
+  busy=true;
+  try{
+   const id=scope();
+   const outstanding=await store.stats(id);
+   if(outstanding.outstanding!==0)
+    return answer('BATCH_PENDING_REVIEW_FIRST');
+   const fresh=await primary.read();
+   if(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED')
+    return answer('BATCH_STOCK_NOT_VERIFIED');
+   const values=validate(items,fresh.inventory,fresh.revisions);
+   // The existing generic contract verifies immutable IDs/types, but the
+   // payload is NEVER forwarded to the single-size inventory 009 runner.
+   const op=contract.createOperation({
+    id:batchId,type:'inventory.count',familyId:id.familyId,
+    actorUid:id.actorUid,expectedRevision:0,
+    createdAt:new Date().toISOString(),
+    payload:{childId:id.childId,kind:'stocktake_batch',
+     items:values}
+   });
+   const stored=await store.enqueue(op);
+   return answer('BATCH_DURABLY_QUEUED',{batchId:op.id,
+    duplicate:stored?.duplicate===true,cloudWriteCommitted:false});
+  }catch(_){return answer('BATCH_QUEUE_UNVERIFIED_KEEP_ID',{batchId});}
+  finally{busy=false;}
+ }
+ async function receipt(id,batchId){
+  const app=controller.verifiedContext()?.app;
+  if(!app?.rdb)return null;
+  try{
+   const response=await app.rdb().rpc(
+    'xb_read_primary_stocktake_batch_receipt_draft',{
+     p_family_id:id.familyId,p_child_id:id.childId,
+     p_batch_id:batchId
+    });
+   if(response?.error)return null;
+   const d=Array.isArray(response?.data)?response.data[0]:response?.data;
+   if(d?.status!=='COMMITTED'||d.family_id!==id.familyId
+     ||d.child_id!==id.childId||d.batch_id!==batchId
+     ||d.result?.status!=='APPLIED')return null;
+   return d;
+  }catch(_){return null;}
+ }
+ async function send({operatorApproved=false}={}){
+  if(cloudWritesEnabled!==true||operatorApproved!==true)
+   return answer('BATCH_WRITES_NOT_AUTHORIZED');
+  if(!connected())return answer('BATCH_OFFLINE_QUEUE_PRESERVED');
+  if(busy)return answer('BATCH_BUSY');
+  busy=true;
+  try{
+   const id=scope(),list=await store.ready(id);
+   if(list.length!==1)return answer(list.length?'BATCH_MULTIPLE_PENDING_BLOCKED':
+    'BATCH_NO_READY_OPERATION');
+   const op=list[0],items=op.payload?.items;
+   if(!UUID.test(op.id)||op.familyId!==id.familyId
+     ||op.actorUid!==id.actorUid||op.payload?.childId!==id.childId
+     ||!Array.isArray(items))return answer('BATCH_IMMUTABLE_SCOPE_INVALID');
+   // Before trying once, check whether an earlier ACK was lost.
+   const already=await receipt(id,op.id);
+   if(already){
+    await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
+    return answer('BATCH_ACK_RECOVERED',{batchId:op.id});
+   }
+   const app=controller.verifiedContext()?.app;
+   let response;
+   try{
+    response=await app.rdb().rpc('xb_primary_stocktake_batch_draft',{
+     p_family_id:id.familyId,p_child_id:id.childId,
+     p_batch_id:op.id,p_items:items
+    });
+   }catch(_){
+    // Do not replace batch ID or retry after an ambiguous network error.
+    const found=await receipt(id,op.id);
+    if(!found)return answer('BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',
+     {batchId:op.id});
+    await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
+    return answer('BATCH_ACK_RECOVERED',{batchId:op.id});
+   }
    if(response?.error){
     const code=String(response.error.code||response.error.errorCode||'');
-    if(code==='40001')throw Error('primary_docs:revision_conflict');
-    if(code==='23505')throw Error('primary_docs:duplicate_request_conflict');
-    throw Error('primary_docs:rpc_unverified');
+    if(code==='40001'){
+     await store.recordResult(id,op.id,{kind:'conflict'});
+     return answer('BATCH_REVISION_CONFLICT_MANUAL_REVIEW',
+      {batchId:op.id});
+    }
+    return answer('BATCH_SERVER_UNVERIFIED_KEEP_ID',{batchId:op.id});
    }
-   if(!response)throw Error('primary_docs:rpc_unverified');
-   const value=Array.isArray(response.data)?
-    (response.data.length===1?response.data[0]:null):response.data;
-   if(!object(value))throw Error('primary_docs:invalid_reply');
-   return value;
-  }
-  async function read(input={}){
-   if(!KINDS.includes(input.kind))return result('INVALID_DOCUMENT_KIND');
-   if(input.readEnabled!==true)return result('DOCUMENT_READ_DISABLED');
-   try{
-    const who=await scope(input);
-    const d=await rpc('xb_read_primary_document_draft',{
-     p_family_id:who.familyId,p_child_id:who.childId,p_kind:input.kind
-    });
-    if(d.complete!==true||d.family_id!==who.familyId
-      ||d.child_id!==who.childId||d.kind!==input.kind
-      ||!Number.isSafeInteger(d.revision)||d.revision<0
-      ||!object(d.body)||d.can_upload!==false)
-     return result('PRIMARY_DOCUMENT_READ_UNVERIFIED');
-    return result('PRIMARY_DOCUMENT_READ_VERIFIED',{
-     kind:input.kind,familyId:who.familyId,childId:who.childId,
-     revision:d.revision,body:d.body,canWrite:false
-    });
-   }catch(_){return result('PRIMARY_DOCUMENT_READ_UNVERIFIED');}
-  }
-  async function readAll(input={}){
-   const values={};
-   for(const kind of KINDS){
-    const doc=await read({...input,kind,readEnabled:true});
-    if(doc.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
-     return result('PRIMARY_DOCUMENT_SNAPSHOT_INCOMPLETE');
-    values[kind]=doc;
+   const d=Array.isArray(response?.data)?response.data[0]:response?.data;
+   if(d?.saved!==true||d.batch_id!==op.id
+      ||d.family_id!==id.familyId||d.child_id!==id.childId
+      ||d.result?.status!=='APPLIED'){
+    return answer('BATCH_ACK_UNVERIFIED_KEEP_ID',{batchId:op.id});
    }
-   // Reject a mixed A/B snapshot if a document changed between page reads.
-   for(const kind of KINDS){
-    const check=await read({...input,kind,readEnabled:true});
-    if(check.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
-      ||check.revision!==values[kind].revision)
-     return result('PRIMARY_DOCUMENT_SNAPSHOT_CHANGED');
-   }
-   return result('PRIMARY_DOCUMENTS_FULLY_READ',{
-    documents:Object.freeze(values),canWrite:false
-   });
-  }
-  async function put(input={}){
-   // No RPC/IDB calls or request ID generation unless the build AND user
-   // workflow were independently authorized; the active preview always OFF.
-   if(cloudWritesEnabled!==true||input.operatorApproved!==true)
-    return result('PRIMARY_DOCUMENT_WRITES_NOT_AUTHORIZED');
-   if(busy)return result('PRIMARY_DOCUMENT_WRITE_BUSY');
-   if(!KINDS.includes(input.kind)||!UUID.test(String(input.requestId))
-     ||!Number.isSafeInteger(input.expectedRevision)
-     ||input.expectedRevision<0||!object(input.nextBody))
-    return result('INVALID_DOCUMENT_COMMAND');
-   busy=true;
-   try{
-    const who=await scope(input);
-    const d=await rpc('xb_put_primary_document_draft',{
-     p_family_id:who.familyId,p_child_id:who.childId,
-     p_kind:input.kind,p_expected_revision:input.expectedRevision,
-     p_request_id:input.requestId,p_next_body:input.nextBody
-    });
-    if(d.saved!==true||d.kind!==input.kind
-      ||d.family_id!==who.familyId||d.child_id!==who.childId
-      ||d.request_id!==input.requestId
-      ||!Number.isSafeInteger(d.revision)
-      ||d.revision<input.expectedRevision+1)
-     return result('PRIMARY_DOCUMENT_ACK_UNVERIFIED_KEEP_REQUEST_ID',
-      {requestId:input.requestId});
-    return result('PRIMARY_DOCUMENT_COMMITTED',{
-     kind:input.kind,revision:d.revision,
-     duplicate:d.duplicate===true,requestId:input.requestId
-    });
-   }catch(error){
-    // A real 40001 conflict never gets promoted to "maybe committed".
-    if(error?.message==='primary_docs:revision_conflict')
-     return result('PRIMARY_DOCUMENT_VERSION_CONFLICT',{requestId:input.requestId});
-    if(error?.message==='primary_docs:duplicate_request_conflict')
-     return result('PRIMARY_DOCUMENT_REQUEST_ID_CONFLICT',{requestId:input.requestId});
-    // No auto re-submit with a new UUID. The next action is receipt check.
-    return result('PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID',
-     {requestId:input.requestId});
-   }finally{busy=false;}
-  }
-  async function checkRequest(input={}){
-   if(input.readEnabled!==true||!UUID.test(String(input.requestId)))
-    return result('REQUEST_CHECK_DISABLED_OR_INVALID');
-   try{
-    const who=await scope(input);
-    const d=await rpc('xb_check_primary_document_request_draft',{
-     p_family_id:who.familyId,p_child_id:who.childId,
-     p_request_id:input.requestId
-    });
-    if(d.family_id!==who.familyId||d.child_id!==who.childId
-      ||d.request_id!==input.requestId)
-     return result('REQUEST_RECEIPT_UNVERIFIED');
-    if(d.status==='NO_RECEIPT')
-     return result('REQUEST_NOT_YET_RECEIPTED_SAME_ID_ONLY');
-    if(d.status!=='COMMITTED'||!KINDS.includes(d.kind)
-      ||!Number.isSafeInteger(d.resulting_revision)
-      ||d.resulting_revision<1)
-     return result('REQUEST_RECEIPT_UNVERIFIED');
-    return result('REQUEST_COMMITTED_VERIFIED',{
-     requestId:input.requestId,kind:d.kind,revision:d.resulting_revision
-    });
-   }catch(_){return result('REQUEST_RECEIPT_UNVERIFIED');}
-  }
-  return Object.freeze({read,readAll,put,checkRequest,
-   get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
+   await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
+   return answer('BATCH_ATOMIC_COMMIT_ACKED',{batchId:op.id,
+    changedSizes:d.result.changed_sizes});
+  }catch(_){return answer('BATCH_SYNC_UNVERIFIED_KEEP_QUEUE');}
+  finally{busy=false;}
  }
- const api=Object.freeze({create,KINDS});
- if(root)root.XBPrimaryDocumentsClient=api;
- if(typeof module!=='undefined'&&module.exports)module.exports=api;
+ return Object.freeze({queue,send,pending,
+  get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
+}
+const api=Object.freeze({create,DB_NAME});
+if(root)root.XBPrimaryStocktakeBatchClient=api;
+if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 
 </script>
@@ -4015,6 +4037,167 @@ function create({client,queue,uuid}={}){
 const api=Object.freeze({create});
 if(root)root.XBPrimaryDocumentsBusinessCommands=api;
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+</script>
+<script>/* M3 CloudBase primary document client: quotes/reference/growth/profile/settings.
+ * Reuses SDK sessions and family preflight, SQL 026 CAS + request receipts.
+ * No import-time network, no token storage, no independent local writes.
+ * SQL 026 is currently an UNDEPLOYED DRAFT. Write default: OFF.
+ */
+(function(root){
+ 'use strict';
+ const KINDS=Object.freeze(['quotes','reference','growth','profile','settings']);
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+ function result(status,extra={}){return Object.freeze({status,...extra});}
+ function create({app,accessPreflight,childReader,scopeGuard,
+  cloudWritesEnabled=false}={}){
+  if(!app?.auth?.getSession||!app?.rdb||!accessPreflight?.create
+    ||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget)
+   throw Error('primary_docs:dependencies_required');
+  let busy=false;
+  const db=app.rdb();
+  if(typeof db.rpc!=='function')throw Error('primary_docs:rpc_required');
+  const reader=childReader.create(app,scopeGuard);
+  async function scope(input){
+   if(!input||!UUID.test(String(input.familyId))
+     ||typeof input.actorUid!=='string'||!input.actorUid)
+    throw Error('primary_docs:invalid_scope');
+   const {familyId,actorUid}=input;
+   const access=await accessPreflight.create(app).verifyAccess({
+    familyId,actorUid
+   });
+   if(access.member!==true||access.familyId!==familyId
+     ||access.actorUid!==actorUid||access.appCode!=='xb')
+    throw Error('primary_docs:grant_unverified');
+   const primary=await reader.inspectLegacyTarget({familyId});
+   if(!primary||primary.familyId!==familyId
+     ||!UUID.test(String(primary.childId))
+     ||primary.readyForMigration!==false)
+    throw Error('primary_docs:primary_unverified');
+   return {familyId,actorUid,childId:primary.childId};
+  }
+  async function rpc(name,args){
+   const response=await db.rpc(name,args);
+   if(response?.error){
+    const code=String(response.error.code||response.error.errorCode||'');
+    if(code==='40001')throw Error('primary_docs:revision_conflict');
+    if(code==='23505')throw Error('primary_docs:duplicate_request_conflict');
+    throw Error('primary_docs:rpc_unverified');
+   }
+   if(!response)throw Error('primary_docs:rpc_unverified');
+   const value=Array.isArray(response.data)?
+    (response.data.length===1?response.data[0]:null):response.data;
+   if(!object(value))throw Error('primary_docs:invalid_reply');
+   return value;
+  }
+  async function read(input={}){
+   if(!KINDS.includes(input.kind))return result('INVALID_DOCUMENT_KIND');
+   if(input.readEnabled!==true)return result('DOCUMENT_READ_DISABLED');
+   try{
+    const who=await scope(input);
+    const d=await rpc('xb_read_primary_document_draft',{
+     p_family_id:who.familyId,p_child_id:who.childId,p_kind:input.kind
+    });
+    if(d.complete!==true||d.family_id!==who.familyId
+      ||d.child_id!==who.childId||d.kind!==input.kind
+      ||!Number.isSafeInteger(d.revision)||d.revision<0
+      ||!object(d.body)||d.can_upload!==false)
+     return result('PRIMARY_DOCUMENT_READ_UNVERIFIED');
+    return result('PRIMARY_DOCUMENT_READ_VERIFIED',{
+     kind:input.kind,familyId:who.familyId,childId:who.childId,
+     revision:d.revision,body:d.body,canWrite:false
+    });
+   }catch(_){return result('PRIMARY_DOCUMENT_READ_UNVERIFIED');}
+  }
+  async function readAll(input={}){
+   const values={};
+   for(const kind of KINDS){
+    const doc=await read({...input,kind,readEnabled:true});
+    if(doc.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
+     return result('PRIMARY_DOCUMENT_SNAPSHOT_INCOMPLETE');
+    values[kind]=doc;
+   }
+   // Reject a mixed A/B snapshot if a document changed between page reads.
+   for(const kind of KINDS){
+    const check=await read({...input,kind,readEnabled:true});
+    if(check.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+      ||check.revision!==values[kind].revision)
+     return result('PRIMARY_DOCUMENT_SNAPSHOT_CHANGED');
+   }
+   return result('PRIMARY_DOCUMENTS_FULLY_READ',{
+    documents:Object.freeze(values),canWrite:false
+   });
+  }
+  async function put(input={}){
+   // No RPC/IDB calls or request ID generation unless the build AND user
+   // workflow were independently authorized; the active preview always OFF.
+   if(cloudWritesEnabled!==true||input.operatorApproved!==true)
+    return result('PRIMARY_DOCUMENT_WRITES_NOT_AUTHORIZED');
+   if(busy)return result('PRIMARY_DOCUMENT_WRITE_BUSY');
+   if(!KINDS.includes(input.kind)||!UUID.test(String(input.requestId))
+     ||!Number.isSafeInteger(input.expectedRevision)
+     ||input.expectedRevision<0||!object(input.nextBody))
+    return result('INVALID_DOCUMENT_COMMAND');
+   busy=true;
+   try{
+    const who=await scope(input);
+    const d=await rpc('xb_put_primary_document_draft',{
+     p_family_id:who.familyId,p_child_id:who.childId,
+     p_kind:input.kind,p_expected_revision:input.expectedRevision,
+     p_request_id:input.requestId,p_next_body:input.nextBody
+    });
+    if(d.saved!==true||d.kind!==input.kind
+      ||d.family_id!==who.familyId||d.child_id!==who.childId
+      ||d.request_id!==input.requestId
+      ||!Number.isSafeInteger(d.revision)
+      ||d.revision<input.expectedRevision+1)
+     return result('PRIMARY_DOCUMENT_ACK_UNVERIFIED_KEEP_REQUEST_ID',
+      {requestId:input.requestId});
+    return result('PRIMARY_DOCUMENT_COMMITTED',{
+     kind:input.kind,revision:d.revision,
+     duplicate:d.duplicate===true,requestId:input.requestId
+    });
+   }catch(error){
+    // A real 40001 conflict never gets promoted to "maybe committed".
+    if(error?.message==='primary_docs:revision_conflict')
+     return result('PRIMARY_DOCUMENT_VERSION_CONFLICT',{requestId:input.requestId});
+    if(error?.message==='primary_docs:duplicate_request_conflict')
+     return result('PRIMARY_DOCUMENT_REQUEST_ID_CONFLICT',{requestId:input.requestId});
+    // No auto re-submit with a new UUID. The next action is receipt check.
+    return result('PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID',
+     {requestId:input.requestId});
+   }finally{busy=false;}
+  }
+  async function checkRequest(input={}){
+   if(input.readEnabled!==true||!UUID.test(String(input.requestId)))
+    return result('REQUEST_CHECK_DISABLED_OR_INVALID');
+   try{
+    const who=await scope(input);
+    const d=await rpc('xb_check_primary_document_request_draft',{
+     p_family_id:who.familyId,p_child_id:who.childId,
+     p_request_id:input.requestId
+    });
+    if(d.family_id!==who.familyId||d.child_id!==who.childId
+      ||d.request_id!==input.requestId)
+     return result('REQUEST_RECEIPT_UNVERIFIED');
+    if(d.status==='NO_RECEIPT')
+     return result('REQUEST_NOT_YET_RECEIPTED_SAME_ID_ONLY');
+    if(d.status!=='COMMITTED'||!KINDS.includes(d.kind)
+      ||!Number.isSafeInteger(d.resulting_revision)
+      ||d.resulting_revision<1)
+     return result('REQUEST_RECEIPT_UNVERIFIED');
+    return result('REQUEST_COMMITTED_VERIFIED',{
+     requestId:input.requestId,kind:d.kind,revision:d.resulting_revision
+    });
+   }catch(_){return result('REQUEST_RECEIPT_UNVERIFIED');}
+  }
+  return Object.freeze({read,readAll,put,checkRequest,
+   get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
+ }
+ const api=Object.freeze({create,KINDS});
+ if(root)root.XBPrimaryDocumentsClient=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
 <script src="./formal-controller.js" defer></script>
