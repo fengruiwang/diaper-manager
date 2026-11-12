@@ -71,9 +71,9 @@
     settings=await legacy.readSettings(scope);
     history=await legacy.readPage({...scope,kind:'all',offset,limit});
    }catch(e){
+    // Do not echo RPC/SDK exceptions: they may contain private row details.
     return Object.freeze({status:'MIGRATION_READ_NOT_READY',canWrite:false,
-      noDataImported:true,reasonCode:String(e?.message||'read_unavailable')
-       .replace(/[^a-z0-9:_-]/gi,'').slice(0,64)});
+      noDataImported:true});
    }
    if(settings.complete!==true||settings.canEdit!==false
       ||settings.canUpload!==false||history.complete!==true
