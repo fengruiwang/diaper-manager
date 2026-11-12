@@ -78,6 +78,10 @@
     };
     $('m3Status').textContent='M3 · '+code+'：'+(notes[code]||'未确认，未执行任何写入。');
     $('m3Exit').disabled=!root.XBM3UI.isActive();
+    // In the dedicated M3 page, a failed receipt lookup must not leave
+    // local sandbox values visible as if they were formal cloud data.
+    if(standalone&&doc.querySelector('main'))
+     doc.querySelector('main').hidden=!root.XBM3UI.isActive();
    }
   };
   const factory=app=>root.XBPrimaryCloudReadModel.create({
