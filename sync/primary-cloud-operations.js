@@ -231,7 +231,24 @@
    }catch(_){return result('PRIMARY_ACK_UNKNOWN_PRESERVE_ID_AND_QUEUE');}
    finally{busy=false;}
   }
-  return Object.freeze({activate,read,queue,flush,
+  async function pending(){
+   // Explicit local IDB-only check. Do not erase or upload pending events
+   // merely because a user requested logout or a different account signed in.
+   if(!selected)return result('PRIMARY_QUEUE_SCOPE_NOT_VERIFIED');
+   try{
+    const scope={familyId:selected.familyId,actorUid:selected.actorUid};
+    const count=await outbox.stats(scope);
+    if(!count||!Number.isSafeInteger(count.outstanding)
+      ||count.outstanding<0||!Number.isSafeInteger(count.total)
+      ||count.total<count.outstanding)
+     return result('PRIMARY_QUEUE_COUNTS_UNVERIFIED');
+    return result('PRIMARY_QUEUE_COUNTS_VERIFIED',{
+     outstanding:count.outstanding,pending:count.pending,
+     retry:count.retry,conflict:count.conflict,blocked:count.blocked
+    });
+   }catch(_){return result('PRIMARY_QUEUE_COUNTS_UNVERIFIED');}
+  }
+  return Object.freeze({activate,read,queue,flush,pending,
    selectedScope:()=>selected?Object.freeze({...selected}):null,
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }
