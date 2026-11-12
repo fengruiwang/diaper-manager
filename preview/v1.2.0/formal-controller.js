@@ -50,6 +50,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   if(busy)return mode;
   busy=true;const token=++revision;
   screen('boot','正在恢复登录会话并重新验证家庭授权…');
+  // SDK sessions are not invalidated by temporary network loss. In
+  // particular, don't try to download the SDK just to classify offline.
+  if(host.navigator?.onLine===false){
+   clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);
+   busy=false;return mode;
+  }
   try{
    const status=await controller.connect();
    if(token!==revision)return mode;
@@ -57,7 +63,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     clear();screen('login',notes.LOGIN_REQUIRED);return mode;
    }
    if(status==='OFFLINE_LOCAL_ONLY'){
-    screen('offline',notes.OFFLINE_LOCAL_ONLY);return mode;
+    clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);return mode;
    }
    const ctx=controller.verifiedContext();
    if(!ctx){
@@ -190,9 +196,16 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  async function confirmOtp(){
   const code=$('formalOtp').value.trim();$('formalOtp').value='';
   const result=await controller.confirmOtp(code);
-  if(validLogin.has(result)){await restore();return;}
-  $('formalLoginMessage').textContent=result==='OTP_INVALID_OR_EXPIRED'?
-   '验证码不正确或已过期。':'登录暂未确认：'+result;
+  if(result==='OTP_INVALID_OR_EXPIRED'||result==='CONFIG_REQUIRED'){
+   $('formalLoginMessage').textContent=result==='OTP_INVALID_OR_EXPIRED'?
+    '验证码不正确或已过期。':'登录配置未就绪，请刷新后重试。';
+   return;
+  }
+  // Successful OTP can lead to a verified session but a family/primary
+  // that is not yet provisioned. Those are NOT invalid-login outcomes.
+  // Re-check the actual SDK session and scopes rather than expecting a
+  // single "CLOUD_READ_ONLY_CONNECTED" success code.
+  await restore();
  }
  async function start(){
   screen('boot','正在安全恢复 CloudBase 会话…');
@@ -245,10 +258,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
 }
 function browserStart(){
  const doc=root.document,$=id=>doc.getElementById(id);
- if(!$('formalGate')||!root.XBM1PreviewModule||!root.XBPrimaryCloudReadModel
+ if(!$('formalGate'))return;
+ if(!root.XBM1PreviewModule||!root.XBPrimaryCloudReadModel
    ||!root.XBPrimaryCloudOperations||!root.XBPrimaryBusinessCommands
    ||!root.XBPrimaryFormalUIActions||!root.XBPrimaryUIProjection
-   ||!root.XBM3UI)return;
+   ||!root.XBM3UI){
+   $('formalGateMessage').textContent=
+    '正式入口组件未完整加载，请检查同目录脚本后刷新。未访问任何家庭数据。';
+   return;
+ }
  const loader=url=>new Promise((resolve,reject)=>{
   const script=doc.createElement('script');
   script.src=url;script.async=true;
