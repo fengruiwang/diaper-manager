@@ -50,7 +50,7 @@ test('M3 standalone HTML contains no actual browser-storage read/write sites',()
  assert.doesNotMatch(html,/xiaobao_diaper_planner_v1/);
  assert.doesNotMatch(html,/\b(?:localStorage|sessionStorage)\.(?:getItem|setItem|removeItem|clear)\s*\(/);
  assert.match(html,/<body data-m3-standalone="true">/);
- assert.match(html,/src="\.\.\/m1-controller\.js"/);
+ assert.match(html,/src="\.\/m1-controller\.js"/);
  assert.doesNotMatch(html,/m102-cloud\.js/);
  assert.match(controller,/storage:standalone\?null:root\.localStorage/);
  assert.match(controller,/if\(standalone\)view\.status\('M3_ON_DEMAND_CLOUD_READ_ONLY'\)/);
