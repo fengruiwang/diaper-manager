@@ -91,6 +91,50 @@
     canEdit:false,canUpload:false
    });
   }
+  // Aggregate receipt-backed pages without claiming a partial page is full
+  // history. SQL 024 caps offset at 10,000 and page size at 50, so refuse
+  // larger totals until a separately reviewed cursor RPC is available.
+  async function readAll({familyId,childId,kind='all',limit=50}={}){
+   if(!Number.isSafeInteger(limit)||limit<1||limit>50||!KINDS.has(kind))
+    fail('invalid_full_history_request');
+   const scope={familyId,childId,kind};
+   let total=null,offset=0,rows=[],prevKind='',prevOrdinal=0;
+   const known=new Set();
+   for(let pageIndex=0;pageIndex<=201;pageIndex++){
+    if(offset>10000)fail('full_history_exceeds_server_offset_limit');
+    const page=await readPage({...scope,offset,limit});
+    if(page.complete!==true||page.canEdit!==false||page.canUpload!==false
+      ||page.kind!==kind||page.offset!==offset||page.limit!==limit)
+     fail('invalid_full_history_page');
+    if(total===null){
+     total=page.total;
+     if(total>10050)fail('full_history_exceeds_server_offset_limit');
+    }else if(page.total!==total)fail('history_total_changed_between_pages');
+    if(page.rows.length===0&&page.hasMore)
+     fail('empty_middle_history_page');
+    for(const row of page.rows){
+     if(!row||row.kind<prevKind
+       ||(prevKind===row.kind&&row.ordinal!==prevOrdinal+1)
+       ||(prevKind!==row.kind&&row.ordinal!==1))
+      fail('history_global_order_or_ordinal_gap');
+     const key=row.kind+'\\x00'+row.id;
+     if(known.has(key))fail('duplicate_history_across_pages');
+     known.add(key);
+     prevKind=row.kind;
+     prevOrdinal=row.ordinal;
+     rows.push(row);
+    }
+    offset+=page.rows.length;
+    if(!page.hasMore){
+     if(offset!==total)fail('incomplete_full_history');
+     return Object.freeze({complete:true,kind,total,
+      rows:Object.freeze(rows),hasMore:false,offset:0,
+      canEdit:false,canUpload:false});
+    }
+    if(page.rows.length!==limit)fail('short_middle_history_page');
+   }
+   fail('full_history_page_limit_exceeded');
+  }
   async function readSettings({familyId,childId}={}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
    await session();
@@ -109,7 +153,7 @@
     canEdit:false,canUpload:false
    });
   }
-  return Object.freeze({readPage,readSettings});
+  return Object.freeze({readPage,readAll,readSettings});
  }
  const api=Object.freeze({create});
  if(root)root.XBLegacyHistoryReader=api;
