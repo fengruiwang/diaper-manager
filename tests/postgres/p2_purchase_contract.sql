@@ -452,4 +452,6 @@ GRANT EXECUTE ON FUNCTION public.xb_primary_stocktake_batch_draft(uuid,uuid,uuid
 \i tests/postgres/m2_primary_child_contract.sql
 \i tests/postgres/m3_primary_documents_contract.sql
 \i tests/postgres/m3_stocktake_batch_contract.sql
+-- Verify the user-facing CloudBase preflight batch is valid SELECT-only SQL.
+\i cloudbase/sql/M2_M3_PHASE_A_READONLY_INVENTORY.sql
 \echo P2 PostgreSQL contract passed
