@@ -137,10 +137,10 @@ BEGIN
   'result',v_result);
 END;
 $batch$;
+-- Phase A: batch stocktake is installed but cannot execute business writes.
+-- A separate future M3 approval is required to grant authenticated EXECUTE.
 REVOKE ALL ON FUNCTION public.xb_primary_stocktake_batch_draft(uuid,uuid,uuid,jsonb)
- FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.xb_primary_stocktake_batch_draft(uuid,uuid,uuid,jsonb)
- TO authenticated;
+ FROM PUBLIC,anon,authenticated;
 
 CREATE FUNCTION public.xb_read_primary_stocktake_batch_receipt_draft(
  p_family_id uuid,p_child_id uuid,p_batch_id uuid
