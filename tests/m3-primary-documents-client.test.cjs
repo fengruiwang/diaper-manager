@@ -81,7 +81,7 @@ test('stale version conflicts or bad actor leave no announced write success',asy
  const q=await conflict.client.put({...conflict.params,operatorApproved:true,
   kind:'reference',requestId:REQUEST,expectedRevision:0,
   nextBody:{referenceOverrides:{foo:1.123}}});
- assert.equal(q.status,'PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID');
+ assert.equal(q.status,'PRIMARY_DOCUMENT_VERSION_CONFLICT');
  const bad=fixture({badActor:true});
  assert.equal((await bad.client.read({...bad.params,kind:'quotes',readEnabled:true}))
   .status,'PRIMARY_DOCUMENT_READ_UNVERIFIED');
