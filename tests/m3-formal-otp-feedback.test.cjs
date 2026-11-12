@@ -52,7 +52,7 @@ function fixture({session=false,primaryReady=false,sent='OTP_REQUESTED',
    defaults:()=>({})},scriptLoader:async()=>{}
  });
  return {
-  app,element,storage,clock,handlers,timerCalls,
+  app,host,element,storage,clock,handlers,timerCalls,
   get calls(){return otpCalls},
   click(id){handlers.get(id+':click')?.()},
   tick(){for(const fn of [...timerCalls.values()])fn();}
@@ -130,7 +130,13 @@ test('offline is static, no spinner or forced logout; loading spinner only durin
  const f=fixture();
  await f.app.start();
  assert.equal(f.element('formalLoadingCard').hidden,true);
- f.host?.navigator;
+ f.host.navigator.onLine=false;
+ await f.app.restore();
+ assert.equal(f.app.mode,'offline');
+ assert.equal(f.element('formalLoadingCard').hidden,true);
+ assert.equal(f.element('formalGateActions').hidden,false);
+ assert.equal(f.element('formalLoginCard').hidden,true);
+ assert.match(f.element('formalGateMessage').textContent,/离线/);
 });
 test('CloudBase explicit OTP rate limits are sanitized, unknown errors stay generic',async()=>{
  const sdk=answer=>({auth:{
