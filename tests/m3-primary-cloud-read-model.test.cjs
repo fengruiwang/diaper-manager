@@ -57,7 +57,7 @@ function fixture({primary=true,historyReady=true,changeStock=false,otherActor=fa
       settings:{target:{NB:100,S:100},daily:{NB:10,S:6},
        referenceOverrides:{'好奇|小森林|S':1.123}}};
    },
-   async readPage(scope){
+   async readAll(scope){
     calls.push(['history',scope.childId,scope.familyId]);
     return {complete:true,canEdit:false,canUpload:false,offset:0,total:2,
      hasMore:false,rows:[
