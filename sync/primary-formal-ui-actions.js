@@ -11,13 +11,14 @@
  const SIZES=['NB','S','M','L','XL','XXL'];
  const guardedIds=new Set(['saveQuote','clearQuotes','saveWeight',
   'saveProfile','savePlans','saveStocks','saveSizePreferences','resetAll',
-  'importDataBtn','importFile','saveReference','saveQuoteEdit']);
- const guardedActions=new Set(['deletequote','editweight','deleteweight',
-  'buyquote','consume','deletetx']);
+  'importDataBtn','importFile','saveEditedReference','restoreDefaultReference']);
+ const guardedActions=new Set(['deletequote','editquote','deleteweight',
+  'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   notify,formalModeSelected,buildAllowsWrites=false,
-  operatorApproved=()=>false}={}){
+  operatorApproved=()=>false,documentCommands=null,
+  readDocumentInput=null,prepareQuoteEdit=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -71,6 +72,15 @@
     return invoke('consume',{size:el.dataset?.size,count:Number(el.dataset?.count)});
    if(el.id==='saveStocks')
     return readStocktakeInputs(doc);
+   if(action==='editquote'&&typeof prepareQuoteEdit==='function'){
+    return prepareQuoteEdit(el.dataset?.id);
+   }
+   if(documentCommands?.submit&&typeof readDocumentInput==='function'){
+    const docAction=readDocumentInput(el,doc);
+    if(docAction){
+     return documentCommands.submit({...docAction,operatorApproved:true});
+    }
+   }
    if(action==='deletetx'){
     const record=readTransaction(el.dataset?.id);
     if(!record||record.origin!=='cloud_post_migration'
@@ -88,20 +98,36 @@
    if(attached)throw Error('formal_ui:already_attached');
    const handler=event=>{
     if(!formalModeSelected())return;
-    const el=event.target?.closest?.('button,[data-action],input');
+    const el=event.target?.closest?.('button,[data-action],[data-preset]');
     if(!el)return;
-    if(!guardedIds.has(el.id)&&!guardedActions.has(el.dataset?.action)
-      &&el.id!=='buyNow')return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
+    const action=el.dataset?.action||'';
+    const allowedIds=new Set(['formalRefresh','formalSignOut',
+      'formalGateSignOut','formalRetry','formalSendOtp',
+      'formalConfirmOtp','closeRefEditor','cancelEditedReference',
+      'cancelWeight']);
+    const allowedActions=new Set(['go','editstock','series','pickref','editref','editweight']);
+    if(el.classList?.contains('tab')||allowedIds.has(el.id)
+      ||allowedActions.has(action))return;
+    // Any unrecognized business button is also blocked: it must not fall
+    // through to the old localStorage-only V1.1.2 handler by accident.
+    event.preventDefault();event.stopImmediatePropagation();
+    Promise.resolve().then(()=>handle(el,doc)).then(notify,
+      ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
+   };
+   const formHandler=event=>{
+    if(!formalModeSelected())return;
+    event.preventDefault();event.stopImmediatePropagation();
+    const el={id:'saveEditedReference',dataset:{}};
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
    doc.addEventListener('click',handler,true);
-   attached={doc,handler};
+   doc.addEventListener('submit',formHandler,true);
+   attached={doc,handler,formHandler};
    return Object.freeze({detach(){
     if(!attached)return;
     attached.doc.removeEventListener('click',attached.handler,true);
+    attached.doc.removeEventListener('submit',attached.formHandler,true);
     attached=null;
    }});
   }
