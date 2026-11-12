@@ -365,8 +365,8 @@ BEGIN
    'history_count',v_history_count,'weight_count',v_weight_count);
 END;
 $promote$;
+-- Phase A installs schema but MUST NOT permit an early promotion.
+-- The separately approved Phase B operation may grant EXECUTE narrowly.
 REVOKE ALL ON FUNCTION public.xb_promote_legacy_archive_draft(uuid,uuid,uuid,text)
- FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.xb_promote_legacy_archive_draft(uuid,uuid,uuid,text)
- TO authenticated;
+ FROM PUBLIC,anon,authenticated;
 COMMIT;
