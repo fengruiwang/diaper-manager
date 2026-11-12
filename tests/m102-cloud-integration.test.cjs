@@ -113,7 +113,7 @@ function fixture({smoke=true,permit=true,writeApproval=true}={}){
    return {select(){return {eq(){return this},async limit(){
     return {data:smoke?[{id:CHILD,family_id:FAMILY,legacy_slot:M.SMOKE,
      deleted_at:null,revision:0}]:[]};
-   }}}}};
+   }}}};
   }});
   const controller={
    async connect(){return 'FAMILY_READY_NO_BUSINESS_CHILD'},
