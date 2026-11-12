@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const Bridge=require('../sync/primary-formal-ui-actions.js');
 const SIZES=['NB','S','M','L','XL','XXL'];
 function fixture({build=false,approved=false,selected=true,stockChanges={},
-  fresh=true}={}){
+  fresh=true,batchReady=false}={}){
  const log=[],notifications=[];let handler,submitHandler;
  const primary={read:async()=>{log.push(['read']);return fresh?{
   status:'PRIMARY_CLOUD_READ_VERIFIED',
@@ -34,7 +34,10 @@ function fixture({build=false,approved=false,selected=true,stockChanges={},
    {id,origin:'legacy_migration',size:'S'},
   notify:x=>notifications.push(x.status),
   formalModeSelected:()=>selected,buildAllowsWrites:build,
-  operatorApproved:()=>approved});
+  operatorApproved:()=>approved,
+  batchStocktake:batchReady?{queue:async args=>{log.push(['batch.queue',args]);
+    return {status:'BATCH_DURABLY_QUEUED',batchId:args.batchId};}}:null,
+  createBatchId:batchReady?()=> '04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2':null});
  const binding=ui.attach(doc);
  async function click(id,dataset={}){
   let cancelled=false;
@@ -119,4 +122,18 @@ test('primary UI form submit blocks original local reference price save',async()
  assert.equal(f.log.length,0);
  assert.equal(f.notifications.at(-1),'FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
  f.binding.detach();
+});
+
+test('formal original six-size editor queues one atomic batch when two sizes differ',async()=>{
+ const f=fixture({build:true,approved:true,batchReady:true,
+  stockChanges:{S:135,M:20}});
+ assert.equal(await f.click('saveStocks'),true);
+ assert.deepEqual(f.log.map(x=>x[0]),['read','batch.queue']);
+ assert.equal(f.log[1][1].items.length,2);
+ assert.deepEqual(f.log[1][1].items,[
+  {size:'S',count:135,expectedRevision:2},
+  {size:'M',count:20,expectedRevision:1}
+ ]);
+ assert.equal(f.log[1][1].batchId,'04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2');
+ assert.equal(f.notifications.at(-1),'BATCH_DURABLY_QUEUED');
 });
