@@ -157,3 +157,32 @@ test('startup while offline does not attempt SDK initialization, does not clear 
  assert.equal(f.doc.body.dataset.formalState,'offline');
  assert.equal(f.trace.includes('ui.show'),false);
 });
+
+test('formal static upload uses exactly two same-directory scripts and inline modules match Feature sources',()=>{
+ const assets=[...html.matchAll(/<(?:script|link|img|source)\b[^>]*\b(?:src|href)="([^"]+)"/gi)]
+  .map(m=>m[1]);
+ assert.deepEqual(assets,['./m1-controller.js','./formal-controller.js']);
+ for(const name of [
+  'primary-cloud-operations','primary-business-commands',
+  'primary-formal-ui-actions','primary-stocktake-batch-client',
+  'primary-documents-client','primary-documents-operations',
+  'primary-documents-business-commands','primary-documents-overlay']){
+  const code=fs.readFileSync(path.join(__dirname,'../sync/'+name+'.js'),'utf8');
+  assert.ok(html.includes(code.trim()),name+' embedded code does not match source');
+ }
+ assert.doesNotMatch(html,/\b(?:localStorage|sessionStorage)\.(?:getItem|setItem|removeItem|clear)\s*\(/);
+ assert.doesNotMatch(html,/id="m1CloudBox"|id="m3Panel"|id="m3Demo"/);
+ assert.match(fs.readFileSync(path.join(__dirname,
+  '../preview/v1.2.0/formal-controller.js'),'utf8'),
+  /const FORMAL_WRITE_ENABLED=false/);
+});
+test('formal controller required HTML controls exist and cannot silently deadlock without scripts',()=>{
+ const controllerText=fs.readFileSync(path.join(__dirname,
+  '../preview/v1.2.0/formal-controller.js'),'utf8');
+ const ids=new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]));
+ const needed=[...controllerText.matchAll(/\$\('([^']+)'\)/g)].map(m=>m[1]);
+ for(const id of needed)assert.ok(ids.has(id),'missing formal DOM control '+id);
+ assert.match(controllerText,/正式入口组件未完整加载/);
+ assert.match(html,/id="formalGateSignOut"/);
+ assert.match(html,/id="formalRetry"/);
+});
