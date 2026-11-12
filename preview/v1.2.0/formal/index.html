@@ -655,7 +655,7 @@ function preview(){
 }
 function addBuy(q){if(!validateQuote(q))return;if(window.XBM102?.isActive()){Promise.resolve(window.XBM102.submitPurchase(q)).catch(()=>toast('云端提交未确认，请核对待同步状态'));return;}state.transactions.unshift({id:uid(),type:'buy',date:localDate(),brand:q.brand,series:q.series,size:q.size,pieces:q.pieces,price:q.price});state.inventory[q.size]=stageStock(q.size)+q.pieces;save();renderAll();toast(`已入库 ${q.size} ${q.pieces} 片，记录支出 ${money(q.price)}`)}
 function renderQuotes(){preview();const list=state.quotes.slice().sort((a,b)=>(a.unit||0)-(b.unit||0));if(!list.length){$('quoteList').innerHTML='<div class="empty"><b>还没有候选价格</b>先输入商家实付金额与总片数，工具会自动按系列及尺码判断是否接近参考好价。</div>';return}
- $('quoteList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>商品</th><th>尺码</th><th>总片数</th><th>实付</th><th>每片</th><th>参考单价</th><th>价格提醒</th><th>操作</th></tr></thead><tbody>${list.map((q,i)=>{const sig=priceSignal(q.unit,q.brand,q.series,q.size);return `<tr><td><b>${esc(q.brand)}</b><div class="fine">${esc(q.series)}</div></td><td>${esc(q.size)}</td><td>${int(q.pieces)}</td><td>${money(q.price)}</td><td><b class="${i===0?'green':''}">${money(q.unit)}</b></td><td>${sig.price?money(sig.price):'<span class="ref-muted">—</span>'}</td><td>${sig.price?`<span class="tag ${sig.kind}">${sig.pct>0?'+':''}${sig.pct.toFixed(1)}%</span>`:'<span class="fine">暂无参考</span>'}</td><td><button class="btn secondary sm" data-action="buyquote" data-id="${esc(q.id)}">入库</button><button class="btn ghost sm" data-action="deletequote" data-id="${esc(q.id)}">删除</button></td></tr>`}).join('')}</tbody></table></div><p class="soft-note">先对比相同品牌、同系列、同尺码。列表仍按单片实付价排序；参考价提醒不代表材质或舒适度的排名。</p>`;
+ $('quoteList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>商品</th><th>尺码</th><th>总片数</th><th>实付</th><th>每片</th><th>参考单价</th><th>价格提醒</th><th>操作</th></tr></thead><tbody>${list.map((q,i)=>{const sig=priceSignal(q.unit,q.brand,q.series,q.size);return `<tr><td><b>${esc(q.brand)}</b><div class="fine">${esc(q.series)}</div></td><td>${esc(q.size)}</td><td>${int(q.pieces)}</td><td>${money(q.price)}</td><td><b class="${i===0?'green':''}">${money(q.unit)}</b></td><td>${sig.price?money(sig.price):'<span class="ref-muted">—</span>'}</td><td>${sig.price?`<span class="tag ${sig.kind}">${sig.pct>0?'+':''}${sig.pct.toFixed(1)}%</span>`:'<span class="fine">暂无参考</span>'}</td><td><button class="btn secondary sm" data-action="buyquote" data-id="${esc(q.id)}">入库</button><button class="btn ghost sm" data-action="editquote" data-id="${esc(q.id)}">修改</button><button class="btn ghost sm" data-action="deletequote" data-id="${esc(q.id)}">删除</button></td></tr>`}).join('')}</tbody></table></div><p class="soft-note">先对比相同品牌、同系列、同尺码。列表仍按单片实付价排序；参考价提醒不代表材质或舒适度的排名。</p>`;
 }
 const CUSTOM_SERIES="__custom_series__";
 function renderSeriesChips(){
@@ -993,10 +993,106 @@ window.XBM3UI=Object.freeze({
   renderAll();
  }
 });
+// FORMAL UI merely reads the user's original V1.1.2 inputs. Mutation
+// commands go to the new server CAS + durable queue, never old local state.
+let formalEditingQuoteId=null;
+function prepareFormalQuoteEdit(id){
+ const q=state.quotes.find(row=>row.id===id);
+ if(!q)return {status:'QUOTE_NOT_FOUND'};
+ formalEditingQuoteId=id;
+ $('qBrand').value=q.brand;$('qSeries').value=q.series;
+ $('qSeries').hidden=false;$('qSize').value=q.size;
+ $('qPerPack').value=q.per;$('qPacks').value=q.packs;
+ $('qPrice').value=q.price;
+ tab('compare');preview();
+ return {status:'QUOTE_FIELDS_READY_TO_EDIT'};
+}
+function formalDocumentAction(el){
+ const id=el.id,action=el.dataset?.action||'';
+ if(id==='saveQuote'){
+  const q=compareInput();if(!validateQuote(q))return null;
+  const edit=formalEditingQuoteId;
+  return {kind:'quotes',action:edit?'edit':'add',
+   record:{...q,id:edit||crypto.randomUUID(),date:localDate()}};
+ }
+ if(action==='deletequote')
+  return {kind:'quotes',action:'delete',record:{id:el.dataset.id}};
+ if(id==='clearQuotes')
+  return {kind:'quotes',action:'clear',record:null};
+ if(id==='saveWeight'){
+  const raw=$('weightKg').value.trim(),weight=Number(raw);
+  const date=$('weightDate').value,time=$('weightTime').value;
+  if(!raw||!XBGrowth.validWeight(weight)||!XBGrowth.dateOK(date)
+    ||!XBGrowth.timeOK(time)||date>localDate())return null;
+  return {kind:'growth',action:editingWeightId?'edit':'add',
+   record:{id:editingWeightId||crypto.randomUUID(),
+    date,time,weight:Math.round(weight*1000)/1000,
+    note:$('weightNote').value.trim().slice(0,120)}};
+ }
+ if(action==='deleteweight')
+  return {kind:'growth',action:'delete',record:{id:el.dataset.id}};
+ if(id==='saveProfile'){
+  const birth=$('birthDate').value,due=$('dueDate').value;
+  if(!XBGrowth.dateOK(due)||(birth&&!XBGrowth.dateOK(birth)))return null;
+  const fields=['birthHour','birthMinute','birthSecond'].map(k=>$(k).value.trim());
+  if(fields.some(Boolean)&&fields.some(x=>!/^\\d{1,2}$/.test(x)))return null;
+  const birthTime=fields.every(Boolean)?fields.map(x=>x.padStart(2,'0')).join(':'):'';
+  return {kind:'profile',action:'patch',record:{
+   dueDate:due,birthDate:birth,
+   babyProfile:{name:$('babyName').value.trim(),sex:$('babySex').value,
+    birthTime,birthWeight:$('birthWeight').value?Number($('birthWeight').value):'',
+    birthLength:$('birthLength').value?Number($('birthLength').value):''}
+  }};
+ }
+ if(id==='saveSizePreferences'){
+  const mode=$('sizeMode').value,size=$('currentSize').value;
+  const goal=Number($('goalPrice').value);
+  if(!['manual','auto'].includes(mode)||!SIZES.includes(size)
+    ||!Number.isFinite(goal)||goal<=0||goal>100)return null;
+  return {kind:'settings',action:'patch',record:{
+   sizeMode:mode,currentSize:size,goalPrice:goal}};
+ }
+ if(id==='savePlans'){
+  const target={},daily={};
+  for(const sz of SIZES){
+   const t=Number($('target_'+sz)?.value),d=Number($('daily_'+sz)?.value);
+   if(!Number.isSafeInteger(t)||t<0||t>10000
+    ||!Number.isSafeInteger(d)||d<1||d>30)return null;
+   target[sz]=t;daily[sz]=d;
+  }
+  const mode=$('replenishMode').value,days=Number($('replenishDays').value);
+  if(!['days','custom'].includes(mode)||![5,7,10].includes(days))return null;
+  return {kind:'settings',action:'patch',
+   record:{target,daily,replenishPolicy:{mode,days}}};
+ }
+ if(el.dataset?.preset){
+  const names={cautious:[80,60],balanced:[100,60],relaxed:[120,80]};
+  const values=names[el.dataset.preset];
+  if(!values)return null;
+  return {kind:'settings',action:'patch',
+   record:{preset:el.dataset.preset,
+    target:{...state.target,NB:values[0],S:values[1]}}};
+ }
+ if(id==='saveEditedReference'||id==='restoreDefaultReference'
+    ||action==='resetref'){
+  const ref=action==='resetref'?el.dataset:editingReference;
+  if(!ref||!SIZES.includes(ref.size))return null;
+  const key=[ref.brand,ref.series,ref.size].join('|');
+  if(id==='restoreDefaultReference'||action==='resetref')
+   return {kind:'reference',action:'reset',record:{key}};
+  const raw=$('editedReferencePrice').value.trim(),value=Number(raw);
+  if(!raw||!Number.isFinite(value)||value<=0||value>100
+    ||Math.abs(value*1000-Math.round(value*1000))>1e-7)return null;
+  return {kind:'reference',action:'set',record:{key,value}};
+ }
+ return null;
+}
 window.XBFormalUIData=Object.freeze({
  purchase:()=>compareInput(),
  quote:id=>state.quotes.find(q=>q.id===id)||null,
- transaction:id=>state.transactions.find(t=>t.id===id)||null
+ transaction:id=>state.transactions.find(t=>t.id===id)||null,
+ documentAction:formalDocumentAction,
+ prepareQuoteEdit:prepareFormalQuoteEdit
 });
 window.XBM1UI=Object.freeze({refresh:renderAll});
 updateSeriesPicks();
