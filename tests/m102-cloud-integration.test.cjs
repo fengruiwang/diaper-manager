@@ -59,7 +59,7 @@ function inMemoryOutbox(){
   _ops:operations
  };
 }
-function fixture({smoke=true,permit=true,writeApproval=true}={}){
+function fixture({smoke=true,permit=true,writeApproval=true,needsOperatorArm=false}={}){
  const server={S:0,rev:0,ops:new Map(),purchases:[],failNext:false};
  const local=inMemoryOutbox();
  let nextId=0;
@@ -108,19 +108,25 @@ function fixture({smoke=true,permit=true,writeApproval=true}={}){
    XBInventoryReconciler:Reconciler,
    XBOutboxContract:Contract
   };
-  app.rdb=()=>({from(table){
-   assert.equal(table,'xb_children');
-   return {select(){return {eq(){return this},async limit(){
-    return {data:smoke?[{id:CHILD,family_id:FAMILY,legacy_slot:M.SMOKE,
-     deleted_at:null,revision:0}]:[]};
-   }}}};
-  }});
+  app.rdb=()=>({
+   from(table){
+    assert.ok(['xb_children','family_members'].includes(table),table);
+    return {select(){return {eq(){return this},async limit(){
+     if(table==='family_members')return {data:[{
+      family_id:FAMILY,user_uid:actorUid,member_role:actorUid==='dad'?'owner':'member'
+     }]};
+     return {data:smoke?[{id:CHILD,family_id:FAMILY,legacy_slot:M.SMOKE,
+      deleted_at:null,revision:0}]:[]};
+    }}}};
+   }
+  });
   const controller={
    async connect(){return 'FAMILY_READY_NO_BUSINESS_CHILD'},
    verifiedContext(){return {app,familyId:FAMILY,actorUid}}
   };
   const states=[];
   const client=M.create({host,controller,approvedWrites:writeApproval,
+   approvedCreate:needsOperatorArm,requireOperatorUnlock:needsOperatorArm,
    view:{status:(code)=>states.push(code),render(){}}});
   return {client,host,states};
  }
@@ -229,4 +235,41 @@ test('lifecycle controls are installed in the existing page but cannot mutate cl
  assert.equal(f.server.S,0);
  assert.equal(f.server.purchases.length,0);
  assert.equal(f.local._ops.size,0);
+});
+
+test('Phase B browser candidate cannot send any write before manually typing approval phrase',async()=>{
+ const f=fixture({needsOperatorArm:true}),a=f.user('dad');
+ assert.equal(a.client.approvals.purchase,false);
+ assert.equal(a.client.approvals.create,false);
+ assert.equal(a.client.approvals.retire,false);
+ assert.equal(await a.client.armPhaseB('wrong'),'PHASE_B_APPROVAL_PHRASE_REQUIRED');
+ assert.equal(await a.client.createSmokeChild(),'CREATE_NOT_AUTHORIZED');
+ assert.equal(await a.client.activate(),'CLOUD_SMOKE_READ_ONLY_APPROVAL_REQUIRED');
+ assert.equal(await a.client.submitPurchase(purchase(60,59.5)),'CLOUD_WRITE_NOT_AUTHORIZED');
+ assert.equal(f.server.S,0);
+ assert.equal(a.client.approvals.retire,false);
+});
+test('Phase B strictly limits owner to S60 and member to S80, and blocks second new ID',async()=>{
+ const f=fixture(),a=f.user('dad'),b=f.user('mom');
+ await a.client.activate();
+ assert.equal(await a.client.submitPurchase(purchase(80,79.9)),'PHASE_B_PURCHASE_SCOPE_REJECTED');
+ assert.equal(await a.client.submitPurchase({...purchase(60,59.5),size:'M'}),'PHASE_B_PURCHASE_SCOPE_REJECTED');
+ assert.equal(await a.client.submitPurchase(purchase(60,59.5)),'CLOUD_SYNCED');
+ assert.equal(await a.client.submitPurchase(purchase(60,59.5)),'PHASE_B_ACTOR_ALREADY_PURCHASED');
+ await b.client.activate();
+ assert.equal(await b.client.submitPurchase(purchase(60,59.5)),'PHASE_B_PURCHASE_SCOPE_REJECTED');
+ assert.equal(await b.client.submitPurchase(purchase(80,79.9)),'CLOUD_SYNCED');
+ assert.equal(await b.client.submitPurchase(purchase(80,79.9)),'PHASE_B_ACTOR_ALREADY_PURCHASED');
+ assert.equal(f.server.S,140);
+ assert.equal(f.server.purchases.length,2);
+});
+test('Phase B authorized UI is not deployed automatically; retire stays in disabled candidate build',()=>{
+ const src=fs.readFileSync(require('node:path').join(__dirname,'../preview/v1.2.0/m102-cloud.js'),'utf8');
+ assert.match(src,/PHASE_B_CANDIDATE_CREATE=true/);
+ assert.match(src,/PHASE_B_CANDIDATE_PURCHASE=true/);
+ assert.match(src,/DEFAULT_RETIRE_APPROVAL=false/);
+ assert.match(src,/requireOperatorUnlock:true/);
+ assert.match(html,/id="m102Arm"/);
+ assert.match(html,/id="m102ArmText"/);
+ assert.doesNotMatch(html,/xiaobao_diaper_planner_v1/);
 });
