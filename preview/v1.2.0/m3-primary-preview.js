@@ -56,6 +56,7 @@
  }
  function browserStart(){
   const doc=root.document,$=id=>doc.getElementById(id);
+  const standalone=doc.body?.dataset?.m3Standalone==='true';
   const ids=['m3Demo','m3Cloud','m3Exit','m3Status'];
   if(ids.some(id=>!$(id))||!root.XBM3UI||!root.XBPrimaryUIProjection)
    return;
@@ -103,7 +104,7 @@
   ]);
   const allowedReadFilters=new Set(['growthRange','refBrand','refSize','refSearch']);
   doc.addEventListener('click',event=>{
-   if(!root.XBM3UI.isActive())return;
+   if(!standalone&&!root.XBM3UI.isActive())return;
    const el=event.target.closest('button,[data-action],input,select,textarea');
    if(!el||['m3Demo','m3Cloud','m3Exit'].includes(el.id))return;
    if(el.classList.contains('tab')||el.dataset.action==='go')return;
@@ -117,7 +118,7 @@
   },true);
   for(const type of ['submit','input','change']){
    doc.addEventListener(type,event=>{
-    if(!root.XBM3UI.isActive())return;
+    if(!standalone&&!root.XBM3UI.isActive())return;
     const el=event.target;
     if(type!=='submit'&&allowedReadFilters.has(el.id))return;
     if(type!=='submit'&&el.id==='m3Status')return;
@@ -125,6 +126,9 @@
    },true);
   }
   view.status('LOCAL_SANDBOX');
+  // The dedicated M3 page is permanently read-only, including before a
+  // synthetic view loads or after a cloud/receipt lookup fails.
+  if(standalone)bridge.demo();
  }
  const api=Object.freeze({create});
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
