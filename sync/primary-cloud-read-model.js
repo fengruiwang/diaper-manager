@@ -42,10 +42,9 @@
   const children=childReader.create(app,scopeGuard);
   const inventory=inventoryClient.create(app);
   const legacy=legacyHistoryReader.create(app);
-  async function read({familyId,actorUid,offset=0,limit=50}={}){
+  async function read({familyId,actorUid,limit=50}={}){
    if(!UUID.test(String(familyId))||typeof actorUid!=='string'
-     ||!actorUid||actorUid.length>128||!Number.isSafeInteger(offset)
-     ||offset<0||offset>10000||!Number.isSafeInteger(limit)||limit<1||limit>50)
+     ||!actorUid||actorUid.length>128||!Number.isSafeInteger(limit)||limit<1||limit>50)
     fail('invalid_request');
    // A fresh verified CloudBase session is necessary for every explicit read.
    const grant=await accessPreflight.create(app).verifyAccess({familyId,actorUid});
@@ -69,7 +68,7 @@
    let settings,history;
    try{
     settings=await legacy.readSettings(scope);
-    history=await legacy.readPage({...scope,kind:'all',offset,limit});
+    history=await legacy.readAll({...scope,kind:'all',limit});
    }catch(e){
     // Do not echo RPC/SDK exceptions: they may contain private row details.
     return Object.freeze({status:'MIGRATION_READ_NOT_READY',canWrite:false,
@@ -77,7 +76,8 @@
    }
    if(settings.complete!==true||settings.canEdit!==false
       ||settings.canUpload!==false||history.complete!==true
-      ||history.canEdit!==false||history.canUpload!==false)
+      ||history.canEdit!==false||history.canUpload!==false
+      ||history.hasMore!==false||history.rows.length!==history.total)
     fail('legacy_receipt_unverified');
    // Only the selected PRIMARY is ever used in all cloud data queries.
    const before=await inventory.readReconciliation({...scope,operationIds:[]});
