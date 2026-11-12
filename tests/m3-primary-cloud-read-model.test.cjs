@@ -15,7 +15,16 @@ function fixture({primary=true,historyReady=true,changeStock=false,otherActor=fa
   revision:size==='S'?(changeStock&&inventoryReads>=2?2:1):0
  }));
  const adapter=Model.create({
-  app:{},
+  app:{rdb:()=>({from(table){
+   assert.equal(table,'xb_baby_profiles');
+   return {select(){return {eq(){return this},async limit(){
+    calls.push(['profile',PRIMARY,FAMILY]);
+    return {data:[{family_id:FAMILY,child_id:PRIMARY,profile_data:{
+     babyProfile:{name:'合成小宝',sex:''},dueDate:'2027-01-08',birthDate:'',
+     babyWeight:'',legacySourceSha256:'f'.repeat(64)
+    }}]};
+   }}}};
+  }})},
   scopeGuard:{requireLegacyMigrationTarget(){}},
   accessPreflight:{create:()=>({verifyAccess:async x=>{
    calls.push(['permission',x.familyId,x.actorUid]);
@@ -70,11 +79,12 @@ test('M3 primary view never mixes smoke S140 and never replays legacy purchases 
  assert.equal(view.inventory.S,60);
  assert.equal(view.revisions.S,1);
  assert.equal(view.legacyHistory.total,2);
+ assert.equal(view.profileData.babyProfile.name,'合成小宝');
  assert.equal(view.livePurchases.length,1);
  assert.equal(view.legacyPurchasesAppliedToInventory,false);
  assert.equal(view.canWrite,false);
  assert.equal(view.settings.referenceOverrides['好奇|小森林|S'],1.123);
- assert.ok(calls.filter(x=>['inventory','purchases','settings','history'].includes(x[0]))
+ assert.ok(calls.filter(x=>['inventory','purchases','settings','history','profile'].includes(x[0]))
   .every(x=>x[1]===PRIMARY));
  assert.ok(!calls.some(x=>x.includes(SMOKE)));
  assert.equal(typeof adapter.applyOperation,'undefined');
