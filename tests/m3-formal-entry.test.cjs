@@ -107,7 +107,8 @@ test('primary not migrated hides data even for previously valid sessions',async(
  assert.equal(f.app.mode,'unverified');
  assert.equal(f.doc.body.dataset.formalState,'unverified');
  assert.equal(f.element('formalCurrentAccount').textContent,'—');
- assert.equal(f.trace.at(-1),'ui.clear');
+ assert.ok(f.trace.includes('ui.clear'));
+ assert.ok(f.trace.includes('detach'));
 });
 test('network outage is not an authentication logout and never shows previous data',async()=>{
  const f=setup({session:true,primaryReady:true});
@@ -128,5 +129,6 @@ test('active account logout blocked when durable outbox has pending operations',
  assert.equal(await f.app.signOut(),'LOGIN_REQUIRED');
  assert.equal(f.app.mode,'login');
  assert.equal(f.trace.filter(x=>x==='auth.signOut').length,1);
- assert.equal(f.trace.at(-1),'ui.clear');
+ assert.ok(f.trace.includes('ui.clear'));
+ assert.ok(f.trace.includes('detach'));
 });
