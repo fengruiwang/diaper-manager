@@ -11,17 +11,26 @@
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const SIZES=['NB','S','M','L','XL','XXL'];
  const TYPES=new Set(['inventory.delta','inventory.count','transaction.reverse']);
+ // Deliberately separate from M1-02 smoke and any existing family localStorage.
+ const PRIMARY_DB_NAME='xiaobao-primary-sync-v120';
  const result=(status,extra={})=>Object.freeze({status,cloudWriteCommitted:false,...extra});
  function create({controller,host,accessPreflight,childReader,scopeGuard,
-  legacyHistoryReader,inventoryClient,outbox,runnerFactory,syncFactory,
+  legacyHistoryReader,inventoryClient,outboxFactory,outboxContract,
+  inventoryProjection,inventoryReconciler,runnerFactory,syncFactory,
   cloudWritesEnabled=false}={}){
   if(!controller?.verifiedContext||!accessPreflight?.create
     ||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget
     ||!legacyHistoryReader?.create||!inventoryClient?.create
-    ||!outbox?.readInventory||!outbox?.initializeInventory
-    ||!outbox?.commitInventory||!outbox?.stats||!runnerFactory?.create
-    ||!syncFactory?.create)
+    ||!outboxFactory?.create||!outboxContract?.createOperation
+    ||!inventoryProjection?.createSnapshot||!inventoryReconciler?.build
+    ||!host?.indexedDB||!runnerFactory?.create||!syncFactory?.create)
    throw Error('primary_operations:dependencies_required');
+  const outbox=outboxFactory.create({indexedDB:host.indexedDB,
+   contract:outboxContract,projection:inventoryProjection,
+   reconciler:inventoryReconciler,dbName:PRIMARY_DB_NAME});
+  if(!outbox?.readInventory||!outbox?.initializeInventory
+    ||!outbox?.commitInventory||!outbox?.stats)
+   throw Error('primary_operations:primary_outbox_unverified');
   let selected=null,busy=false;
   const online=()=>host?.navigator?.onLine!==false;
   function knownRows(rows){
@@ -206,14 +215,14 @@
       ||stats.outstanding!==0)
      return result('PRIMARY_ACK_OR_REVISIONS_NOT_VERIFIED');
     return result('PRIMARY_CLOUD_SYNCED_VERIFIED',{
-     operationCount:sent.accepted,cloudWriteCommitted:true});
+     operationCount:sent.accepted,cloudWriteCommitted:sent.accepted>0});
    }catch(_){return result('PRIMARY_ACK_UNKNOWN_PRESERVE_ID_AND_QUEUE');}
    finally{busy=false;}
   }
   return Object.freeze({activate,read,queue,flush,
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }
- const api=Object.freeze({create});
+ const api=Object.freeze({create,PRIMARY_DB_NAME});
  if(root)root.XBPrimaryCloudOperations=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
