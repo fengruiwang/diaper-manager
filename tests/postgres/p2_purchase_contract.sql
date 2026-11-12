@@ -393,6 +393,8 @@ END $$;
 RESET ROLE;
 \i tests/postgres/p2_smoke_child_contract.sql
 -- P2-4E DRAFT / SYNTHETIC CI ONLY: not installed in the real family DB.
+-- M2 formal primary RPC installed in disposable PG before 021-024.
+\i cloudbase/sql/025_xb_create_primary_child_owner_only_DRAFT_DO_NOT_DEPLOY.sql
 \i cloudbase/sql/021_xb_migration_receipt_preflight_DRAFT_DO_NOT_DEPLOY.sql
 \i tests/postgres/p2_migration_receipt_preflight_contract.sql
 -- P2-4E-B1 atomic archive-only DRAFT, synthetic owner/history ONLY.
@@ -404,4 +406,6 @@ RESET ROLE;
 -- P2-4F-A: owner/member read-only bounded history and settings, CI synthetic only.
 \i cloudbase/sql/024_xb_legacy_history_read_DRAFT_DO_NOT_DEPLOY.sql
 \i tests/postgres/p2_legacy_history_read_contract.sql
+-- Owner-only primary lifecycle and retained smoke S140, isolated synthetic only.
+\i tests/postgres/m2_primary_child_contract.sql
 \echo P2 PostgreSQL contract passed
