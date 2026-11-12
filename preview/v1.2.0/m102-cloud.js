@@ -12,6 +12,11 @@
  const DEFAULT_WRITE_APPROVAL=false;
  const DEFAULT_CREATE_APPROVAL=false;
  const DEFAULT_RETIRE_APPROVAL=false;
+ // Feature-only B candidate: NEVER deploy before a separate user approval.
+ // Browser writes additionally require an explicit per-tab operator unlock.
+ const PHASE_B_CANDIDATE_CREATE=true;
+ const PHASE_B_CANDIDATE_PURCHASE=true;
+ const ARM_PHRASE='阶段B已正式授权';
  function fail(code){throw Error('m102:'+code);}
  function validRows(rows){
   if(!Array.isArray(rows)||rows.length!==6)fail('inventory_incomplete');
@@ -66,7 +71,8 @@
   };
  }
  function create({host,controller,view,approvedWrites=DEFAULT_WRITE_APPROVAL,
-  approvedCreate=DEFAULT_CREATE_APPROVAL,approvedRetire=DEFAULT_RETIRE_APPROVAL}={}){
+  approvedCreate=DEFAULT_CREATE_APPROVAL,approvedRetire=DEFAULT_RETIRE_APPROVAL,
+  requireOperatorUnlock=false}={}){
   if(!host||!controller||typeof controller.verifiedContext!=='function'
     ||!view||typeof view.status!=='function'||!host.indexedDB
     ||!host.XBDurableOutbox||!host.XBInventoryClient||!host.XBOutboxContract
@@ -79,8 +85,21 @@
    dbName:DB_NAME
   });
   let active=false,busy=false,context=null,snapshot=null,purchases=[],status='LOCAL_SANDBOX';
-  function viewState(){return {active,busy,canWrite:approvedWrites===true,
-   canCreate:approvedCreate===true,canRetire:approvedRetire===true,
+  let operatorArmed=requireOperatorUnlock!==true;
+  function canCreate(){return approvedCreate===true&&operatorArmed;}
+  function canPurchase(){return approvedWrites===true&&operatorArmed;}
+  function canRetire(){return approvedRetire===true&&operatorArmed;}
+  function armPhaseB(text){
+   if(approvedCreate!==true||approvedWrites!==true||requireOperatorUnlock!==true)
+    return publish('PHASE_B_NOT_RELEASED');
+   if(text!==ARM_PHRASE)return publish('PHASE_B_APPROVAL_PHRASE_REQUIRED');
+   if(busy||active)return publish('EXIT_CLOUD_MODE_BEFORE_ARMING');
+   operatorArmed=true;
+   return publish('PHASE_B_ARMED_IN_THIS_TAB');
+  }
+  function viewState(){return {active,busy,canWrite:canPurchase(),
+   canCreate:canCreate(),canRetire:canRetire(),armed:operatorArmed,
+   candidate:approvedCreate===true&&approvedWrites===true,
    selected:active&&context?.childId?true:false,
    pending:0,inventory:snapshot?.inventory||null};}
   function publish(code){
@@ -123,7 +142,7 @@
    return {familyId:scope.familyId,actorUid:scope.actorUid,
     member:true,appCode:'xb',initialized:true};
   }
-  async function ownerAuthorized(live){
+  async function memberRole(live){
    const grant=await host.XBCloudbaseAccessPreflight.create(live.app)
     .verifyAccess({familyId:live.familyId,actorUid:live.actorUid});
    if(grant.member!==true||grant.appCode!=='xb'||grant.familyId!==live.familyId
@@ -134,12 +153,17 @@
    if(result?.error||!Array.isArray(result?.data)||result.data.length!==1
       ||result.data[0].family_id!==live.familyId
       ||result.data[0].user_uid!==live.actorUid
-      ||result.data[0].member_role!=='owner')fail('owner_permission_required');
+      ||!['owner','member'].includes(result.data[0].member_role))
+    fail('member_permission_required');
+   return result.data[0].member_role;
+  }
+  async function ownerAuthorized(live){
+   if(await memberRole(live)!=='owner')fail('owner_permission_required');
    return true;
   }
   // Not callable for cloud writes in any build without separate approval.
   async function createSmokeChild(){
-   if(approvedCreate!==true)return publish('CREATE_NOT_AUTHORIZED');
+   if(!canCreate())return publish('CREATE_NOT_AUTHORIZED');
    if(busy)return 'BUSY';
    if(active)return publish('EXIT_CLOUD_MODE_BEFORE_CREATE');
    busy=true;publish('VERIFYING_OWNER_FOR_CREATE');
@@ -168,7 +192,7 @@
   }
   // Permanent child-slot retirement; never automatic.
   async function retireSmokeChild(confirmation){
-   if(approvedRetire!==true)return publish('RETIRE_NOT_AUTHORIZED');
+   if(!canRetire())return publish('RETIRE_NOT_AUTHORIZED');
    if(confirmation!=='确认停用')return publish('RETIRE_CONFIRMATION_REQUIRED');
    if(busy)return 'BUSY';
    if(!active||!context)return publish('SELECT_SMOKE_CHILD_FIRST');
@@ -234,7 +258,7 @@
    return result;
   }
   async function flush(scope,client){
-   if(approvedWrites!==true)return {status:'not-approved'};
+   if(!canPurchase())return {status:'not-approved'};
    if(host.navigator&&host.navigator.onLine===false)return {status:'offline'};
    const runner=host.XBInventoryOutboxRunner.create({
     outbox,remote:client,verifyAccess:async()=>authorized(scope)
@@ -249,13 +273,14 @@
     await controller.connect();
     const live=identity();
     const scope=await smokeScope(live);
+    scope.role=await memberRole(live);
     const client=remote(scope);
     const local=await initialSnapshot(scope,client);
     if(!local||local.source!=='verified-server')fail('baseline_unverified');
     context=scope;snapshot=local;active=true;
     const checked=await reconcile(scope,client);
     return publish(checked.status==='local-pending'?'CLOUD_LOCAL_PENDING':
-      approvedWrites===true?'CLOUD_SMOKE_READY':'CLOUD_SMOKE_READ_ONLY_APPROVAL_REQUIRED');
+      canPurchase()?'CLOUD_SMOKE_READY':'CLOUD_SMOKE_READ_ONLY_APPROVAL_REQUIRED');
    }catch(e){
     active=false;context=null;snapshot=null;purchases=[];
     return publish(errorCode(e));
@@ -282,7 +307,7 @@
     if(stats.conflict||stats.blocked)return publish('CLOUD_MANUAL_REVIEW_REQUIRED');
     if(stats.outstanding)return publish('CLOUD_LOCAL_PENDING');
     if(outcome.status==='verified-as-of-server-read')
-     return publish(approvedWrites===true?'CLOUD_SYNCED':'CLOUD_SMOKE_READ_ONLY_APPROVAL_REQUIRED');
+     return publish(canPurchase()?'CLOUD_SYNCED':'CLOUD_SMOKE_READ_ONLY_APPROVAL_REQUIRED');
     return publish('CLOUD_LOCAL_PENDING');
    }catch(e){
     if(e.message==='m102:identity_changed'||e.message==='m102:scope_changed'){
@@ -293,7 +318,7 @@
   }
   async function submitPurchase(q){
    if(!active)return publish('CLOUD_MODE_NOT_ACTIVE');
-   if(approvedWrites!==true)return publish('CLOUD_WRITE_NOT_AUTHORIZED');
+   if(!canPurchase())return publish('CLOUD_WRITE_NOT_AUTHORIZED');
    if(busy)return publish('BUSY');
    busy=true;publish('PURCHASE_QUEUING');
    try{
@@ -303,6 +328,21 @@
     const live=identity();
     if(context.familyId!==live.familyId||context.actorUid!==live.actorUid)
      fail('identity_changed');
+    // Stage B is exactly one S60 by owner A and one S80 by member B.
+    // A new ID must never be generated by double-clicking or re-entering.
+    const expected=context.role==='owner'?60:context.role==='member'?80:null;
+    if(q.size!=='S'||q.pieces!==expected)fail('phase_b_purchase_scope_rejected');
+    if(purchases.some(x=>x.actorUid===context.actorUid)|| 
+       (await outbox.reconciliationIds(context,context.childId)).length!==0)
+     fail('phase_b_actor_already_purchased');
+    if(host.navigator?.onLine!==false){
+     const fresh=await remote(context).readPurchases({
+      familyId:context.familyId,childId:context.childId
+     });
+     if(fresh.some(x=>x.actorUid===context.actorUid)||fresh.length>=2)
+      fail('phase_b_purchase_limit_reached');
+     purchases=fresh;
+    }
     const op=makeOperation(q,context,context.childId,
      ()=>new Date().toISOString(),()=>host.crypto.randomUUID());
     const saved=await outbox.commitInventory(context,op);
@@ -336,24 +376,26 @@
   }
   function reset(){
    active=false;context=null;snapshot=null;purchases=[];
+   if(requireOperatorUnlock===true)operatorArmed=false;
    return publish('LOCAL_SANDBOX');
   }
   return Object.freeze({
-   activate,refresh,submitPurchase,createSmokeChild,retireSmokeChild,reset,isActive:()=>active,
+   activate,refresh,submitPurchase,createSmokeChild,retireSmokeChild,armPhaseB,reset,isActive:()=>active,
    stock:size=>active&&snapshot?snapshot.inventory[size]:null,
    spend:()=>active?purchases.filter(x=>!x.reversed).reduce((n,x)=>n+x.totalFen,0)/100:null,
    history:()=>active?purchases.slice():[],
    get status(){return status;},
-   get approvedWrites(){return approvedWrites===true;},
-   get approvals(){return Object.freeze({create:approvedCreate===true,
-    purchase:approvedWrites===true,retire:approvedRetire===true});}
+   get approvedWrites(){return canPurchase();},
+   get approvals(){return Object.freeze({create:canCreate(),
+    purchase:canPurchase(),retire:canRetire()});}
   });
  }
  function browserStart(){
   if(!root.document||!root.XBM1Preview)return;
   const doc=root.document,$=id=>doc.getElementById(id);
   const required=['m102Mode','m102Status','m102Refresh','m102Retry',
-   'm102Create','m102Retire','m102RetireConfirmation','m102ChildInfo','buyNow'];
+   'm102Create','m102Retire','m102RetireConfirmation','m102ChildInfo',
+   'm102Arm','m102ArmText','buyNow'];
   if(required.some(x=>!$(x)))return;
   const view={
    status:(code,state)=>{
@@ -366,6 +408,8 @@
     $('m102Retry').disabled=!state.active||!state.canWrite||state.busy;
     $('m102Refresh').disabled=!state.active||state.busy;
     $('m102Create').disabled=!state.canCreate||state.busy||state.active;
+    $('m102Arm').disabled=!state.candidate||state.armed||state.busy||state.active;
+    $('m102ArmText').disabled=!state.candidate||state.armed||state.busy||state.active;
     $('m102Retire').disabled=!state.canRetire||state.busy||!state.selected
       ||$('m102RetireConfirmation').value.trim()!=='确认停用';
     $('m102ChildInfo').textContent=state.selected?'已选择经过身份、家庭、标识核验的专用测试宝宝。':
@@ -375,7 +419,9 @@
   };
   let bridge;
   try{bridge=create({host:root,controller:root.XBM1Preview,view,
-    approvedWrites:DEFAULT_WRITE_APPROVAL});}
+    approvedWrites:PHASE_B_CANDIDATE_PURCHASE,
+    approvedCreate:PHASE_B_CANDIDATE_CREATE,
+    approvedRetire:DEFAULT_RETIRE_APPROVAL,requireOperatorUnlock:true});}
   catch(_){
    $('m102Status').textContent='M1-02 模块尚未就绪，请检查测试文件与浏览器 IndexedDB。';
    return;
@@ -384,6 +430,11 @@
   $('m102Mode').addEventListener('click',()=>bridge.activate());
   $('m102Refresh').addEventListener('click',()=>bridge.refresh());
   $('m102Retry').addEventListener('click',()=>bridge.refresh({retry:true}));
+  $('m102Arm').addEventListener('click',()=>{
+   if(!root.confirm('仅在你已明确授权阶段 B 后解锁本页；将允许创建唯一测试宝宝与 A60/B80 两笔真实云端采购。继续吗？'))return;
+   bridge.armPhaseB($('m102ArmText').value.trim());
+   $('m102ArmText').value='';
+  });
   $('m102Create').addEventListener('click',()=>{
    if(!root.confirm('仅在另行批准创建后使用。确认在家庭中创建唯一测试宝宝吗？'))return;
    bridge.createSmokeChild();
@@ -399,7 +450,7 @@
   });
   root.addEventListener('online',()=>{if(bridge.isActive())bridge.refresh({retry:true});});
   view.status('LOCAL_SANDBOX',{active:false,busy:false,canWrite:false,
-   canCreate:false,canRetire:false,selected:false});
+   canCreate:false,canRetire:false,selected:false,candidate:true,armed:false});
  }
  const api=Object.freeze({create,makeOperation,verifyPurchaseOnlyBaseline,
   validRows,sameRows,DB_NAME,SMOKE});
