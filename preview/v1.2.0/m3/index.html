@@ -1,0 +1,3002 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#f6f7fb" />
+<meta name="description" content="纸尿裤备货计划、库存管理、采购记录、参考好价提醒和单片比价。" />
+<title>M3 独立预览 · 小宝管家 V1.2.0 · 独立联网测试版 M1-01</title>
+<meta name="robots" content="noindex,nofollow" />
+
+
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="小宝管家" />
+<meta name="application-name" content="小宝管家" />
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--text:#263147;--muted:#788299;--line:#e7eaf2;--primary:#6b61d8;--deep:#5046ba;--soft:#efedff;--green:#18856c;--green-bg:#e6f7f1;--orange:#a86618;--orange-bg:#fff2df;--red:#bd5b55;--red-bg:#fff0ee;--shadow:0 6px 24px rgba(42,53,93,.045);--radius:18px}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft Yahei",sans-serif;font-size:14px;line-height:1.56}button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}input,select{min-width:0;border:1px solid #dfe3ed;border-radius:11px;padding:10px 12px;background:#fff;color:var(--text);outline:none;transition:.15s}input:focus,select:focus{border-color:#877eec;box-shadow:0 0 0 3px #eeebff}input[type=number]{font-variant-numeric:tabular-nums}a{color:var(--deep)}.wrap{max-width:1120px;margin:0 auto;padding:0 22px 70px}.top{height:84px;display:flex;align-items:center;justify-content:space-between;gap:18px}.logo{display:flex;align-items:center;gap:11px}.logo-mark{width:41px;height:41px;border-radius:14px;background:linear-gradient(150deg,#8d86ed,#5c50ca);display:grid;place-items:center;color:#fff;font-size:23px;box-shadow:0 6px 15px #dcd8ff}.logo-title{font-size:19px;font-weight:800;letter-spacing:-.45px}.logo-sub{font-size:11px;color:var(--muted);font-weight:500}.privacy{font-size:12px;color:#5d687d;background:#e9edf4;padding:8px 11px;border-radius:25px;white-space:nowrap}.privacy span{font-size:13px;color:var(--green)}.hero{display:flex;align-items:center;justify-content:space-between;gap:20px;overflow:hidden;position:relative;border:1px solid #e5e2ff;border-radius:23px;background:linear-gradient(117deg,#edeaff 0%,#f7f4ff 58%,#fff8f2 100%);padding:29px 32px}.hero::after{content:"";position:absolute;width:175px;height:175px;border-radius:50%;right:24px;top:-67px;background:rgba(190,182,255,.23)}.hero .eyebrow{color:#685cc4;font-size:12px;font-weight:800;letter-spacing:1.1px}.hero h1{font-size:26px;letter-spacing:-.7px;line-height:1.3;margin:7px 0 9px}.hero p{margin:0;color:#70798f;font-size:13px;max-width:600px}.due{position:relative;z-index:1;flex-shrink:0;min-width:182px;background:#fff;border:1px solid #eeeafd;border-radius:17px;padding:17px 20px;text-align:center;box-shadow:0 6px 19px #877ad010}.due-label{font-size:11px;color:#8a89a5}.due-value{color:#5c50c6;font-size:26px;line-height:1.5;font-weight:800;font-variant-numeric:tabular-nums}.due-sub{font-size:11px;color:#888ca0}.due-age{margin-top:5px;font-size:12px;font-weight:650;color:#685cc4;white-space:nowrap}.tabs{display:flex;gap:7px;padding:7px;background:#eaeef5;border-radius:14px;width:max-content;max-width:100%;margin:23px 0 20px;overflow-x:auto}.tab{white-space:nowrap;border:0;background:transparent;padding:10px 19px;border-radius:10px;color:#6e788b;font-weight:700}.tab.active{color:#4e45b5;background:#fff;box-shadow:0 2px 8px #4d4b8521}.panel{display:none}.panel.active{display:block}.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px}.kpi,.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}.kpi{padding:17px 18px}.kpi-label{font-size:12px;color:var(--muted)}.kpi-value{font-size:27px;line-height:1.4;font-weight:850;font-variant-numeric:tabular-nums;margin-top:7px;letter-spacing:-.8px}.kpi-meta{font-size:11px;color:#939bab;margin-top:4px}.purple{color:var(--primary)}.orange{color:var(--orange)}.green{color:var(--green)}.head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:24px 0 13px}.head h2{font-size:17px;letter-spacing:-.3px;margin:0}.sub{color:var(--muted);font-size:12px}.btn{border:0;border-radius:11px;padding:10px 15px;font-weight:700;white-space:nowrap;background:var(--primary);color:#fff;box-shadow:0 3px 7px #6b61d81b}.btn:hover{filter:brightness(.97)}.btn.secondary{background:#efedff;color:#554cbb;box-shadow:none}.btn.ghost{color:#5e677c;background:#f4f6fa;box-shadow:none}.btn.danger{color:#b95350;background:#fff0ee;box-shadow:none}.btn.sm{padding:7px 10px;font-size:12px;border-radius:9px}.card{padding:20px}.alert{border-radius:15px;padding:14px 17px;display:flex;align-items:center;justify-content:space-between;gap:15px;background:#f0efff;border:1px solid #e1deff;color:#514bb2;margin-bottom:16px}.alert.warning{background:var(--orange-bg);border-color:#ffe3b7;color:var(--orange)}.alert strong{font-size:13px}.alert p{margin:2px 0 0;color:inherit;opacity:.84;font-size:12px}.alert .btn{flex-shrink:0}.sizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.sizecard{border:1px solid var(--line);border-radius:17px;background:#fff;padding:19px;min-width:0}.sizecard.focus{border-color:#b3adfa;box-shadow:0 0 0 2px #eeecff}.size-top{display:flex;justify-content:space-between;align-items:center}.size-pill{background:#f0efff;color:#5c52bb;border-radius:10px;padding:5px 11px;font-weight:850;font-size:13px}.size-range{font-size:11px;color:#929aad}.stock-number{display:flex;align-items:baseline;gap:6px;margin:12px 0 2px}.stock-number b{font-size:29px;font-variant-numeric:tabular-nums;line-height:1.2}.stock-number small{font-size:12px;color:#9199aa}.bar{height:7px;border-radius:30px;background:#eeeefa;overflow:hidden;margin:12px 0 10px}.bar span{display:block;height:100%;border-radius:30px;background:linear-gradient(90deg,#a7a1f6,#7167da);transition:width .25s}.micro{font-size:11px;color:#8c94a5;display:flex;justify-content:space-between;gap:6px}.size-actions{display:flex;gap:8px;align-items:center;margin-top:15px}.size-actions .btn{flex:1}.size-detail{font-size:11px;color:#858fa2;margin-top:13px;padding-top:11px;border-top:1px dashed #eaeaf1}.two-col{display:grid;grid-template-columns:1.25fr .75fr;gap:16px}.section-title{font-weight:800;font-size:15px;margin:0 0 13px}.plan-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:13px 0}.plan-row:last-child{border-bottom:none}.plan-left{display:flex;align-items:center;gap:11px}.dot{width:34px;height:34px;background:#f0efff;color:var(--deep);font-weight:800;border-radius:11px;display:grid;place-items:center;font-size:12px}.progress-info{font-size:12px;color:#8b93a5}.planned{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}.tip{background:#f8f9fc;border:1px solid #edf0f6;border-radius:13px;padding:12px 14px;color:#758095;font-size:12px}.tip b{color:#485167}.statline{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:12px 0;border-bottom:1px solid var(--line)}.statline:last-child{border:0}.statline strong{font-size:16px;font-variant-numeric:tabular-nums}.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.field{display:flex;flex-direction:column;gap:6px}.field label{font-size:12px;color:#728098;font-weight:600}.form-grid .wide{grid-column:span 2}.action-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:17px}.result{border:1px solid #e3e0fc;border-radius:16px;background:linear-gradient(130deg,#f6f4ff,#fff);display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 20px;margin-top:18px}.unit{font-weight:850;font-size:32px;color:var(--primary);letter-spacing:-1px;font-variant-numeric:tabular-nums}.result small{display:block;color:#8992a5;font-size:11px}.tag{display:inline-flex;align-items:center;border-radius:20px;font-size:11px;font-weight:700;padding:5px 9px;white-space:nowrap;background:var(--soft);color:var(--deep)}.tag.good{background:var(--green-bg);color:var(--green)}.tag.warn{background:var(--orange-bg);color:var(--orange)}.tag.bad{background:var(--red-bg);color:var(--red)}.empty{padding:35px 18px;text-align:center;background:#fafbfe;border:1px dashed #e1e5ef;border-radius:14px;color:#99a1b0}.empty b{display:block;color:#697488;margin-bottom:6px}.table-wrap{overflow-x:auto}.tbl{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}.tbl th{text-align:left;background:#f8f9fc;color:#8791a3;font-weight:700;padding:12px 10px;border-bottom:1px solid #e9ecf3}.tbl td{padding:13px 10px;border-bottom:1px solid #eef0f5}.tbl tr:last-child td{border-bottom:0}.tbl b{font-size:13px}.tbl button{margin-right:5px}.soft-note{font-size:12px;color:#929aaa;margin-top:12px}.profile{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.profile-item{border:1px solid #edf0f4;border-radius:13px;padding:13px;background:#fdfdff}.profile-item .field{margin-bottom:0}.setting-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}.setting-size{border:1px solid #edf0f5;border-radius:12px;padding:11px;background:#fcfcfe}.setting-size b{display:block;margin-bottom:9px;color:#554bc0}.setting-size label{font-size:11px;color:#8590a4;display:block;margin-bottom:4px}.setting-size input{width:100%;padding:9px 7px;margin-bottom:9px}.setting-size input:last-child{margin:0}.footer-note{margin:30px 0 0;color:#929bb0;font-size:11px;line-height:1.8;text-align:center}.toast{position:fixed;left:50%;bottom:23px;transform:translateX(-50%) translateY(90px);z-index:99;background:#30354a;color:#fff;padding:12px 19px;border-radius:12px;font-size:13px;box-shadow:0 10px 25px #0002;opacity:0;transition:.23s;pointer-events:none;max-width:90vw;text-align:center}.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}.chip-row{display:flex;gap:7px;flex-wrap:wrap;margin:11px 0}.chip{border:1px solid #e5e7f0;background:#fff;border-radius:20px;padding:6px 11px;color:#657189;font-size:12px}.chip.active{background:#efedff;border-color:#aaa3f4;color:#5147bb}.hint-icon{font-size:17px}.fine{font-size:11px;color:#929aac}.small-num{font-variant-numeric:tabular-nums;font-weight:800}
+/* Reference price enhancement */
+/* In-page reference-price editor; no browser prompt() dependency */
+.ref-inline-edit{border:0;background:none;font:inherit;color:var(--deep);text-decoration:underline;text-underline-offset:2px;padding:4px 2px;font-weight:700}
+.price-editor-backdrop{position:fixed;inset:0;background:rgba(26,33,58,.53);z-index:200;display:flex;justify-content:center;align-items:center;padding:18px;overscroll-behavior:contain}
+.price-editor-card{width:min(100%,425px);background:#fff;border-radius:20px;padding:24px;box-shadow:0 24px 65px rgba(32,37,77,.2);max-height:calc(100dvh - 36px);overflow-y:auto}
+.price-editor-heading{display:flex;align-items:start;justify-content:space-between;gap:12px;margin-bottom:5px}
+.price-editor-heading h2{font-size:19px;margin:0;line-height:1.35}
+.price-editor-sub{color:var(--muted);font-size:12px;margin:6px 0 17px}
+.price-editor-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.price-editor-meta>div{background:#f7f8fc;border:1px solid #edf0f6;border-radius:12px;padding:12px}
+.price-editor-meta small{display:block;color:var(--muted);font-size:11px}
+.price-editor-meta b{font-size:17px;display:block;font-variant-numeric:tabular-nums;margin-top:2px}
+.price-editor-card .field{margin-bottom:9px}
+.price-editor-card input{width:100%;font-size:20px;padding:13px}
+.price-editor-error{color:var(--red);font-size:12px;min-height:18px;margin-top:5px}
+.price-editor-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}
+.price-editor-actions>.btn{flex:1}
+.price-editor-foot{font-size:11px;color:var(--muted);margin:13px 0 0}
+@media(max-width:450px){.price-editor-card{padding:19px}.price-editor-actions>.btn{min-width:40%}}
+.field{min-width:0}.field input,.field select{width:100%}
+[hidden]{display:none!important}.series-picker{padding-top:11px}.series-picker .chip-row{margin:8px 0 0}.series-picker .chip{padding:5px 10px}.series-picker .chip.active{background:#eeebff}.ref-result{margin-top:12px;border:1px solid #e3e7f2;border-radius:14px;padding:14px 16px;background:#fafbfe}.ref-result.good{border-color:#bde9d8;background:#f1fbf6}.ref-result.warn{border-color:#f7daa8;background:#fffaf0}.ref-result.bad{border-color:#edc4bd;background:#fff5f3}.ref-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.ref-summary b{font-size:13px}.ref-description{font-size:12px;color:#637086;margin-top:6px;line-height:1.6}.ref-big{font-size:21px;font-weight:850;font-variant-numeric:tabular-nums;white-space:nowrap}.ref-controls{display:grid;grid-template-columns:1fr 1fr 1.4fr;gap:11px;margin-bottom:12px}.ref-controls input,.ref-controls select{width:100%}.ref-muted{color:#a5adba}.ref-unit{font-weight:800;font-variant-numeric:tabular-nums}.ref-list{max-height:455px;overflow:auto;border:1px solid #edf0f5;border-radius:12px}.ref-list .tbl thead th{position:sticky;top:0;z-index:1}.ref-remark{font-size:11px;color:#a06438;margin-top:5px}.ref-actions{white-space:nowrap}.compact-ref{font-size:11px;margin-top:4px}.ref-picker-note{color:#8a94a5;font-size:11px}.ref-row-focus{background:#f7f6ff}.ref-picker-full{display:none}
+@media(max-width:940px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.sizes{grid-template-columns:repeat(2,1fr)}.setting-grid{grid-template-columns:repeat(3,1fr)}.two-col{grid-template-columns:1fr}}
+@media(max-width:600px){.ref-controls{grid-template-columns:1fr 1fr}.ref-controls .field:last-child{grid-column:span 2}.ref-result{padding:12px}.ref-summary .ref-big{font-size:19px}.wrap{padding:0 14px 44px}.top{height:71px}.logo-title{font-size:17px}.privacy{font-size:11px;padding:7px}.hero{padding:21px 19px;display:block}.hero h1{font-size:23px}.hero p{font-size:12px}.due{margin-top:17px;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 14px;min-width:0}.due-value{font-size:21px}.due-sub{display:none}.tabs{margin:16px 0;display:grid;grid-template-columns:repeat(4,1fr);width:100%;gap:3px;padding:5px}.tab{padding:9px 0;font-size:12px}.kpi-grid{gap:9px}.kpi{padding:14px 13px}.kpi-value{font-size:23px}.kpi-meta{font-size:10px}.sizes{grid-template-columns:1fr;gap:9px}.sizecard{padding:16px}.head{margin:20px 0 12px}.head h2{font-size:16px}.card{padding:16px}.form-grid{grid-template-columns:repeat(2,1fr);gap:11px}.form-grid .wide{grid-column:span 2}.profile{grid-template-columns:repeat(2,1fr)}.setting-grid{grid-template-columns:repeat(2,1fr)}.alert{align-items:flex-start}.alert .btn{padding:8px 10px}.result{padding:14px}.unit{font-size:27px}.size-actions{margin-top:12px}}
+@media(max-width:600px){.ref-list .tbl{white-space:normal}.ref-list .tbl thead{display:none}.ref-list .tbl tbody{display:block}.ref-list .tbl tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:12px;border-bottom:1px solid #edf0f5}.ref-list .tbl tr:last-child{border-bottom:0}.ref-list .tbl td{padding:0;border:0;min-width:0}.ref-list .tbl td:nth-child(1){grid-column:1;grid-row:1;font-size:11px;color:var(--muted)}.ref-list .tbl td:nth-child(2){grid-column:1;grid-row:2}.ref-list .tbl td:nth-child(3){grid-column:2;grid-row:1 / span 2;display:flex;flex-direction:column;justify-content:center;align-items:flex-end}.ref-list .tbl td:nth-child(4){grid-column:1 / -1;grid-row:3;display:flex;gap:8px;margin-top:7px}.ref-list .tbl td:nth-child(4) .btn{flex:1;margin:0}.ref-list .tbl .ref-unit{font-size:15px}}
+@media(max-width:370px){.privacy{display:none}.profile{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.form-grid .wide{grid-column:span 1}.alert{display:block}.alert .btn{margin-top:10px}}
+@media print{.tabs,.action-row,.size-actions,.btn,.footer-note,.privacy,.no-print{display:none!important}.panel{display:block!important;page-break-inside:avoid}.wrap{max-width:none}.hero,.card,.sizecard{box-shadow:none}}
+/* PWA install/update layer only; all shopping, inventory and price logic remains intact. */
+.pwa-launch{display:flex;align-items:center;gap:9px;margin:12px 1px 0;flex-wrap:wrap}
+.pwa-launch .pwa-note{font-size:11px;color:#8993a6}
+.pwa-notice{margin:13px 1px 0;padding:11px 13px;border:1px solid #e0defd;background:#f4f2ff;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pwa-notice p{margin:0;font-size:12px;color:#5b568f}
+.pwa-notice .btn{flex-shrink:0}
+.pwa-notice.migration{background:#fff9ec;border-color:#f5e2bd}
+.pwa-notice.migration p{color:#8b6530}
+@media(max-width:600px){.pwa-notice{flex-wrap:wrap}.pwa-launch{margin:10px 1px 0}}
+@media print{.pwa-launch,.pwa-notice{display:none!important}}
+
+/* Growth v1.1.0: responsive and standalone chart. */
+.growth-chart{width:100%;max-height:320px;display:block}
+.growth-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.growth-stat{background:#f8f8ff;border:1px solid #e9e7fd;border-radius:14px;padding:14px}
+.growth-stat small{display:block;color:#788299;font-size:11px}
+.growth-stat b{display:block;font-size:21px;color:#5147bb;margin-top:4px}
+.baby-time{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.baby-time input{text-align:center;padding:10px 3px}
+.profile-item.wide{grid-column:span 2}
+@media(max-width:600px){.tabs{grid-template-columns:repeat(5,minmax(0,1fr))}.tab{font-size:11px;padding:9px 0}.growth-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.growth-stat{padding:11px}.growth-stat b{font-size:18px}}
+
+/* v1.1.1: stage-aware replenishment settings. */
+.plan-size-group{margin-top:15px}
+.plan-size-group h3{font-size:14px;margin:0 0 10px;color:#4c5267}
+.plan-more{margin-top:13px;border:1px solid #e5e7f0;border-radius:13px;background:#fcfcff;padding:11px 12px}
+.plan-more summary{cursor:pointer;font-size:13px;font-weight:700;color:#59627c}
+.plan-more .setting-grid{margin-top:12px}
+.plan-more-note{font-size:11px;color:#8a93a5;margin-top:8px}
+.plan-formats{margin-top:12px}
+.plan-size-now{border-color:#b3adfa;background:#f8f7ff}
+.plan-size-next{border-color:#e1ddfb}
+.plan-size-heading{font-size:13px;font-weight:750;color:#5147bb}
+.plan-size-stock{font-size:11px;color:#8992a5;margin:4px 0 9px}
+@media(max-width:600px){.plan-more{padding:10px}.plan-size-group{margin-top:14px}}
+
+/* v1.1.2: shared size guidance and stage-aware stocktaking. */
+.size-help{font-size:11px;color:#8c94a5;margin-top:4px;line-height:1.55}
+.stock-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.stock-size{background:#fbfbff;border:1px solid #e9eaf4;border-radius:12px;padding:11px}
+.stock-size.active{background:#f8f7ff;border-color:#b6aff6}
+.stock-size .field label{font-size:13px;color:#5147bb;font-weight:750}
+.stock-size .field input{margin-top:5px}
+.stock-title{font-weight:750;font-size:13px;color:#4d5270;margin:0 0 10px}
+.stock-current{margin-bottom:14px}
+.stock-details{margin:12px 0}
+@media(max-width:600px){.stock-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stock-size{padding:10px}}
+</style>
+<style>#pwaLaunch,#pwaMigrationNotice,#pwaUpdateNotice{display:none!important}</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero">
+    <div><h1>把纸尿裤买得刚刚好。</h1><p>从备货到日常使用，轻松管理宝宝的每一片纸尿裤。</p></div>
+    <div class="due"><div><div class="due-label" id="dueTitle">距离预产期</div><div class="due-value" id="dueValue">—</div><div class="due-age" id="dueAge" hidden></div></div><div class="due-sub" id="dueSub">预产期 2027-01-08</div></div>
+  </section>
+  <div class="pwa-launch" id="pwaLaunch">
+    <button class="btn secondary sm" type="button" id="installPwa">📱 添加到手机桌面</button>
+    <span id="pwaInstallTip" class="pwa-note">打开一次，日后可从桌面图标进入</span>
+  </div>
+  <div class="pwa-notice" id="pwaUpdateNotice" hidden>
+    <p>🆕 检测到新版本。更新仅替换网页程序，不会清空本机库存、采购记录和参考价。</p>
+    <button class="btn sm" type="button" id="pwaUpdateNow">更新应用</button>
+  </div>
+  <div class="pwa-notice migration" id="pwaMigrationNotice" hidden>
+    <p>📦 首次从本地 HTML 切换到网页版？请先在旧版导出 JSON 备份，再到这里导入。网页不会自动读取旧文件的数据。</p>
+    <button class="btn secondary sm" type="button" id="pwaImportOld">导入旧版备份</button>
+    <button class="btn ghost sm" type="button" id="pwaMigrationDismiss">我知道了</button>
+  </div>
+  
+  <section class="card" id="m1CloudBox" aria-label="V1.2.0 测试联网状态" style="border:2px solid #a7a1ee;margin:14px 0;padding:20px">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+      <strong style="font-size:17px">🧪 V1.2.0 · 联网测试工作台（M1-01）</strong>
+      <span style="font-size:12px;color:#885b2a;background:#fff2df;padding:5px 10px;border-radius:16px">独立测试 · 禁止云端写入</span>
+    </div>
+    <p style="font-size:13px;color:#725e43;margin:9px 0">下方保留 V1.1.2 原版采购、库存、比价、成长与设置界面，可直接在本机演练。<strong>所有演练修改仅保存在独立测试存储，绝不上传云端，也不读取或覆盖正式版历史。</strong></p>
+    <div id="m1Config" hidden style="padding:12px;background:#f7f4ff;border-radius:12px">
+      <strong>首次设置客户端公开 Publishable Key</strong>
+      <p class="fine">已预置经过验证的环境 ID。当前项目没有可安全复用的公开 Key 文件，所以测试版只需在本浏览器首次填写一次；后续同域名会自动使用。禁止填写服务端 API Key/SecretKey。</p>
+      <div class="action-row">
+        <input id="m1Key" type="password" placeholder="仅客户端 Publishable Key" autocomplete="off" spellcheck="false" style="flex:1;min-width:170px"/>
+        <button class="btn sm" type="button" id="m1SaveKey">保存本浏览器公开配置并连接</button>
+      </div>
+    </div>
+    <div id="m1Status" role="status" style="margin:10px 0;padding:11px;background:#f2f5fc;border-radius:11px">尚未初始化联网模块。</div>
+    <div id="m1Family" style="font-size:12px;color:#667">家庭与授权尚未验证。</div>
+    <div class="action-row" style="margin-top:12px">
+      <input id="m1Email" type="email" placeholder="家庭成员登录邮箱" autocomplete="email" style="flex:2;min-width:170px"/>
+      <button id="m1SendOtp" class="btn secondary sm" type="button">发送登录验证码</button>
+      <input id="m1Otp" type="text" inputmode="numeric" placeholder="6位验证码" autocomplete="one-time-code" style="flex:1;min-width:100px"/>
+      <button id="m1ConfirmOtp" class="btn sm" type="button">登录</button>
+      <button id="m1Refresh" class="btn secondary sm" type="button">刷新云端状态</button>
+      <button id="m1SignOut" class="btn ghost sm" type="button" disabled>退出登录</button>
+    </div>
+    <div id="m1Stock" style="margin-top:12px;font-size:12px;color:#525d70">暂无已确认的云端库存。</div>
+    <p class="fine" style="margin-top:11px">云端只读检查不会创建宝宝、修改采购或初始化库存。M1-02 真实 A/B 采购必须先单独批准隔离测试环境与写入范围；不能将此页面的本机演练结果视为云端同步。</p>
+  </section>
+  <section class="card" id="m3Panel" aria-label="M3 正式宝宝五页只读体验"
+      style="border:2px solid #7c9a81;margin-bottom:14px">
+    <strong>📱 M3 · 原有五页正式宝宝只读体验（Feature 独立测试）</strong>
+    <p class="fine">合成预览不读取任何真实家庭数据；“读取正式云端”只在 primary 已完成 M2 迁移并有服务器完成收据时可显示。测试宝宝 S140 永不作为正式数据。此模式不支持任何业务编辑或写入。</p>
+    <div id="m3Status" role="status" aria-live="polite">M3 页面初始化中</div>
+    <div class="action-row">
+      <button class="btn secondary sm" id="m3Demo" type="button">体验合成数据（五页只读）</button>
+      <button class="btn secondary sm" id="m3Cloud" type="button">读取正式 primary 云端（只读）</button>
+      <button class="btn ghost sm" id="m3Exit" type="button" disabled>退出 M3，返回本机演练</button>
+    </div>
+    <p class="fine">当前 M2 正式数据尚未迁移；预期先使用“体验合成数据”查看保留的五页布局。此预览不代表正式云端已可用。</p>
+  </section>
+  <nav class="tabs" role="tablist" aria-label="功能导航">
+    <button class="tab active" data-tab="overview">🏠 备货总览</button>
+    <button class="tab" data-tab="compare">🏷️ 好价比对</button>
+    <button class="tab" data-tab="history">📒 采购记录</button>
+    <button class="tab" data-tab="growth">📈 成长</button>
+    <button class="tab" data-tab="settings">⚙️ 个性设置</button>
+  </nav>
+  <main>
+    <section class="panel active" id="overview">
+      <div class="kpi-grid" id="kpiGrid"></div>
+      <div id="recoAlert"></div>
+      <div class="head"><h2>📦 各尺码库存</h2><span class="sub">日常消耗可一键扣减</span></div>
+      <div class="sizes" id="sizeCards"></div>
+      <div class="head"><h2>🧺 备货与补货计划</h2><button class="btn secondary sm" data-action="go" data-target="settings">调整目标数量</button></div>
+      <div class="two-col">
+        <div class="card" id="shoppingPlan"></div>
+        <div class="card" id="tipsCard"></div>
+      </div>
+      <section id="legacySection" hidden>
+        <div class="head"><h2>📦 历史尺码库存</h2><span class="sub">已换码但仍有剩余的纸尿裤</span></div>
+        <div class="card" id="legacyStock"></div>
+      </section>
+    </section>
+    <section class="panel" id="compare">
+      <p class="fine">M3 独立页面不包含 M1-02 测试宝宝创建/采购入口，所有云端操作只读。</p>
+      <div class="head"><h2>🏷️ 购买前先比一比</h2><span class="sub">实付单价 vs 对应品牌系列尺码参考价</span></div>
+      <div class="card">
+        <div class="form-grid">
+          <div class="field"><label for="qBrand">品牌</label><select id="qBrand"><option>好奇</option><option>帮宝适</option><option>Babycare</option><option>花王妙而舒</option><option>尤妮佳 Moony</option><option>大王</option><option>碧芭宝贝</option><option>宜婴</option><option>安儿乐</option><option>雀氏</option><option>露安适</option><option>BBS（图中品牌）</option><option value="其他">其他 / 自定义</option></select></div>
+          <div class="field"><label for="qSeriesChoice">具体系列（可切换）</label><select id="qSeriesChoice" aria-label="选择具体系列"><option value="">请选择系列</option></select><input id="qSeries" placeholder="请输入其他系列名称" maxlength="45" autocomplete="off" hidden /><span class="fine">点选系列即可生效；随时可重新展开切换</span></div>
+          <div class="field"><label for="qSize">尺码</label><select id="qSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select><span class="size-help" id="qSizeRange"></span></div>
+          <div class="field"><label for="qPerPack">每包片数</label><input id="qPerPack" type="number" min="1" step="1" value="60" inputmode="numeric" /></div>
+          <div class="field"><label for="qPacks">购买包数</label><input id="qPacks" type="number" min="1" step="1" value="1" inputmode="numeric" /></div>
+          <div class="field"><label for="qPrice">全部实付金额（元）</label><input id="qPrice" type="number" min="0.01" step="0.01" placeholder="券后到手价" inputmode="decimal" /></div>
+        </div>
+        <div class="series-picker"><div class="fine">也可以点下面的系列快捷标签 <span id="seriesPickerHelp">（未列出的系列可选“其他系列”手动输入）</span></div><div id="seriesPicks" class="chip-row"></div></div>
+        <div class="result"><div><small>折合每片价格</small><div class="unit" id="unitPreview">¥—</div><small id="priceExplanation">填入实付价，即可自动计算</small></div><div id="unitTag"><span class="tag">等待输入</span></div></div>
+        <div class="ref-result" id="referenceHint" aria-live="polite"></div>
+        <div class="action-row"><button class="btn" id="saveQuote">加入候选价</button><button class="btn secondary" id="buyNow">已购买 · 立即入库</button><span class="fine">候选仅用于比较；点击“已购买”才会增加库存和支出。</span></div>
+      </div>
+      <div class="head"><h2>📊 我的候选价格</h2><button class="btn ghost sm" id="clearQuotes">清空候选</button></div>
+      <div class="card" id="quoteList"></div>
+      <p class="soft-note">输入整单实际支付总价，片数应包含实际收到的赠品片数。参考价格取自本工具的内置好价库，可以自行调整；纸尿裤与拉拉裤请核对具体商品是否一致。</p>
+      <div class="head"><h2>📚 参考好价速查表</h2><span class="sub">按品牌 / 尺码查找，支持修改自己的参考价</span></div>
+      <div class="card">
+        <div class="ref-controls">
+          <div class="field"><label for="refBrand">参考品牌</label><select id="refBrand"></select></div>
+          <div class="field"><label for="refSize">查看尺码</label><select id="refSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option></select></div>
+          <div class="field"><label for="refSearch">搜索系列</label><input id="refSearch" placeholder="如 小森林、天使" autocomplete="off" /></div>
+        </div>
+        <div id="refTable"></div>
+        <p class="soft-note">价格单位：元/片。数据来自内置参考价库；空白表示该尺码尚未设置。点击“改价”即可填写自己的好价，保存后实时应用到比价提醒，并随备份导出。“恢复默认价”会还原内置基准；BBS 与碧芭分开管理。</p>
+      </div>
+    </section>
+    <section class="panel" id="history">
+      <div class="head"><h2>📒 购买与消耗记录</h2><button class="btn secondary sm" data-action="go" data-target="compare">+ 新增购买</button></div>
+      <div class="kpi-grid" id="historyKpis"></div>
+      <div class="card" id="historyList"></div>
+      <div class="head"><h2>🧾 库存盘点</h2><span class="sub">如果之前已经买过，直接修正库存即可</span></div>
+      <div class="card">
+        <div id="stockEditForm"></div>
+        <div class="action-row"><button class="btn" id="saveStocks">保存实际库存</button><span class="fine">盘点修改不会自动生成采购支出记录。</span></div>
+      </div>
+    </section>
+    <section class="panel" id="growth">
+      <div class="head"><h2>📈 宝宝成长记录</h2></div>
+      <div class="card">
+        <div class="growth-summary" id="growthSummary"></div>
+        <div class="field" style="max-width:180px;margin:18px 0 5px"><label for="growthRange">趋势范围</label>
+          <select id="growthRange"><option value="all">全部记录</option><option value="30">近30天</option><option value="90">近90天</option></select>
+        </div>
+        <div id="growthChart" aria-live="polite"></div>
+        <p class="soft-note">这里只展示原始体重变化，不代替儿童保健的医学评估；同一天可记录多次。</p>
+      </div>
+      <div class="head"><h2>✍️ 新增体重记录</h2></div>
+      <div class="card">
+        <div class="form-grid">
+          <div class="field"><label for="weightDate">测量日期</label><input type="date" id="weightDate" /></div>
+          <div class="field"><label for="weightTime">测量时间（可选）</label><input type="time" id="weightTime" step="60" /></div>
+          <div class="field"><label for="weightKg">体重（kg）</label><input type="number" id="weightKg" min="0.3" max="40" step="0.001" inputmode="decimal" placeholder="如 3.250" /></div>
+          <div class="field wide"><label for="weightNote">备注（可选）</label><input id="weightNote" maxlength="120" placeholder="如：儿保测量，穿薄衣" /></div>
+        </div>
+        <div class="action-row"><button class="btn" id="saveWeight" type="button">保存体重记录</button><button class="btn ghost" id="cancelWeight" type="button" hidden>取消编辑</button></div>
+      </div>
+      <div class="head"><h2>📋 历史体重</h2></div>
+      <div class="card" id="growthHistory"></div>
+    </section>
+    <section class="panel" id="settings">
+      <div class="head"><h2>👶 宝宝基本资料</h2></div>
+      <div class="card">
+        <div class="profile">
+          <div class="profile-item"><div class="field"><label for="babyName">宝宝昵称</label><input id="babyName" maxlength="30" placeholder="小宝" /></div></div>
+          <div class="profile-item"><div class="field"><label for="babySex">性别（可选）</label><select id="babySex"><option value="">暂不设置</option><option value="男">男</option><option value="女">女</option></select></div></div>
+          <div class="profile-item"><div class="field"><label for="dueDate">预产期</label><input type="date" id="dueDate" /></div></div>
+          <div class="profile-item"><div class="field"><label for="birthDate">实际出生日期（未出生留空）</label><input type="date" id="birthDate" /></div></div>
+          <div class="profile-item wide"><div class="field"><label>出生时间（可选，时 / 分 / 秒）</label><div class="baby-time"><input id="birthHour" type="number" min="0" max="23" inputmode="numeric" placeholder="时 0–23" aria-label="出生小时" /><input id="birthMinute" type="number" min="0" max="59" inputmode="numeric" placeholder="分 0–59" aria-label="出生分钟" /><input id="birthSecond" type="number" min="0" max="59" inputmode="numeric" placeholder="秒 0–59" aria-label="出生秒数" /></div></div></div>
+          <div class="profile-item"><div class="field"><label for="birthWeight">出生体重（kg，可选）</label><input id="birthWeight" type="number" min="0.3" max="10" step="0.001" inputmode="decimal" placeholder="如 3.250" /></div></div>
+          <div class="profile-item"><div class="field"><label for="birthLength">出生身长（cm，可选）</label><input id="birthLength" type="number" min="20" max="70" step="0.1" inputmode="decimal" placeholder="如 50" /></div></div>
+        </div>
+        <p class="soft-note">出生体重自动作为体重曲线第一个数据点。旧版体重不会丢失，也不会虚构测量日期。</p>
+        <div class="action-row"><button class="btn" id="saveProfile">保存宝宝基本资料</button></div>
+      </div>
+      <div class="head"><h2>🧷 纸尿裤尺码与采购偏好</h2></div>
+      <div class="card">
+        <div class="form-grid">
+          <div class="field"><label for="sizeMode">尺码选择模式</label><select id="sizeMode"><option value="manual">手动优先</option><option value="auto">自动参考体重</option></select></div>
+          <div class="field" id="manualSizeBox"><label for="currentSize">宝宝实际穿着的尺码</label><select id="currentSize"><option>NB</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select><span class="size-help" id="manualSizeRange"></span></div>
+          <div class="field"><label for="goalPrice">个人目标单价（元/片）</label><input type="number" id="goalPrice" min="0.1" step="0.1" /></div>
+        </div>
+        <p class="soft-note" id="sizePreview">手动模式优先。自动模式参考体重，不会强迫在重叠区间换码。</p>
+        <div class="action-row"><button class="btn" id="saveSizePreferences">保存尺码与采购偏好</button></div>
+      </div>
+      <div class="head"><h2 id="planSettingsTitle">🎯 备货目标与日均用量</h2></div>
+      <div class="card">
+        <div class="sub" id="planIntro">目标是希望手头保有多少片，并非整个尺码阶段总需求。</div>
+        <div class="chip-row" id="prenatalPresets">
+          <button class="chip" data-preset="cautious" type="button">保守备货：NB80 / S60</button>
+          <button class="chip active" data-preset="balanced" type="button">均衡备货：NB100 / S60</button>
+          <button class="chip" data-preset="relaxed" type="button">宽松备货：NB120 / S80</button>
+        </div>
+        <div id="postnatalPolicy" class="plan-formats" hidden>
+          <div class="form-grid">
+            <div class="field"><label for="replenishMode">当前补货方式</label>
+              <select id="replenishMode"><option value="days">按可用天数补货</option><option value="custom">自定义目标片数</option></select>
+            </div>
+            <div class="field" id="replenishDaysBox"><label for="replenishDays">希望保有几天库存</label>
+              <select id="replenishDays"><option value="5">少量备货 · 5天</option><option value="7">常规备货 · 7天</option><option value="10">适度备货 · 10天</option></select>
+            </div>
+          </div>
+          <p class="soft-note" id="replenishPreview"></p>
+        </div>
+        <div id="settingsSizes"></div>
+        <div class="action-row"><button class="btn" id="savePlans">保存目标与日均用量</button></div>
+      </div>
+      <div class="head"><h2>💾 数据备份与恢复</h2></div>
+      <div class="card"><p class="sub" style="margin:0 0 13px">数据自动保存在当前浏览器。换浏览器、换设备或清除浏览器数据时，可能无法保留；建议定期导出备份。导入备份会替换当前数据。</p>
+        <div class="action-row" style="margin-top:0"><button class="btn secondary" id="exportData">↓ 导出 JSON 备份</button><button class="btn ghost" id="importDataBtn">↑ 从备份恢复</button><button class="btn danger" id="resetAll">清空所有记录</button></div>
+        <input type="file" id="importFile" accept="application/json,.json" style="display:none" />
+      </div>
+    </section>
+  </main>
+  <div class="footer-note">常见尺码与每阶段消耗量仅供采购估算，最终以宝宝实际体重、腰腿贴合和具体品牌包装标注为准。<br />本工具不提供医疗诊断；建议先试用再大量囤货。</div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="price-editor-backdrop" id="priceEditor" role="presentation" hidden>
+  <div class="price-editor-card" role="dialog" aria-modal="true" aria-labelledby="priceEditorTitle" aria-describedby="priceEditorSubtitle">
+    <div class="price-editor-heading"><h2 id="priceEditorTitle">修改参考好价</h2><button type="button" class="btn ghost sm" id="closeRefEditor" aria-label="关闭价格编辑">✕</button></div>
+    <div class="price-editor-sub" id="priceEditorSubtitle"></div>
+    <div class="price-editor-meta"><div><small>内置默认参考价</small><b id="editorDefaultPrice">—</b></div><div><small>当前参考价</small><b id="editorCurrentPrice">—</b></div></div>
+    <form id="priceEditForm" novalidate>
+      <div class="field"><label for="editedReferencePrice">新的参考单价（元/片）</label><input id="editedReferencePrice" type="number" min="0.001" max="100" step="0.001" inputmode="decimal" autocomplete="off" required placeholder="如 1.15" /></div>
+      <div class="price-editor-error" id="priceEditError" role="alert"></div>
+      <div class="price-editor-actions"><button type="submit" class="btn" id="saveEditedReference">保存新价格</button><button type="button" class="btn secondary" id="cancelEditedReference">取消</button><button type="button" class="btn ghost" id="restoreDefaultReference">恢复默认价</button></div>
+    </form>
+    <p class="price-editor-foot">只修改当前品牌 · 系列 · 尺码；其他尺码不受影响。保存后立即更新对照提醒，并保存在本机备份数据中。</p>
+  </div>
+</div>
+<script>
+/* XiaoBao growth and post-birth planning domain, v1.1.2. No network, no storage writes. */
+(function(root){
+'use strict';
+const SIZES=['NB','S','M','L','XL','XXL'];
+const MAX_KG={NB:5,S:8,M:11,L:14,XL:17,XXL:Infinity};
+const LIMITS={NB:'约 5 kg 以下',S:'约 4–8 kg',M:'约 6–11 kg',L:'约 9–14 kg',XL:'约 12–17 kg',XXL:'参考商品包装'};
+const isSize=x=>SIZES.includes(x);
+const str=x=>String(x==null?'':x);
+const esc=x=>str(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const number=x=>Number(x);
+const validWeight=x=>x!==''&&x!=null&&Number.isFinite(number(x))&&number(x)>=0.3&&number(x)<=40;
+const dateOK=x=>/^\d{4}-\d{2}-\d{2}$/.test(str(x))&&!Number.isNaN(Date.parse(str(x)+'T00:00:00Z'))&&new Date(str(x)+'T00:00:00Z').toISOString().slice(0,10)===str(x);
+const timeOK=x=>!x||/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(str(x));
+const localToday=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')};
+const born=state=>dateOK(state.birthDate)&&state.birthDate<=localToday();
+function replenishmentPolicy(state){
+ const raw=state&&state.replenishPolicy;
+ return {mode:raw&&raw.mode==='custom'?'custom':'days',
+  days:raw&&[5,7,10].includes(Number(raw.days))?Number(raw.days):7};
+}
+function targetForSize(state,size){
+ const d=Math.max(1,Math.min(30,number((state.daily||{})[size])||8));
+ const policy=replenishmentPolicy(state),configured=number((state.target||{})[size]);
+ if(policy.mode==='days')return {target:d*policy.days,source:'days',policy};
+ if(Number.isFinite(configured)&&configured>0)return {target:Math.round(configured),source:'custom',policy};
+ return {target:d*7,source:'fallback',policy};
+}
+function extras(raw){
+ const p=raw.babyProfile&&typeof raw.babyProfile==='object'&&!Array.isArray(raw.babyProfile)?raw.babyProfile:{};
+ return {
+  babyProfile:{name:str(p.name||'小宝').slice(0,30),sex:['男','女',''].includes(p.sex)?p.sex:'',birthTime:timeOK(p.birthTime)?str(p.birthTime):'',birthWeight:validWeight(p.birthWeight)?number(p.birthWeight):'',birthLength:p.birthLength!==''&&p.birthLength!=null&&number(p.birthLength)>=20&&number(p.birthLength)<=70?number(p.birthLength):''},
+  weightRecords:Array.isArray(raw.weightRecords)?raw.weightRecords.filter(x=>x&&dateOK(x.date)&&timeOK(x.time)&&validWeight(x.weight)&&str(x.id)).map(x=>({id:str(x.id).slice(0,80),date:str(x.date),time:str(x.time),weight:number(x.weight),note:str(x.note).slice(0,120)})):[],
+  sizeMode:raw.sizeMode==='auto'?'auto':'manual',
+  autoSize:isSize(raw.autoSize)?raw.autoSize:(isSize(raw.currentSize)?raw.currentSize:'NB'),
+   replenishPolicy:replenishmentPolicy(raw)
+ };
+}
+function measurements(state){
+ const out=[];
+ const profile=state.babyProfile||{};
+ if(dateOK(state.birthDate)&&validWeight(profile.birthWeight)){
+  out.push({id:'__birth__',date:state.birthDate,time:str(profile.birthTime),weight:number(profile.birthWeight),note:'出生体重',isBirth:true});
+ }
+ for(const r of state.weightRecords||[]){
+  if(r&&dateOK(r.date)&&timeOK(r.time)&&validWeight(r.weight))out.push({...r,weight:number(r.weight),isBirth:false});
+ }
+ return out.sort((a,b)=>a.date.localeCompare(b.date)||str(a.time).localeCompare(str(b.time))||(a.isBirth?-1:1));
+}
+function latestWeight(state){
+ const all=measurements(state);
+ if(all.length){const last=all[all.length-1];return {weight:last.weight,date:last.date,source:last.isBirth?'birth':'record',count:all.length}}
+ if(validWeight(state.babyWeight))return {weight:number(state.babyWeight),date:'',source:'legacy',count:0};
+ return null;
+}
+// Deterministic weight recommendation. The deprecated autoSize field must never
+// act as a minimum: edits and deletions can validly move the result backwards.
+function recommendSize(weight){
+ if(!validWeight(weight))return null;
+ const w=number(weight);
+ return SIZES.find(size=>w<=MAX_KG[size])||'XXL';
+}
+function latestRecommendation(state){
+ const current=latestWeight(state);
+ return current?recommendSize(current.weight):null;
+}
+function effectiveSize(state){
+ const manual=isSize(state.currentSize)?state.currentSize:'NB';
+ if(state.sizeMode!=='auto'||!born(state))return manual;
+ return latestRecommendation(state)||manual;
+}
+// Kept for old event callbacks, but intentionally never mutates legacy autoSize.
+function syncAutoSize(state){return effectiveSize(state)}
+function sizeRange(size){return LIMITS[size]||'请核对产品包装'}
+function stockPlan(state){
+ const size=effectiveSize(state),idx=SIZES.indexOf(size),next=SIZES[idx+1]||null;
+ const stock=x=>Math.max(0,Math.round(number((state.inventory||{})[x])||0));
+ const daily=x=>Math.max(1,Math.min(30,number((state.daily||{})[x])||8));
+ const configured=targetForSize(state,size),target=configured.target;
+ return {size,next,idx,stock:stock(size),daily:daily(size),target,targetSource:configured.source,policy:configured.policy,shortage:Math.max(0,target-stock(size)),days:stock(size)/daily(size),
+  upcoming:SIZES.slice(idx+1),past:SIZES.slice(0,idx).filter(x=>stock(x)>0),stockOf:stock,dailyOf:daily,weight:latestWeight(state)};
+}
+const fmt=n=>Math.round(n).toLocaleString('zh-CN');
+const money=n=>'¥'+(Number(n)||0).toFixed(2);
+function dashboard(state){
+ const p=stockPlan(state);
+ const days=p.days.toFixed(1),weight=p.weight;
+ const kpis='<div class="kpi"><div class="kpi-label">'+(state.sizeMode==='auto'&&weight?'体重推荐尺码':'当前使用尺码')+'</div><div class="kpi-value purple">'+p.size+'</div><div class="kpi-meta">'+(state.sizeMode==='auto'?(weight?'最新体重 '+weight.weight.toFixed(2)+' kg':'尚无体重 · 暂按原尺码'):'手动指定')+'</div></div>'
+  +'<div class="kpi"><div class="kpi-label">'+p.size+' 码现有库存</div><div class="kpi-value">'+fmt(p.stock)+' <span class="fine">片</span></div><div class="kpi-meta">日用约 '+fmt(p.daily)+' 片</div></div>'
+  +'<div class="kpi"><div class="kpi-label">当前尺码预计可用</div><div class="kpi-value '+(p.days<5?'orange':'green')+'">'+days+' <span class="fine">天</span></div><div class="kpi-meta">按现有库存计算</div></div>'
+  +'<div class="kpi"><div class="kpi-label">建议补货</div><div class="kpi-value">'+fmt(p.shortage)+' <span class="fine">片</span></div><div class="kpi-meta">补至 '+fmt(p.target)+' 片 · '+(p.targetSource==='days'?'按'+p.policy.days+'天用量':p.targetSource==='custom'?'自定义目标':'临时按7天用量')+'</div></div>';
+ let advice='',warn=p.days<5;
+ if(warn)advice=p.size+' 码现有库存预计可用 '+days+' 天，建议根据试穿贴合情况小批量补货。';
+ else advice='当前 '+p.size+' 码库存预计可用 '+days+' 天，可关注下一尺码，但不建议提前大量囤货。';
+ if(state.sizeMode==='auto'&&!weight)advice+=' 尚无有效体重，暂沿用原尺码。';
+ if(state.sizeMode==='auto'&&weight&&weight.source==='legacy')advice+=' 当前参考的是旧体重数据，建议在「成长记录」补充测量日期。';
+ const alert='<div class="alert '+(warn?'warning':'')+'"><div><strong>'+(warn?'⚠️ 补货提醒':'💡 采购提示')+'</strong><p>'+esc(advice)+'</p></div><button class="btn secondary sm" data-action="go" data-target="compare">去比价</button></div>';
+ function sizeCard(s){
+  const n=p.stockOf(s),d=p.dailyOf(s),goalInfo=targetForSize(state,s),goal=goalInfo.target;
+  const pct=Math.max(0,Math.min(100,(n/goal)*100));
+  return '<div class="sizecard '+(s===p.size?'focus':'')+'"><div class="size-top"><span class="size-pill">'+s+(s===p.size?' · 正在用':s===p.next?' · 下一码':'')+'</span><span class="size-range">建议体重：'+esc(LIMITS[s])+'</span></div>'
+   +'<div class="stock-number"><b>'+fmt(n)+'</b><small>片现货</small></div>'
+   +'<div class="bar"><span style="width:'+pct.toFixed(0)+'%"></span></div>'
+   +'<div class="micro"><span>'+(goalInfo.source==='fallback'?'参考备货 '+fmt(goal)+' 片':'目标 '+fmt(goal)+' 片')+'</span><span>约可用 '+(n/d).toFixed(1)+' 天</span></div>'
+   +'<div class="size-actions"><button class="btn secondary sm" data-action="consume" data-size="'+s+'" data-count="1" '+(!n?'disabled':'')+'>− 用 1 片</button><button class="btn ghost sm" data-action="consume" data-size="'+s+'" data-count="'+Math.min(n,Math.round(d))+'" '+(!n?'disabled':'')+'>− 记 1 天</button><button class="btn ghost sm" data-action="editstock" data-size="'+s+'">盘点</button></div>'
+   +'<div class="size-detail">'+(s===p.size?'当前使用尺码':s===p.next?'下一尺码，建议先试小包装':'未来尺码，按需关注')+'</div></div>';
+ }
+ const cards=[p.size,...p.upcoming].map(sizeCard).join('');
+ const currentRow='<div class="plan-row"><div class="plan-left"><span class="dot">'+p.size+'</span><div><b>当前尺码补货</b><div class="progress-info">现有 '+fmt(p.stock)+' 片 · 目标 '+fmt(p.target)+' 片</div></div></div><div class="planned '+(p.shortage?'purple':'green')+'">'+(p.shortage?'建议 '+fmt(p.shortage)+' 片':'✓ 暂时充足')+'</div></div>';
+ const nextRow=p.next?'<div class="plan-row"><div class="plan-left"><span class="dot">'+p.next+'</span><div><b>下一尺码提前关注</b><div class="progress-info">已有 '+fmt(p.stockOf(p.next))+' 片 · 暂不建议大量囤货</div></div></div><div class="planned">按需试用</div></div>':'';
+ const goalBudget=money(p.shortage*(number(state.goalPrice)||1.5));
+ const shopping='<h3 class="section-title">建议优先安排</h3>'+currentRow+nextRow+'<div class="tip" style="margin-top:15px"><b>当前尺码粗略补货预算：'+goalBudget+'</b><br>仅按目标单价估算，不代表最低实付价。</div>';
+ const tips='<h3 class="section-title">当前使用建议</h3><div class="statline"><span class="sub">尺码决策</span><strong>'+esc(state.sizeMode==='auto'?'体重自动':'手动优先')+'</strong></div>'
+ +'<div class="statline"><span class="sub">最新体重</span><strong>'+(weight?weight.weight.toFixed(2)+' kg':'尚未记录')+'</strong></div>'
+ +'<div class="statline"><span class="sub">累计已花</span><strong>'+money((state.transactions||[]).filter(x=>x.type==='buy').reduce((n,x)=>n+(number(x.price)||0),0))+'</strong></div>'
+ +'<div class="tip" style="margin-top:13px"><b>尺码提醒：</b>体重区间仅供参考，最终以品牌包装、腰腿贴合、是否勒痕或漏尿为准。</div>';
+ const historical=p.past.map(s=>'<div class="statline"><span><b>'+s+'</b> · 已换码</span><span><strong>'+fmt(p.stockOf(s))+' 片</strong>　<button class="btn ghost sm" data-action="editstock" data-size="'+s+'">盘点</button></span></div>').join('');
+ return {kpis,alert,cards,shopping,tips,historical,hasHistorical:p.past.length>0,plan:p};
+}
+function chart(state,range){
+ let entries=measurements(state);
+ if(range!=='all'){const days=range==='30'?30:90;const cutoff=Date.now()-(days-1)*86400000;entries=entries.filter(x=>Date.parse(x.date+'T12:00:00Z')>=cutoff);}
+ if(!entries.length)return '<div class="empty"><b>还没有可绘制的体重记录</b>保存出生体重或新增一次测量后即可查看曲线。</div>';
+ const w=740,h=255,L=53,R=24,T=21,B=42,pw=w-L-R,ph=h-T-B;
+ const ms=x=>Date.parse(x.date+'T00:00:00Z')+(x.time?Number(x.time.slice(0,2))*3600000+Number(x.time.slice(3,5))*60000:0);
+ const times=entries.map(ms),start=Math.min(...times),end=Math.max(...times),span=Math.max(end-start,86400000);
+ const values=entries.map(x=>x.weight),lo=Math.max(0,Math.min(...values)-0.4),hi=Math.max(...values)+0.4,rangeY=Math.max(hi-lo,0.5);
+ const xy=entries.map((e,i)=>({x:entries.length===1?L+pw/2:L+(times[i]-start)/span*pw,y:T+(hi-e.weight)/rangeY*ph,e}));
+ const yGrid=Array.from({length:5},(_,i)=>{const val=hi-(rangeY/4)*i,y=T+ph*i;return '<line x1="'+L+'" x2="'+(w-R)+'" y1="'+y+'" y2="'+y+'" stroke="#e9eaf3"/><text x="'+(L-8)+'" y="'+(y+4)+'" font-size="12" text-anchor="end" fill="#8690a4">'+val.toFixed(1)+'</text>'}).join('');
+ const line=xy.length>1?'<polyline fill="none" stroke="#7167da" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="'+xy.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ')+'"/>':'';
+ const points=xy.map(p=>'<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="4.5" fill="#7167da" stroke="white" stroke-width="2"><title>'+esc(p.e.date+' '+p.e.weight.toFixed(2)+'kg')+'</title></circle>').join('');
+ const labels=[{x:L,text:entries[0].date},{x:L+pw,text:entries[entries.length-1].date}].filter((v,i)=>i===0||entries.length>1&&entries[0].date!==entries[entries.length-1].date).map((v,i)=>'<text x="'+v.x+'" y="'+(h-10)+'" font-size="12" text-anchor="'+(i===0?'start':'end')+'" fill="#8690a4">'+esc(v.text.slice(5))+'</text>').join('');
+ return '<svg class="growth-chart" role="img" aria-label="宝宝体重趋势，单位千克，共'+entries.length+'个数据点" viewBox="0 0 '+w+' '+h+'" xmlns="http://www.w3.org/2000/svg">'+yGrid+line+points+labels+'</svg>';
+}
+function history(state){
+ const entries=measurements(state).slice().reverse();
+ if(!entries.length)return '<div class="empty"><b>暂无测量记录</b>填写出生体重或新增一次测量。</div>';
+ return '<div class="table-wrap"><table class="tbl"><thead><tr><th>日期时间</th><th>体重</th><th>备注</th><th>操作</th></tr></thead><tbody>'+entries.map(x=>'<tr><td>'+esc(x.date)+' '+esc(x.time)+'</td><td><b>'+x.weight.toFixed(2)+' kg</b></td><td>'+esc(x.note)+'</td><td>'+(x.isBirth?'<span class="fine">在宝宝资料中修改</span>':'<button class="btn ghost sm" data-action="editweight" data-id="'+esc(x.id)+'">编辑</button><button class="btn danger sm" data-action="deleteweight" data-id="'+esc(x.id)+'">删除</button>')+'</td></tr>').join('')+'</tbody></table></div>';
+}
+const api={SIZES,MAX_KG,LIMITS,dateOK,timeOK,validWeight,born,extras,replenishmentPolicy,targetForSize,measurements,latestWeight,recommendSize,latestRecommendation,effectiveSize,syncAutoSize,sizeRange,stockPlan,dashboard,chart,history};
+if(root)root.XBGrowth=api;
+if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+(()=>{'use strict';
+const SIZES=['NB','S','M','L','XL','XXL'];
+const RANGES=XBGrowth.LIMITS;
+const TOTAL={NB:'150–300片',S:'300–600片',M:'500–900片',L:'600–1200片',XL:'个体差异较大',XXL:'按需购买'};
+// Price reference transcribed from the user's image. The values are PERSONAL REFERENCE prices, NOT live market data.
+// Exact matching only: same brand + series + size. Empty cells must never be inferred from another size.
+const REF_ROWS=[
+  ['帮宝适','黑金帮',[1.48,1.50,1.80,2.40,2.60]],
+  ['帮宝适','清新帮',[0.66,0.70,1.00,1.10,1.30]],
+  ['帮宝适','袋鼠裤',[1.26,1.44,1.66,1.87,2.43]],
+  ['帮宝适','一级帮',[0.83,1.04,1.20,1.50,1.80]],
+  ['好奇','小森林',[1.20,1.36,1.68,2.10,2.63]],
+  ['好奇','小企鹅',[2.28,2.70,3.31,3.72,4.25]],
+  ['好奇','森林密语',[1.17,1.25,1.46,1.95,2.33]],
+  ['好奇','小花裤/皇家御裤',[0.88,1.04,1.26,1.53,1.82],['小花裤','皇家御裤']],
+  ['好奇','柯基裤',[0.80,0.94,1.19,1.30,1.40]],
+  ['好奇','屁屁面膜',[1.77,1.95,2.34,2.93,null]],
+  ['好奇','小桃裤',[0.50,0.72,0.78,0.99,1.20]],
+  ['大王','光羽',[1.30,1.40,1.78,2.17,2.79]],
+  ['大王','光羽鎏金',[null,1.59,2.03,2.48,null]],
+  ['大王','天使',[1.05,1.17,1.37,1.66,2.18]],
+  ['大王','自然之恩',[0.76,0.82,1.02,1.23,1.56]],
+  ['大王','花信风',[0.57,0.61,0.78,0.92,1.17]],
+  ['Babycare','皇室Pro',[1.10,1.32,1.84,2.05,2.06],['皇家Pro','皇室pro']],
+  ['Babycare','皇室星星',[0.72,0.84,0.87,1.12,1.34]],
+  ['Babycare','狮子王国',[0.90,1.00,1.10,1.20,1.40],['皇室狮子王国']],
+  ['Babycare','Air Pro',[0.96,1.04,1.20,1.50,1.65],['airpro','air pro']],
+  ['Babycare','山茶花',[1.60,2.07,2.40,3.00,3.34],['金山茶花']],
+  ['Babycare','木法沙',[null,null,null,1.40,1.50]],
+  ['Babycare','专研臀肌',[2.00,2.20,2.26,2.83,3.14]],
+  ['BBS（图中品牌）','装仔',[1.08,1.20,1.54,1.80,2.10]],
+  ['BBS（图中品牌）','金标茶树',[1.47,1.60,1.80,2.03,2.30]],
+  ['BBS（图中品牌）','乳木果',[null,1.56,1.78,2.08,2.34]],
+  ['BBS（图中品牌）','铂金装',[1.58,1.75,1.97,2.26,2.63]],
+  ['碧芭宝贝','盛夏光年',[null,1.16,1.23,1.30,1.38]],
+  ['碧芭宝贝','大鱼海棠',[0.97,1.05,1.48,1.79,2.08],[],{NB:'初始录入时该款 NB 价格存在重复且不一致的记录，默认按0.97录入，请核对。'}],
+  ['碧芭宝贝','冰淇淋',[0.87,1.02,1.16,1.23,1.30]],
+  ['碧芭宝贝','山海经',[1.10,1.39,1.78,2.12,2.47]],
+  ['尤妮佳 Moony','极上',[1.20,1.20,1.60,1.90,2.60]],
+  ['尤妮佳 Moony','皇家佑肌',[1.32,1.43,1.78,2.15,2.47]],
+  ['尤妮佳 Moony','小羊驼',[0.57,0.77,2.15,1.12,1.39],[],{M:'M码默认2.15元，高于相邻尺码，数据可疑，请核对后使用。'}],
+  ['露安适','氧护',[3.23,3.46,4.21,5.10,6.46]],
+  ['露安适','柔护',[1.15,null,null,null,null]],
+  ['露安适','柔护（日用）',[null,1.22,1.40,1.70,2.50],['柔护日用']],
+  ['露安适','柔护（夜用）',[null,1.30,1.64,2.34,2.80],['柔护夜用']],
+  ['露安适','纯净',[1.39,1.50,1.85,1.46,1.79]],
+  ['露安适','微气候',[1.98,2.48,3.15,3.65,3.65]],
+  ['宜婴','蚕丝',[0.89,1.08,1.13,1.14,1.20]],
+  ['宜婴','梦想家',[0.49,0.58,0.70,0.73,0.76]],
+  ['宜婴','水果裤',[null,0.43,0.52,0.62,0.69]],
+].map(([brand,series,values,aliases=[],notes={}])=>({brand,series,values,aliases,notes}));
+const REF_SIZES=['NB','S','M','L','XL'];
+const REF_BRANDS=['全部品牌','帮宝适','好奇','Babycare','大王','碧芭宝贝','尤妮佳 Moony','露安适','宜婴','BBS（图中品牌）'];
+const brandName=b=>({'BBC':'Babycare','babycare':'Babycare','碧芭':'碧芭宝贝','moony':'尤妮佳 Moony','尤妮佳':'尤妮佳 Moony','BBS':'BBS（图中品牌）','大王GOON':'大王'}[String(b).trim()]||b);
+const normalizeText=s=>String(s||'').toLowerCase().replace(/(?:纸尿裤|拉拉裤|婴儿尿裤|尿不湿|纸尿片)/g,'').replace(/[^a-z0-9\u4e00-\u9fff]/g,'');
+const referenceKey=(brand,series,size)=>`${brand}|${series}|${size}`;
+function findReferenceRow(brand,series){const b=brandName(brand),key=normalizeText(series);if(!key||key==='未填写系列')return null;return REF_ROWS.find(row=>row.brand===b&&[row.series,...row.aliases].some(v=>normalizeText(v)===key))||null}
+function refPrice(row,size){if(!row)return null;const idx=REF_SIZES.indexOf(size);if(idx<0)return null;const key=referenceKey(row.brand,row.series,size);if(Object.prototype.hasOwnProperty.call(state.referenceOverrides||{},key)){const v=state.referenceOverrides[key];return v>0?Number(v):null}return row.values[idx]??null}
+function getRef(brand,series,size){const row=findReferenceRow(brand,series);return {row,price:refPrice(row,size),note:row?.notes?.[size]||''}}
+function priceSignal(unit,brand,series,size){const r=getRef(brand,series,size);if(!(unit>0))return {...r,kind:'',label:'等待实付价',delta:null,pct:null};if(!(r.price>0))return {...r,kind:'muted',label:r.row?'该尺码无参考价':'系列暂无参考价',delta:null,pct:null};const rawDelta=unit-r.price,delta=Math.abs(rawDelta)<1e-9?0:rawDelta,pct=delta/r.price*100;let kind,label;if(pct<=-5){kind='good';label='低于参考价'}else if(pct<=5){kind='good';label='接近参考价'}else if(pct<=15){kind='warn';label='略高于参考价'}else{kind='bad';label='明显高于参考价'}return {...r,kind,label,delta,pct}}
+
+const KEY='xiaobao_v120_m1_local_sandbox';
+const defaults=()=>({dueDate:'2027-01-08',birthDate:'',currentSize:'NB',babyWeight:'',babyProfile:{name:'小宝',sex:'',birthTime:'',birthWeight:'',birthLength:''},weightRecords:[],sizeMode:'manual',autoSize:'NB',replenishPolicy:{mode:'days',days:7},goalPrice:1.5,plannedBudget:250,target:{NB:100,S:60,M:0,L:0,XL:0,XXL:0},daily:{NB:10,S:9,M:7,L:6,XL:5,XXL:5},inventory:Object.fromEntries(SIZES.map(x=>[x,0])),quotes:[],transactions:[],referenceOverrides:{},preset:'balanced'});
+const num=(x,fb=0)=>Number.isFinite(+x)?+x:fb;
+const clamp=(x,lo,hi)=>Math.min(hi,Math.max(lo,x));
+function load(){
+ try{
+  const raw=JSON.parse(localStorage.getItem(KEY));
+  if(!raw||typeof raw!=='object')return defaults();
+  const d=defaults(),n={...d,...raw};
+  for(const k of ['target','daily','inventory'])n[k]={...d[k],...(raw[k]||{})};
+  n.quotes=Array.isArray(raw.quotes)?raw.quotes:[];
+  n.transactions=Array.isArray(raw.transactions)?raw.transactions:[];
+  n.referenceOverrides=raw.referenceOverrides&&typeof raw.referenceOverrides==='object'&&!Array.isArray(raw.referenceOverrides)?raw.referenceOverrides:{};
+  Object.assign(n,XBGrowth.extras({...raw,currentSize:n.currentSize}));
+  // One-time additive migration; existing prices, inventory and purchases remain byte-equivalent as data.
+  if(!raw.babyProfile||!Array.isArray(raw.weightRecords)||!['manual','auto'].includes(raw.sizeMode)||!SIZES.includes(raw.autoSize)||!raw.replenishPolicy||!['days','custom'].includes(raw.replenishPolicy.mode)||![5,7,10].includes(Number(raw.replenishPolicy.days))){
+   try{localStorage.setItem(KEY,JSON.stringify(n))}catch(_){/* Keep loaded data in memory if storage is unavailable. */}
+  }
+  return n;
+ }catch(_){return defaults()}
+}
+let state=load();
+let m3SavedSandboxState=null,m3ReadOnly=false;
+function save(){if(m3ReadOnly){toast('M3 为只读预览，未保存任何修改');return false;}try{localStorage.setItem(KEY,JSON.stringify(state));return true}catch{toast('当前浏览器无法持久保存，请导出备份文件');return false}}
+const $=id=>document.getElementById(id);
+const money=n=>'¥'+num(n).toFixed(2);
+const int=n=>Math.round(num(n)).toLocaleString('zh-CN');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,9);
+const localDate=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
+const currMonth=()=>localDate().slice(0,7);
+const fmtDate=d=>String(d??'').slice(0,10);
+let toastTimer;function toast(txt){const el=$('toast');el.textContent=txt;el.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('on'),2600)}
+const ACTIVE_TAB_KEY='xiaobao_v120_m1_active_tab';
+const VALID_TABS=new Set(['overview','compare','history','growth','settings']);
+function tab(to,{scroll=true}={}){if(!VALID_TABS.has(to))return;document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===to));document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));try{localStorage.setItem(ACTIVE_TAB_KEY,to)}catch(_){/* UI preference is optional */}if(to==='history')renderHistory();if(to==='settings')renderSettings();if(to==='growth')renderGrowth();if(to==='compare'){renderQuotes();renderReferenceTable();}if(scroll)window.scrollTo({top:0,behavior:'smooth'})}
+function restoreActiveTab(){let savedTab='overview';try{savedTab=localStorage.getItem(ACTIVE_TAB_KEY)||'overview'}catch(_){/* Storage unavailable: default to overview */}if(VALID_TABS.has(savedTab)&&savedTab!=='overview')tab(savedTab,{scroll:false})}
+// Calendar-month age. Month anniversaries are capped to the last day in short months.
+function calculateBirthAge(birth,today){
+ const [by,bm,bd]=birth.split('-').map(Number);
+ const [ty,tm,td]=today.split('-').map(Number);
+ const birthUTC=Date.UTC(by,bm-1,bd),todayUTC=Date.UTC(ty,tm-1,td);
+ const elapsed=Math.floor((todayUTC-birthUTC)/86400000);
+ if(!Number.isFinite(elapsed)||elapsed<0)return null;
+ let months=(ty-by)*12+tm-bm;
+ const monthMark=m=>{const y=by+Math.floor((bm-1+m)/12),month=(bm-1+m)%12;
+  const lastDay=new Date(Date.UTC(y,month+1,0)).getUTCDate();
+  return Date.UTC(y,month,Math.min(bd,lastDay));};
+ if(monthMark(months)>todayUTC)months--;
+ return {totalDays:elapsed+1,months,days:Math.floor((todayUTC-monthMark(months))/86400000)};
+}
+function dateInfo(){
+ const deadline=state.birthDate||state.dueDate;
+ const ageEl=$('dueAge');
+ if(!deadline){ageEl.hidden=true;return}
+ const diff=Math.ceil((new Date(deadline+'T00:00:00').getTime()-new Date(localDate()+'T00:00:00').getTime())/86400000);
+ if(state.birthDate){
+  const age=calculateBirthAge(state.birthDate,localDate());
+  $('dueTitle').textContent=age?'宝宝出生第':'出生日期待确认';
+  $('dueValue').textContent=age?`${age.totalDays} 天`:'—';
+  ageEl.textContent=age?`月龄：${age.months}个月${age.days}天`:'';
+  ageEl.hidden=!age;
+  $('dueSub').textContent='出生 '+state.birthDate;
+ }else{
+  ageEl.hidden=true;ageEl.textContent='';
+  $('dueTitle').textContent='距离预产期';
+  $('dueValue').textContent=diff>0?`${diff} 天`:diff===0?'就是今天':`已过 ${-diff} 天`;
+  $('dueSub').textContent='预产期 '+state.dueDate;
+ }
+}
+function stageStock(size){if(m3ReadOnly)return Math.max(0,Math.round(num(state.inventory[size])));const cloud=window.XBM102?.stock(size);return cloud===null||cloud===undefined?Math.max(0,Math.round(num(state.inventory[size]))):cloud}
+function stockDays(size){const days=clamp(num(state.daily[size],1),1,30);return stageStock(size)/days}
+function spend(){if(m3ReadOnly)return state.transactions.filter(t=>t.type==='buy').reduce((n,t)=>n+num(t.price),0);const cloud=window.XBM102?.spend();return cloud===null||cloud===undefined?state.transactions.filter(t=>t.type==='buy').reduce((s,t)=>s+num(t.price),0):cloud}
+function firstTarget(){return state.target.NB+state.target.S}
+function firstStock(){return Math.min(stageStock('NB'),state.target.NB)+Math.min(stageStock('S'),state.target.S)}
+function renderKpisLegacy(){const neededNB=Math.max(0,state.target.NB-stageStock('NB'));const neededS=Math.max(0,state.target.S-stageStock('S'));const current=state.currentSize||'NB';const days=stockDays(current);const pct=firstTarget()>0?Math.round(100*firstStock()/firstTarget()):100;
+$('kpiGrid').innerHTML=`<div class="kpi"><div class="kpi-label">首批备货完成度</div><div class="kpi-value purple">${pct}%</div><div class="kpi-meta">NB / S 目标共 ${int(firstTarget())} 片</div></div><div class="kpi"><div class="kpi-label">NB 还需购买</div><div class="kpi-value">${int(neededNB)} <span class="fine">片</span></div><div class="kpi-meta">现有 ${int(stageStock('NB'))} 片</div></div><div class="kpi"><div class="kpi-label">S 还需购买</div><div class="kpi-value">${int(neededS)} <span class="fine">片</span></div><div class="kpi-meta">现有 ${int(stageStock('S'))} 片</div></div><div class="kpi"><div class="kpi-label">${esc(current)} 库存可用</div><div class="kpi-value ${days<5?'orange':'green'}">${days?days.toFixed(1):'0'} <span class="fine">天</span></div><div class="kpi-meta">按每天 ${num(state.daily[current])} 片粗略估算</div></div>`;
+const missing=neededNB+neededS;
+let msg='',warn=false,button='去比价';if(state.birthDate&&days<4){msg=`宝宝目前使用 ${current} 码，预计库存不足 4 天。建议尽快补货，别一次囤太多。`;warn=true}else if(!state.birthDate&&missing>0){msg=`首批还差 ${neededNB} 片 NB、${neededS} 片 S。可先比较两款小包装，确认适合后再补。`}else if(missing===0){msg='首批 NB / S 备货目标已完成！不建议因为活动价继续大量囤 NB 码。';button='查看库存'}else{msg=`目前 ${current} 码预计还能用 ${days.toFixed(1)} 天，留意尺码变化，及时小批量补货。`}
+$('recoAlert').innerHTML=`<div class="alert ${warn?'warning':''}"><div><strong>${warn?'⚠️ 补货提醒':'💡 采购提示'}</strong><p>${msg}</p></div><button class="btn ${warn?'':'secondary'} sm" data-action="go" data-target="${button==='去比价'?'compare':'history'}">${button}</button></div>`;
+}
+function renderSizesLegacy(){const cur=state.currentSize;const born=Boolean(state.birthDate);$('sizeCards').innerHTML=SIZES.map(x=>{const stock=stageStock(x),target=Math.max(0,Math.round(num(state.target[x]))),daily=num(state.daily[x],1),days=stockDays(x),progress=target===0?(stock>0?100:0):clamp(stock/target*100,0,100);return `<div class="sizecard ${cur===x?'focus':''}"><div class="size-top"><span class="size-pill">${x}${born&&cur===x?' · 正在用':''}</span><span class="size-range">建议体重：${esc(RANGES[x])}</span></div><div class="stock-number"><b>${int(stock)}</b><small>片现货</small></div><div class="bar"><span style="width:${progress}%"></span></div><div class="micro"><span>备货目标 ${target} 片</span><span>约可用 ${days.toFixed(1)} 天</span></div><div class="size-actions"><button class="btn secondary sm" data-action="consume" data-size="${x}" data-count="1" ${stock===0?'disabled':''}>− 用 1 片</button><button class="btn ghost sm" data-action="consume" data-size="${x}" data-count="${Math.min(stock,Math.round(daily))}" ${stock===0?'disabled':''}>− 记 1 天</button><button class="btn ghost sm" data-action="editstock" data-size="${x}">盘点</button></div><div class="size-detail">整个尺码阶段大致 ${TOTAL[x]} · 估计日用 ${daily} 片</div></div>`}).join('')}
+function renderShoppingLegacy(){let lines=['NB','S'].map(x=>{const rest=Math.max(0,state.target[x]-stageStock(x));return `<div class="plan-row"><div class="plan-left"><span class="dot">${x}</span><div><b>${x==='NB'?'新生儿首批试用':'下一码少量准备'}</b><div class="progress-info">目标 ${int(state.target[x])} 片 · 已有 ${int(stageStock(x))} 片</div></div></div><div class="planned ${rest?'purple':'green'}">${rest?'再买 '+rest+' 片':'✓ 已备齐'}</div></div>`}).join('');const missing=Math.max(0,state.target.NB-stageStock('NB'))+Math.max(0,state.target.S-stageStock('S'));$('shoppingPlan').innerHTML=`<h3 class="section-title">建议优先购买</h3>${lines}<div class="tip" style="margin-top:15px"><b>粗略待购预算：${money(missing*num(state.goalPrice,1.5))}</b>（按个人目标单价 ${money(state.goalPrice)} / 片计算）。实际支付价格以比价记录为准。</div>`;
+$('tipsCard').innerHTML=`<h3 class="section-title">选购判断小抄</h3><div class="statline"><span class="sub">个人好价目标</span><strong>${money(state.goalPrice)} /片</strong></div><div class="statline"><span class="sub">全部历史实付</span><strong>${money(spend())}</strong></div><div class="tip" style="margin-top:13px"><b>购买原则：</b>先小包试 NB → 看腰腿贴合、漏尿、红屁屁情况 → 再按需补。尺码重叠时以宝宝实际身形为准。</div>`}
+function renderOverview(){
+ dateInfo();
+ const section=$('legacySection');
+ if(!XBGrowth.born(state)){
+  renderKpisLegacy();renderSizesLegacy();renderShoppingLegacy();
+  section.hidden=true;$('legacyStock').innerHTML='';
+ }else{
+  const ui=XBGrowth.dashboard(state);
+  $('kpiGrid').innerHTML=ui.kpis;$('recoAlert').innerHTML=ui.alert;
+  $('sizeCards').innerHTML=ui.cards;
+  $('shoppingPlan').innerHTML=ui.shopping;$('tipsCard').innerHTML=ui.tips;
+  section.hidden=!ui.hasHistorical;$('legacyStock').innerHTML=ui.historical;
+ }
+}
+function renderGrowth(){
+ const entries=XBGrowth.measurements(state),latest=XBGrowth.latestWeight(state),birth=state.babyProfile||{};
+ const gain=latest&&XBGrowth.validWeight(birth.birthWeight)?latest.weight-Number(birth.birthWeight):null;
+ $('growthSummary').innerHTML='<div class="growth-stat"><small>最新体重</small><b>'+(latest?latest.weight.toFixed(2)+' kg':'—')+'</b></div>'
+  +'<div class="growth-stat"><small>相比出生体重</small><b>'+(gain==null?'—':(gain>=0?'+':'')+gain.toFixed(2)+' kg')+'</b></div>'
+  +'<div class="growth-stat"><small>曲线数据点</small><b>'+entries.length+' 次</b></div>';
+ $('growthChart').innerHTML=XBGrowth.chart(state,$('growthRange').value);
+ $('growthHistory').innerHTML=XBGrowth.history(state);
+}
+let editingWeightId=null;
+function clearWeightForm(){
+ editingWeightId=null;$('weightDate').value=localDate();$('weightTime').value='';
+ $('weightKg').value='';$('weightNote').value='';
+ $('saveWeight').textContent='保存体重记录';$('cancelWeight').hidden=true;
+}
+function saveWeight(){
+ const date=$('weightDate').value,time=$('weightTime').value,raw=$('weightKg').value.trim(),weight=Number(raw);
+ const note=$('weightNote').value.trim();
+ if(!XBGrowth.dateOK(date)||date>localDate()||(state.birthDate&&date<state.birthDate)){toast('测量日期必须有效，不能早于出生日期或晚于今天');return}
+ if(!XBGrowth.timeOK(time)||!raw||!XBGrowth.validWeight(weight)){toast('请填写有效测量时间及体重（0.3–40 kg）');return}
+ const entry={id:editingWeightId||uid(),date,time,weight:Math.round(weight*1000)/1000,note:note.slice(0,120)};
+ if(editingWeightId){
+  const index=state.weightRecords.findIndex(x=>x.id===editingWeightId);
+  if(index<0){toast('待编辑记录不存在');return}
+  state.weightRecords[index]=entry;
+ }else state.weightRecords.push(entry);
+ XBGrowth.syncAutoSize(state);save();clearWeightForm();renderAll();toast('体重记录已保存');
+}
+function compareInput(){const per=Math.floor(num($('qPerPack').value)),packs=Math.floor(num($('qPacks').value)),price=num($('qPrice').value),pieces=per*packs;return {brand:$('qBrand').value,series:$('qSeries').value.trim()||'未填写系列',size:$('qSize').value,per,packs,price,pieces,unit:pieces>0?price/pieces:null}}
+function validateQuote(q){if(q.per<1||q.packs<1||q.per>1000||q.packs>200||q.pieces>30000){toast('请填有效片数与包数');return false}if(!(q.price>0)||q.price>100000){toast('请填写实际支付金额');return false}return true}
+function quoteBadge(unit){if(!(unit>0))return ['等待输入',''];if(unit<=1)return ['价格很划算','good'];if(unit<=num(state.goalPrice,1.5))return ['达到你的目标价','good'];if(unit<=2)return ['略高于目标','warn'];return ['偏高，建议对比','bad']}
+function preview(){
+ $('qSizeRange').textContent='建议体重：'+XBGrowth.sizeRange($('qSize').value)+'（以包装为准）';
+ const q=compareInput(),valid=q.pieces>0&&q.price>0;const sig=priceSignal(valid?q.unit:0,q.brand,q.series,q.size);const [fallbackMsg,fallbackKind]=quoteBadge(valid?q.unit:null);const msg=valid&&sig.price?sig.label:fallbackMsg,kind=valid&&sig.price?sig.kind:fallbackKind;
+ $('unitPreview').textContent=valid?money(q.unit):'¥—';$('unitTag').innerHTML=`<span class="tag ${kind}">${msg}</span>`;
+ $('priceExplanation').textContent=valid?`共 ${q.pieces} 片 · 实付 ${money(q.price)} · 个人目标 ${money(state.goalPrice)}/片`:'填入实际支付金额，即可自动计算';
+ const hint=$('referenceHint');hint.className='ref-result'+(['good','warn','bad'].includes(sig.kind)?' '+sig.kind:'');
+ if(!sig.row){hint.innerHTML=`<div class="ref-summary"><b>📚 参考表：尚未匹配系列</b><span class="tag">按个人目标价判断</span></div><div class="ref-description">请从上方快捷系列选择，或输入具体系列。原有其他品牌与系列仍可正常计算、保存、入库。</div>`;return}
+ if(!(sig.price>0)){hint.innerHTML=`<div class="ref-summary"><b>📚 ${esc(sig.row.brand)} · ${esc(sig.row.series)} · ${esc(q.size)}</b><span class="tag">该尺码暂无价格</span></div><div class="ref-description">内置价库尚未设置该尺码参考价，不会借用其他尺码报价。仍可按个人目标价判断。</div>`;return}
+ const compareText=valid?(sig.pct<0?`低 ${Math.abs(sig.pct).toFixed(1)}%（每片省 ${money(Math.abs(sig.delta))}，本单约省 ${money(Math.abs(sig.delta)*q.pieces)}）`:sig.pct>0?`高 ${sig.pct.toFixed(1)}%（每片多 ${money(sig.delta)}，本单约多 ${money(sig.delta*q.pieces)}）`:'与参考价一致'):'输入实付金额后自动判断贵了多少';
+ hint.innerHTML=`<div class="ref-summary"><b>📚 ${esc(sig.row.brand)} · ${esc(sig.row.series)} · ${esc(q.size)}</b><span class="ref-big">${money(sig.price)}<span class="fine"> /片</span></span></div><div class="ref-description">${valid?`<span class="tag ${sig.kind}">${sig.label}</span>　相较内置参考价：${compareText}`:compareText}${sig.note?`<div class="ref-remark">⚠ ${esc(sig.note)}</div>`:''}<div class="ref-picker-note">参考单价来自本工具内置好价库，可随时修改。 <button type="button" class="ref-inline-edit" data-action="editref" data-brand="${esc(sig.row.brand)}" data-series="${esc(sig.row.series)}" data-size="${esc(q.size)}">修改本款参考价</button></div></div>`;
+}
+function addBuy(q){if(!validateQuote(q))return;if(window.XBM102?.isActive()){Promise.resolve(window.XBM102.submitPurchase(q)).catch(()=>toast('云端提交未确认，请核对待同步状态'));return;}state.transactions.unshift({id:uid(),type:'buy',date:localDate(),brand:q.brand,series:q.series,size:q.size,pieces:q.pieces,price:q.price});state.inventory[q.size]=stageStock(q.size)+q.pieces;save();renderAll();toast(`已入库 ${q.size} ${q.pieces} 片，记录支出 ${money(q.price)}`)}
+function renderQuotes(){preview();const list=state.quotes.slice().sort((a,b)=>(a.unit||0)-(b.unit||0));if(!list.length){$('quoteList').innerHTML='<div class="empty"><b>还没有候选价格</b>先输入商家实付金额与总片数，工具会自动按系列及尺码判断是否接近参考好价。</div>';return}
+ $('quoteList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>商品</th><th>尺码</th><th>总片数</th><th>实付</th><th>每片</th><th>参考单价</th><th>价格提醒</th><th>操作</th></tr></thead><tbody>${list.map((q,i)=>{const sig=priceSignal(q.unit,q.brand,q.series,q.size);return `<tr><td><b>${esc(q.brand)}</b><div class="fine">${esc(q.series)}</div></td><td>${esc(q.size)}</td><td>${int(q.pieces)}</td><td>${money(q.price)}</td><td><b class="${i===0?'green':''}">${money(q.unit)}</b></td><td>${sig.price?money(sig.price):'<span class="ref-muted">—</span>'}</td><td>${sig.price?`<span class="tag ${sig.kind}">${sig.pct>0?'+':''}${sig.pct.toFixed(1)}%</span>`:'<span class="fine">暂无参考</span>'}</td><td><button class="btn secondary sm" data-action="buyquote" data-id="${esc(q.id)}">入库</button><button class="btn ghost sm" data-action="deletequote" data-id="${esc(q.id)}">删除</button></td></tr>`}).join('')}</tbody></table></div><p class="soft-note">先对比相同品牌、同系列、同尺码。列表仍按单片实付价排序；参考价提醒不代表材质或舒适度的排名。</p>`;
+}
+const CUSTOM_SERIES="__custom_series__";
+function renderSeriesChips(){
+ const rows=REF_ROWS.filter(x=>x.brand===brandName($('qBrand').value));
+ const chosen=$('qSeries').value;
+ $('seriesPicks').innerHTML=rows.length?rows.map(r=>`<button type="button" class="chip ${normalizeText(chosen)===normalizeText(r.series)?'active':''}" data-action="series" data-series="${esc(r.series)}">${esc(r.series)}</button>`).join(''):'<span class="fine">这个品牌暂无内置参考系列，可以直接手动输入。</span>';
+}
+// Do not use <datalist>: rebuilding suggestions during input made the browser picker unreliable.
+// A native <select> can be reopened and switched as many times as needed.
+function updateSeriesPicks(){
+ const brand=brandName($('qBrand').value);
+ const rows=REF_ROWS.filter(r=>r.brand===brand);
+ const seriesInput=$('qSeries'),choice=$('qSeriesChoice');
+ const existing=seriesInput.value.trim();
+ const matched=rows.find(r=>[r.series,...r.aliases].some(name=>normalizeText(name)===normalizeText(existing)));
+ choice.innerHTML='<option value="">请选择系列</option>'+rows.map(r=>`<option value="${esc(r.series)}">${esc(r.series)}</option>`).join('')+`<option value="${CUSTOM_SERIES}">其他系列 / 手动输入…</option>`;
+ if(matched){
+  choice.value=matched.series;
+  seriesInput.value=matched.series;
+  seriesInput.hidden=true;
+ }else if(existing||!rows.length){
+  choice.value=CUSTOM_SERIES;
+  seriesInput.hidden=false;
+ }else{
+  choice.value='';
+  seriesInput.hidden=true;
+ }
+ renderSeriesChips();
+}
+function chooseSeriesFromSelect(){
+ const choice=$('qSeriesChoice'),input=$('qSeries');
+ if(choice.value===CUSTOM_SERIES){
+  // Do not preserve a previously selected preset series in the free-text field.
+  if(findReferenceRow($('qBrand').value,input.value))input.value='';
+  input.hidden=false;
+  input.focus();
+ }else{
+  input.value=choice.value;
+  input.hidden=true;
+ }
+ renderSeriesChips();
+ preview();
+}
+function renderReferenceTable(){const brand=$('refBrand').value,size=$('refSize').value,search=normalizeText($('refSearch').value);const rows=REF_ROWS.filter(row=>(brand==='全部品牌'||row.brand===brand)&&(!search||normalizeText(row.brand+row.series).includes(search)));const matches=rows.length;
+ $('refTable').innerHTML=matches?`<div class="fine" style="margin:0 0 9px">找到 ${matches} 个系列 · 当前 ${esc(size)} 码 · 点击“选用”可填入上方比价单</div><div class="ref-list"><table class="tbl"><thead><tr><th>品牌</th><th>系列</th><th>${esc(size)} 参考价/片</th><th>操作</th></tr></thead><tbody>${rows.map(row=>{const p=refPrice(row,size),original=row.values[REF_SIZES.indexOf(size)];const overridden=Object.prototype.hasOwnProperty.call(state.referenceOverrides||{},referenceKey(row.brand,row.series,size));return `<tr><td>${esc(row.brand)}</td><td><b>${esc(row.series)}</b>${row.notes?.[size]?`<div class="ref-remark" title="${esc(row.notes[size])}">⚠ 该数值需核对</div>`:''}</td><td><span class="ref-unit">${p?money(p):'<span class="ref-muted">—</span>'}</span>${overridden?'<div class="fine">已自定义</div>':''}</td><td class="ref-actions"><button class="btn secondary sm" data-action="pickref" data-series="${esc(row.series)}" data-brand="${esc(row.brand)}" data-size="${esc(size)}">选用</button><button class="btn ghost sm" data-action="editref" data-series="${esc(row.series)}" data-brand="${esc(row.brand)}" data-size="${esc(size)}">改价</button>${overridden?`<button class="btn ghost sm" data-action="resetref" data-series="${esc(row.series)}" data-brand="${esc(row.brand)}" data-size="${esc(size)}">恢复默认价</button>`:''}</td></tr>`}).join('')}</tbody></table></div>`:'<div class="empty"><b>没有符合条件的参考系列</b>可以调整品牌、尺码或搜索关键词。没有参考价也不影响上方正常比价。</div>';
+}
+let editingReference=null;
+function editReference(brand,series,size){const row=findReferenceRow(brand,series);if(!row)return;const current=refPrice(row,size),index=REF_SIZES.indexOf(size);
+ if(index<0)return;
+ editingReference={brand:row.brand,series:row.series,size};
+ $("priceEditorSubtitle").textContent=`${row.brand} · ${row.series} · ${size} 码`;
+ $("editorDefaultPrice").textContent=row.values[index]==null?'未设置':money(row.values[index]);
+ $("editorCurrentPrice").textContent=current==null?'未设置':money(current);
+ $("editedReferencePrice").value=current==null?'':String(current);
+ $("priceEditError").textContent='';
+ $("priceEditor").hidden=false;
+ document.body.style.overflow='hidden';
+ $("editedReferencePrice").focus();
+ $("editedReferencePrice").select();}
+function closeReferenceEditor(){
+ $("priceEditor").hidden=true;
+ document.body.style.overflow='';
+ editingReference=null;
+}
+function refreshReferencePrices(){renderReferenceTable();renderQuotes();}
+function saveReferenceFromEditor(){
+ if(!editingReference)return;
+ const input=$("editedReferencePrice"),raw=input.value.trim(),v=Number(raw);
+ if(!raw||!Number.isFinite(v)||v<=0||v>100){$("priceEditError").textContent='请输入大于 0 且不超过 100 的参考单价。';input.focus();return}
+ const {brand,series,size}=editingReference;
+ state.referenceOverrides[referenceKey(brand,series,size)]=Math.round(v*1000)/1000;
+ const ok=save();
+ closeReferenceEditor();
+ refreshReferencePrices();
+ if(ok)toast(`已保存：${brand} · ${series} · ${size} ${money(v)}/片`);
+}
+function restoreReference(brand,series,size){
+ const row=findReferenceRow(brand,series);if(!row)return;
+ delete state.referenceOverrides[referenceKey(row.brand,row.series,size)];
+ const ok=save();
+ closeReferenceEditor();
+ refreshReferencePrices();
+ if(ok)toast('已恢复内置默认参考价');
+}
+function renderStockEditor(){
+ const editor=(size,label)=>'<div class="stock-size '+(label==='正在使用'?'active':'')+'"><div class="field">'
+  +'<label for="inv_'+size+'">'+esc(size)+' 码'+(label?' · '+esc(label):'')+'</label>'
+  +'<span class="size-help">建议体重：'+esc(XBGrowth.sizeRange(size))+'</span>'
+  +'<input id="inv_'+size+'" type="number" min="0" max="100000" step="1" value="'+stageStock(size)+'" inputmode="numeric"/>'
+  +'</div></div>';
+ const grid=(list,labels)=>'<div class="stock-grid">'+list.map((size,i)=>editor(size,labels?.[i])).join('')+'</div>';
+ const fold=(title,list,note)=>{
+  if(!list.length)return '';
+  return '<details class="plan-more stock-details"><summary>'+esc(title)+'</summary>'+grid(list)+
+   '<p class="plan-more-note">'+esc(note)+'</p></details>';
+ };
+ if(!XBGrowth.born(state)){
+  $('stockEditForm').innerHTML='<section class="stock-current"><div class="stock-title">出生前重点库存</div>'
+   +grid(['NB','S'],['首批备货','下一码'])+'</section>'
+   +fold('其他尺码盘点（M / L / XL / XXL）',SIZES.slice(2),'未出生时可以提前盘点，不会修改出生前备货方案。');
+  return;
+ }
+ const active=XBGrowth.effectiveSize(state),idx=SIZES.indexOf(active);
+ const primary=SIZES.slice(idx,idx+2),future=SIZES.slice(idx+2),past=SIZES.slice(0,idx);
+ const snapshot=past.map(x=>x+' '+stageStock(x)+'片').join(' / ');
+ $('stockEditForm').innerHTML='<section class="stock-current"><div class="stock-title">当前与下一尺码</div>'
+  +grid(primary,['正在使用','下一尺码'])+'</section>'
+  +fold('未来尺码盘点（'+future.join(' / ')+'）',future,'未来尺码仅在需要时查看和盘点。')
+  +fold('历史尺码库存（'+(snapshot||'无')+'）',past,'已换码的库存仍然保留，可以展开修正，不会自动清零。');
+}
+function renderM102History(){
+ const items=window.XBM102.history(),real=items.filter(x=>!x.reversed),total=real.reduce((n,x)=>n+x.totalFen,0),
+  pieces=real.reduce((n,x)=>n+x.pieces,0);
+ $('historyKpis').innerHTML='<div class="kpi"><div class="kpi-label">云端累计实付</div><div class="kpi-value purple">¥'+(total/100).toFixed(2)+'</div></div>'+
+  '<div class="kpi"><div class="kpi-label">云端购买总片数</div><div class="kpi-value">'+int(pieces)+'</div></div>'+
+  '<div class="kpi"><div class="kpi-label">服务端采购记录</div><div class="kpi-value">'+int(items.length)+'</div></div>'+
+  '<div class="kpi"><div class="kpi-label">同步状态</div><div class="kpi-meta">'+esc(window.XBM102.status)+'</div></div>';
+ $('historyList').innerHTML='<p class="fine">专用测试宝宝 · 已确认云端采购（不含原本机流水，也不含未提交的离线购买）</p>'+
+  (items.length?'<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>商品</th><th>尺码</th><th>片数</th><th>金额</th><th>状态</th></tr></thead><tbody>'+
+  items.slice().reverse().map(t=>'<tr><td>'+esc(t.purchaseDate)+'</td><td>'+esc(t.brand)+' · '+esc(t.series)+'</td><td>'+esc(t.size)+'</td><td>+'+int(t.pieces)+'</td><td>¥'+(t.totalFen/100).toFixed(2)+'</td><td>'+(t.reversed?'已撤销':'已确认')+'</td></tr>').join('')+'</tbody></table></div>':
+  '<div class="empty">暂无云端确认的采购记录；本机演练流水不会出现在这里。</div>');
+ renderStockEditor();
+}
+function renderHistory(){if(!m3ReadOnly&&window.XBM102?.isActive()){renderM102History();return;}const buys=state.transactions.filter(t=>t.type==='buy'),used=state.transactions.filter(t=>t.type==='use'),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
+const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}${m3ReadOnly?'<div class="fine">'+(t.origin==='cloud_post_migration'?'迁移后新采购':'旧版迁移历史')+'</div>':''}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td><button class="btn ghost sm" data-action="deletetx" data-id="${esc(t.id)}">撤销</button></td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
+renderStockEditor()}
+function updateSizeModePreview(){
+ const mode=$('sizeMode').value,manual=$('currentSize').value;
+ $('manualSizeBox').hidden=mode==='auto';
+ $('manualSizeRange').textContent='建议体重：'+XBGrowth.sizeRange(manual)+'（以实际贴合为准）';
+ if(mode==='manual'){
+  $('sizePreview').textContent='手动指定 '+manual+' 码；体重记录不会覆盖你的选择。';
+  return;
+ }
+ const latest=XBGrowth.latestWeight(state),recommended=XBGrowth.latestRecommendation(state);
+ if(!latest||!recommended){
+  $('sizePreview').textContent='没有有效体重，暂时无法自动推荐；库存仍按原有 '+state.currentSize+' 码展示。请到「成长」记录体重。';
+  return;
+ }
+ const source=latest.source==='record'?'最新测量 '+latest.date:latest.source==='birth'?'出生体重 '+latest.date:'旧版体重（无测量日期）';
+ $('sizePreview').textContent=source+'：'+latest.weight.toFixed(2)+' kg → 推荐 '+recommended+' 码。'+
+  (!XBGrowth.born(state)?' 当前尚未填写已发生的出生日期，首页仍采用出生前备货布局。':' 首页和库存盘点将同步采用推荐尺码。')+
+  ' 尺码仅供参考，以实际贴合和品牌标注为准。';
+}
+function renderSettings(){
+ const p=state.babyProfile||{};
+ $('dueDate').value=state.dueDate||'';$('birthDate').value=state.birthDate||'';
+ $('babyName').value=p.name||'小宝';$('babySex').value=p.sex||'';
+ const parts=p.birthTime?p.birthTime.split(':'):[];
+ $('birthHour').value=parts[0]??'';$('birthMinute').value=parts[1]??'';$('birthSecond').value=parts[2]??'';
+ $('birthWeight').value=p.birthWeight??'';$('birthLength').value=p.birthLength??'';
+ $('sizeMode').value=state.sizeMode==='auto'?'auto':'manual';
+ $('currentSize').value=state.currentSize;$('goalPrice').value=state.goalPrice;
+ updateSizeModePreview();
+ const born=XBGrowth.born(state),active=XBGrowth.effectiveSize(state);
+ $('planSettingsTitle').textContent=born?'🎯 补货目标与日均用量':'🎯 出生前备货目标';
+ $('planIntro').textContent=born?'围绕当前穿着尺码管理库存。旧尺码只做历史管理，不再计入补货建议。':'出生前以 NB / S 试用备货为主，其他尺码可以展开提前设置。';
+ $('prenatalPresets').hidden=born;$('postnatalPolicy').hidden=!born;
+ const policy=XBGrowth.replenishmentPolicy(state);
+ $('replenishMode').value=policy.mode;$('replenishDays').value=String(policy.days);
+ document.querySelectorAll('[data-preset]').forEach(b=>b.classList.toggle('active',b.dataset.preset===state.preset));
+ const editor=(x,label)=>{
+  const saved=Math.max(0,Math.round(num(state.target[x])));
+  return '<div class="setting-size '+(label==='正在使用'?'plan-size-now':label==='下一尺码'?'plan-size-next':'')+'">'
+    +'<div class="plan-size-heading">'+esc(x)+(label?' · '+label:'')+'</div>'
+    +'<div class="plan-size-stock">建议体重：'+esc(XBGrowth.sizeRange(x))+'</div>'
+     +'<div class="plan-size-stock">现有库存 '+int(stageStock(x))+' 片</div>'
+    +'<label for="target_'+x+'">自定义目标（片）</label><input data-plan-target="1" id="target_'+x+'" type="number" min="0" max="10000" step="1" value="'+saved+'"/>'
+    +'<label for="daily_'+x+'">每日预计消耗（片）</label><input id="daily_'+x+'" type="number" min="1" max="30" step="1" value="'+Math.round(num(state.daily[x]))+'"/>'
+    +'</div>';
+ };
+ const group=(names,labels)=>'<div class="setting-grid">'+names.map((x,i)=>editor(x,labels?labels[i]:null)).join('')+'</div>';
+ const details=(title,names,notes,labels)=>{
+  if(!names.length)return '';
+  return '<details class="plan-more"><summary>'+esc(title)+'</summary>'+group(names,labels)+'<p class="plan-more-note">'+esc(notes)+'</p></details>';
+ };
+ if(!born){
+  $('settingsSizes').innerHTML='<section class="plan-size-group"><h3>🍼 出生前重点备货</h3>'+group(['NB','S'],['首批试用','下一码'])+'</section>'
+   +details('其他尺码设置（M / L / XL / XXL）',SIZES.slice(2),'可预先设定日均用量和自定义目标，但出生前不计入首批备货统计。');
+ }else{
+  const idx=SIZES.indexOf(active),main=SIZES.slice(idx,idx+2),past=SIZES.slice(0,idx),future=SIZES.slice(idx+2);
+  const note=past.map(x=>x+' '+int(stageStock(x))+'片').join(' / ');
+  $('settingsSizes').innerHTML='<section class="plan-size-group"><h3>🧷 当前与下一尺码</h3>'+group(main,['正在使用','下一尺码'])+'</section>'
+   +details('未来尺码设置（'+(future.join(' / ')||'无')+'）',future,'未来尺码无需现在大量囤货，可根据实际体重和贴合情况逐步准备。')
+   +details('历史尺码设置（'+(note||'无')+'）',past,'旧尺码的全部目标、库存和记录仍保留；此区域仅用于查看和修改，不参与当前补货。');
+ }
+ updateReplenishmentPreview();
+}
+function updateReplenishmentPreview(){
+ const born=XBGrowth.born(state);
+ if(!born)return;
+ const mode=$('replenishMode').value,days=Number($('replenishDays').value);
+ $('replenishDaysBox').hidden=mode!=='days';
+ for(const x of SIZES){const input=$('target_'+x);if(input)input.disabled=mode!=='custom';}
+ const current=XBGrowth.effectiveSize(state);
+ const dailyInput=$('daily_'+current),targetInput=$('target_'+current);
+ const daily=Math.max(1,Math.min(30,Number(dailyInput?.value)||8));
+ const target=mode==='days'?daily*days:Math.max(0,Math.round(Number(targetInput?.value)||0))||daily*7;
+ const old=mode==='custom'&&!(Number(targetInput?.value)>0);
+ $('replenishPreview').textContent='当前 '+current+' 码：按每天 '+daily+' 片，目标 '+target+' 片，库存 '+stageStock(current)+' 片，'
+   +(mode==='days'?'计划保有 '+days+' 天用量。':old?'尚未填写自定义目标，临时按7天用量计算。':'使用自定义目标。')
+   +' 保存后才会更新首页，不改动现有实际库存。';
+}
+function renderAll(){renderOverview();if($('compare').classList.contains('active')){renderQuotes();renderReferenceTable();}if($('history').classList.contains('active'))renderHistory();if($('growth').classList.contains('active'))renderGrowth();if($('settings').classList.contains('active'))renderSettings()}
+function consume(size,count){if(window.XBM102?.isActive()){toast('云端模式暂不支持消耗，本次未修改库存');return;}count=clamp(Math.floor(num(count)),0,stageStock(size));if(!count)return;state.inventory[size]=stageStock(size)-count;state.transactions.unshift({id:uid(),type:'use',date:localDate(),size,pieces:count,price:0});save();renderAll();toast(`${size} 已记录消耗 ${count} 片`)}
+function setPreset(p){const presets={cautious:[80,60],balanced:[100,60],relaxed:[120,80]};if(!presets[p]||XBGrowth.born(state))return;state.preset=p;state.target.NB=presets[p][0];state.target.S=presets[p][1];save();renderSettings();renderOverview();toast('已切换目标方案，可继续手动微调')}
+function savePlans(){
+ const born=XBGrowth.born(state),mode=born?$('replenishMode').value:'custom',days=born?Number($('replenishDays').value):7;
+ if(!['days','custom'].includes(mode)||![5,7,10].includes(days)){toast('请检查补货设置');return}
+ // Validate first: never partially modify stored targets/daily usage on a failed input.
+ const target={},daily={};
+ for(const x of SIZES){
+  const rawTarget=$('target_'+x).value.trim(),rawDaily=$('daily_'+x).value.trim();
+  const t=Number(rawTarget),d=Number(rawDaily);
+  if(!rawDaily||!Number.isInteger(d)||d<1||d>30
+   ||!rawTarget||!Number.isInteger(t)||t<0||t>10000){toast(x+'：请填写有效目标与日均用量');return}
+  target[x]=t;daily[x]=d;
+ }
+ for(const x of SIZES){
+  state.daily[x]=daily[x];
+  // Day-based mode preserves every old custom target; it is never reset to daily×days.
+  if(!born||mode==='custom')state.target[x]=target[x];
+ }
+ if(born)state.replenishPolicy={mode,days};else state.preset='custom';
+ save();renderAll();toast('备货与补货设置已保存');
+}
+function saveProfile(){
+ const due=$('dueDate').value,birth=$('birthDate').value;
+ if(!XBGrowth.dateOK(due)||(birth&&(!XBGrowth.dateOK(birth)||birth>localDate()))){toast('请检查预产期与实际出生日期');return}
+ const bits=['birthHour','birthMinute','birthSecond'].map(k=>$(k).value.trim()),hasTime=bits.some(Boolean);
+ if(hasTime&&(bits.some(x=>!x)||Number(bits[0])>23||Number(bits[1])>59||Number(bits[2])>59||bits.some(x=>!Number.isInteger(Number(x))||Number(x)<0))){toast('出生时分秒请完整填写，或者全部留空');return}
+ const time=hasTime?bits.map(x=>x.padStart(2,'0')).join(':'):'';
+ const rawWeight=$('birthWeight').value.trim(),rawLength=$('birthLength').value.trim();
+ if((rawWeight&&(!XBGrowth.validWeight(rawWeight)||Number(rawWeight)>10))||(rawLength&&(!Number.isFinite(Number(rawLength))||Number(rawLength)<20||Number(rawLength)>70))){toast('请检查出生体重或身长');return}
+ if(!birth&&(hasTime||rawWeight||rawLength)){toast('请先填写实际出生日期');return}
+ const name=$('babyName').value.trim().slice(0,30)||'小宝',sex=$('babySex').value;
+ if(!['','男','女'].includes(sex)){toast('请检查宝宝资料');return}
+ Object.assign(state,{dueDate:due,birthDate:birth,babyProfile:{name,sex,birthTime:time,birthWeight:rawWeight?Number(rawWeight):'',birthLength:rawLength?Number(rawLength):''}});
+ XBGrowth.syncAutoSize(state);save();renderAll();toast('宝宝资料已保存');
+}
+function saveSizePreferences(){
+ const mode=$('sizeMode').value,size=$('currentSize').value,goal=Number($('goalPrice').value);
+ if(!['manual','auto'].includes(mode)||(mode==='manual'&&!SIZES.includes(size))||!(goal>0)||goal>100){toast('请检查尺码与采购偏好');return}
+ // The deprecated autoSize field remains in backups for compatibility but never anchors recommendations.
+ Object.assign(state,{sizeMode:mode,currentSize:mode==='manual'?size:state.currentSize,goalPrice:goal});
+ save();renderAll();toast('尺码与采购偏好已保存');
+}
+function saveStocks(){
+ if(window.XBM102?.isActive()){toast('云端模式暂不支持直接盘点，本次未修改库存');return;}
+ const next={};
+ for(const x of SIZES){
+  const input=$('inv_'+x),raw=input?.value??'',n=Number(raw);
+  // Every size exists in the document even if its details group is collapsed.
+  if(raw===''||!Number.isInteger(n)||n<0||n>100000){toast(x+' 库存必须是非负整数');return}
+  next[x]=n;
+ }
+ for(const x of SIZES)state.inventory[x]=next[x];
+ save();renderAll();toast('实际库存已更新');
+}
+function undo(id){if(window.XBM102?.isActive()){toast('云端模式暂不支持撤销，本次未修改库存');return;}const i=state.transactions.findIndex(t=>t.id===id);if(i<0)return;const t=state.transactions[i];if(!confirm(`确认撤销这条${t.type==='buy'?'采购':'消耗'}记录？库存也会相应修正。`))return;if(t.type==='buy')state.inventory[t.size]=Math.max(0,stageStock(t.size)-num(t.pieces));else state.inventory[t.size]=stageStock(t.size)+num(t.pieces);state.transactions.splice(i,1);save();renderAll();toast('记录已撤销，库存已同步修正')}
+function exportData(){const data=JSON.stringify({app:'xiaobao-diapers',version:1,exportedAt:new Date().toISOString(),data:state},null,2);const blob=new Blob([data],{type:'application/json;charset=utf-8'});const href=URL.createObjectURL(blob);const a=document.createElement('a');a.href=href;a.download=`小宝纸尿裤备份_${localDate()}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),1000);toast('备份文件已导出')}
+function importData(file){const reader=new FileReader();reader.onload=()=>{try{const obj=JSON.parse(reader.result);if(obj.app!=='xiaobao-diapers'||!obj.data||typeof obj.data!=='object'||!obj.data.inventory||!obj.data.target)throw Error('not-valid');if(!confirm('确定用这个备份替换本机现有的库存和记录吗？'))return;const d=defaults(),raw=obj.data;state={...d,...raw,target:{...d.target,...raw.target},daily:{...d.daily,...raw.daily},inventory:{...d.inventory,...raw.inventory},quotes:Array.isArray(raw.quotes)?raw.quotes:[],transactions:Array.isArray(raw.transactions)?raw.transactions:[],referenceOverrides:raw.referenceOverrides&&typeof raw.referenceOverrides==='object'&&!Array.isArray(raw.referenceOverrides)?raw.referenceOverrides:{}};for(const x of SIZES){state.inventory[x]=clamp(Math.round(num(state.inventory[x])),0,100000);state.target[x]=clamp(Math.round(num(state.target[x])),0,10000);state.daily[x]=clamp(Math.round(num(state.daily[x],8)),1,30)}Object.assign(state,XBGrowth.extras({...raw,currentSize:state.currentSize}));XBGrowth.syncAutoSize(state);save();renderAll();toast('备份已恢复')}catch{toast('备份文件格式不正确')}};reader.readAsText(file,'utf-8')}
+// event handling
+$('refBrand').innerHTML=REF_BRANDS.map(x=>`<option>${esc(x)}</option>`).join('');
+$('refSize').value='NB';
+for(const id of ['refBrand','refSize','refSearch'])$(id).addEventListener(id==='refSearch'?'input':'change',renderReferenceTable);
+$('priceEditForm').addEventListener('submit',e=>{e.preventDefault();saveReferenceFromEditor()});
+$('closeRefEditor').addEventListener('click',closeReferenceEditor);
+$('cancelEditedReference').addEventListener('click',closeReferenceEditor);
+$('restoreDefaultReference').addEventListener('click',()=>{if(editingReference)restoreReference(editingReference.brand,editingReference.series,editingReference.size)});
+$('editedReferencePrice').addEventListener('input',()=>{$('priceEditError').textContent=''});
+$('priceEditor').addEventListener('click',e=>{if(e.target===$('priceEditor'))closeReferenceEditor()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('priceEditor').hidden)closeReferenceEditor()});
+$('qBrand').addEventListener('change',()=>{$('qSeries').value='';updateSeriesPicks();preview()});
+$('qSeriesChoice').addEventListener('change',chooseSeriesFromSelect);
+$('qSeries').addEventListener('input',renderSeriesChips);
+Array.from(document.querySelectorAll('.tab')).forEach(el=>el.addEventListener('click',()=>tab(el.dataset.tab)));
+document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;if(action==='go'){tab(b.dataset.target);return}if(action==='consume'){consume(b.dataset.size,b.dataset.count);return}if(action==='editstock'){tab('history');const field=$('inv_'+b.dataset.size);const section=field?.closest('details');if(section)section.open=true;field?.focus();return}if(action==='deletequote'){state.quotes=state.quotes.filter(q=>q.id!==b.dataset.id);save();renderQuotes();toast('候选已移除');return}if(action==='buyquote'){const q=state.quotes.find(q=>q.id===b.dataset.id);if(q)addBuy(q);return}if(action==='deletetx'){undo(b.dataset.id);return}if(action==='series'){$('qSeries').value=b.dataset.series;$('qSeriesChoice').value=b.dataset.series;$('qSeries').hidden=true;renderSeriesChips();preview();return}if(action==='pickref'){$('qBrand').value=b.dataset.brand;$('qSeries').value=b.dataset.series;$('qSize').value=b.dataset.size;updateSeriesPicks();preview();document.querySelector('#compare .head')?.scrollIntoView({behavior:'smooth',block:'start'});toast('已填入品牌、系列与尺码');return}if(action==='editref'){editReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}if(action==='resetref'){restoreReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}});
+for(const x of ['qBrand','qSeries','qSize','qPerPack','qPacks','qPrice'])$(x).addEventListener('input',preview);
+$('saveQuote').addEventListener('click',()=>{const q=compareInput();if(!validateQuote(q))return;state.quotes.push({...q,id:uid(),date:localDate()});save();renderQuotes();toast('候选价已保存，可继续录入另一款比较')});
+$('buyNow').addEventListener('click',()=>addBuy(compareInput()));
+$('clearQuotes').addEventListener('click',()=>{if(!state.quotes.length)return;if(!confirm('确定清空全部候选价格？不会影响采购记录。'))return;state.quotes=[];save();renderQuotes();toast('候选价已清空')});
+$('saveProfile').addEventListener('click',saveProfile);
+$('saveSizePreferences').addEventListener('click',saveSizePreferences);
+$('sizeMode').addEventListener('change',updateSizeModePreview);
+$('currentSize').addEventListener('change',updateSizeModePreview);
+$('saveWeight').addEventListener('click',saveWeight);
+$('cancelWeight').addEventListener('click',clearWeightForm);
+$('growthRange').addEventListener('change',renderGrowth);
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[data-action]');
+ if(!b)return;
+ if(b.dataset.action==='editweight'){
+  const rec=state.weightRecords.find(x=>x.id===b.dataset.id);if(!rec)return;
+  editingWeightId=rec.id;$('weightDate').value=rec.date;$('weightTime').value=rec.time||'';
+  $('weightKg').value=rec.weight;$('weightNote').value=rec.note||'';
+  $('saveWeight').textContent='保存本次修改';$('cancelWeight').hidden=false;
+  $('weightDate').scrollIntoView({behavior:'smooth',block:'center'});return;
+ }
+ if(b.dataset.action==='deleteweight'){
+  const rec=state.weightRecords.find(x=>x.id===b.dataset.id);if(!rec)return;
+  if(!confirm('确定删除 '+rec.date+' 的体重记录？无法撤销。'))return;
+  state.weightRecords=state.weightRecords.filter(x=>x.id!==rec.id);
+  if(editingWeightId===rec.id)clearWeightForm();
+  XBGrowth.syncAutoSize(state);save();renderAll();toast('体重记录已删除');
+ }
+});
+$('savePlans').addEventListener('click',savePlans);
+$('saveStocks').addEventListener('click',saveStocks);
+for(const b of document.querySelectorAll('[data-preset]'))b.addEventListener('click',()=>setPreset(b.dataset.preset));
+$('replenishMode').addEventListener('change',updateReplenishmentPreview);
+$('replenishDays').addEventListener('change',updateReplenishmentPreview);
+$('settingsSizes').addEventListener('input',updateReplenishmentPreview);
+$('exportData').addEventListener('click',()=>toast('此页面仅为演练数据，禁止将演练导出当成历史备份'));
+$('importDataBtn').addEventListener('click',()=>toast('测试版不允许导入真实历史备份；正式 V1.1.2 数据未读取'));
+$('importFile').addEventListener('change',e=>{e.target.value='';toast('测试版已禁止历史导入');});
+$('resetAll').addEventListener('click',()=>{if(window.XBM102?.isActive()){toast('云端模式不能清空记录，请先退出云端模式');return;}if(!confirm('此操作会删除本浏览器的全部库存、候选价、购买与消耗记录。确定继续？'))return;state=defaults();save();renderAll();toast('已恢复初始状态')});
+// Feature-only M3 read-through shadow: replace DISPLAY state, never the stored
+// M1 local sandbox state. Cloud and synthetic data are both immutable in UI.
+window.XBM3UI=Object.freeze({
+ defaults:()=>defaults(),
+ isActive:()=>m3ReadOnly,
+ show:projection=>{
+  if(window.XBM102?.isActive())throw Error('m3:smoke_mode_active');
+  if(!projection||projection.canWrite!==false||!projection.state)
+   throw Error('m3:unverified_projection');
+  if(!m3ReadOnly)m3SavedSandboxState=state;
+  state=JSON.parse(JSON.stringify(projection.state));
+  m3ReadOnly=true;renderAll();
+ },
+ clear:()=>{
+  if(!m3ReadOnly)return;
+  state=m3SavedSandboxState;
+  m3SavedSandboxState=null;m3ReadOnly=false;
+  renderAll();
+ }
+});
+window.XBM1UI=Object.freeze({refresh:renderAll});
+updateSeriesPicks();
+clearWeightForm();
+renderAll();
+restoreActiveTab();
+})();
+</script>
+<script>
+/* XiaoBao v1.2.0 P1: CloudBase v3 family authentication adapter.
+ * NO automatic login, writes, storage migration or network calls at module load.
+ * SDK instance is injected; this file is not loaded by production index.html.
+ * CloudBase Web v3: auth.signInWithOtp({email}) -> data.verifyOtp({token}),
+ * auth.getSession() -> data.session, app.rdb().rpc(name,params).
+ */
+(function(root){
+ 'use strict';
+ const uuidRx=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const emailRx=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+ function fail(message){throw new Error('family_client: '+message)}
+ function unwrap(response){
+  if(!response||typeof response!=='object')fail('invalid_sdk_response');
+  // No raw response, email or token included in thrown messages.
+  if(response.error)fail('cloudbase_request_failed');
+  return response.data;
+ }
+ function create(app){
+  if(!app||!app.auth||typeof app.rdb!=='function')fail('unsupported_cloudbase_app');
+  const auth=app.auth;
+  const db=app.rdb();
+  if(typeof auth.signInWithOtp!=='function'||typeof auth.getSession!=='function'||typeof db.rpc!=='function')
+   fail('requires_cloudbase_v3');
+  let verifier=null;
+  let pendingEmail=null;
+  async function session(){
+   const data=unwrap(await auth.getSession());
+   return data&&data.session?data.session:null;
+  }
+  async function requireLogin(){
+   const current=await session();
+   if(!current)fail('login_required');
+   return current;
+  }
+  async function requestCode(email){
+   const normalized=String(email||'').trim().toLowerCase();
+   if(normalized.length>254||!emailRx.test(normalized))fail('invalid_email');
+   // OTP is sent only by explicit user action, not on page render.
+   const data=unwrap(await auth.signInWithOtp({email:normalized,options:{shouldCreateUser:true}}));
+   if(!data||typeof data.verifyOtp!=='function')fail('invalid_verifier');
+   verifier=data.verifyOtp;
+   pendingEmail=normalized;
+   return {sent:true};
+  }
+  async function confirmCode(code){
+   if(!verifier||!pendingEmail)fail('verification_not_started');
+   const value=String(code||'').trim();
+   if(!/^\d{6}$/.test(value))fail('invalid_verification_code');
+   const data=unwrap(await verifier({token:value}));
+   verifier=null;
+   pendingEmail=null;
+   if(!data||!data.session)fail('session_not_issued');
+   return {authenticated:true};
+  }
+  async function logout(){
+   verifier=null;pendingEmail=null;
+   unwrap(await auth.signOut());
+   return {signedOut:true};
+  }
+  async function rpc(name,params){
+   await requireLogin();
+   const data=unwrap(await db.rpc(name,params));
+   return data;
+  }
+  async function createFamily(name){
+   const safe=String(name||'').trim();
+   if(!safe||safe.length>80)fail('invalid_family_name');
+   return rpc('xb_create_family',{p_name:safe});
+  }
+  async function createInvite(familyId){
+   if(!uuidRx.test(String(familyId||'')))fail('invalid_family_id');
+   return rpc('xb_create_invite',{p_family_id:familyId});
+  }
+  async function acceptInvite(token){
+   if(!uuidRx.test(String(token||'')))fail('invalid_invite_token');
+   return rpc('xb_accept_invite',{p_token:token});
+  }
+  async function listMembers(familyId){
+   if(!uuidRx.test(String(familyId||'')))fail('invalid_family_id');
+   await requireLogin();
+   // Read-only query. Actual access is controlled by public.family_members RLS.
+   if(typeof db.from!=='function')fail('database_select_unavailable');
+   const response=await db.from('family_members')
+    .select('user_uid,member_role,member_alias,alias_revision')
+    .eq('family_id',familyId);
+   const rows=unwrap(response);
+   if(!Array.isArray(rows))fail('invalid_members_response');
+   return rows.map(row=>({
+    user_uid:row.user_uid,
+    member_role:row.member_role,
+    member_alias:row.member_alias??null,
+    alias_revision:row.alias_revision
+   }));
+  }
+  async function setMemberAlias({familyId,memberUid,alias,expectedRevision}){
+   if(!uuidRx.test(String(familyId||'')))fail('invalid_family_id');
+   if(typeof memberUid!=='string'||memberUid.length<1||memberUid.length>128)
+    fail('invalid_member_id');
+   if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)
+    fail('invalid_alias_revision');
+   if(typeof alias!=='string')fail('invalid_alias');
+   const cleaned=alias.trim();
+   if(Array.from(cleaned).length>24||/[\u0000-\u001f\u007f]/u.test(cleaned))
+    fail('invalid_alias');
+   await requireLogin();
+   const response=await db.rpc('xb_set_member_alias',{
+    p_family_id:familyId,p_member_uid:memberUid,
+    p_alias:cleaned,p_expected_revision:expectedRevision
+   });
+   if(response?.error){
+    // Permit useful SQLSTATE/CloudBase error codes, never echo backend text.
+    const code=String(response.error.code||'UNKNOWN');
+    const safe=/^[A-Z0-9_]{1,50}$/.test(code)?code:'UNKNOWN';
+    fail('alias_update_failed_'+safe);
+   }
+   const result=unwrap(response);
+   const row=Array.isArray(result)?result[0]:result;
+   if(!row||row.saved!==true||!Number.isInteger(row.alias_revision))
+    fail('invalid_alias_ack');
+   return {saved:true,changed:!!row.changed,
+    member_alias:row.member_alias??null,alias_revision:row.alias_revision};
+  }
+  return Object.freeze({session,requestCode,confirmCode,logout,createFamily,createInvite,acceptInvite,listMembers,setMemberAlias});
+ }
+ const api=Object.freeze({create});
+ if(root)root.XBCloudbaseFamilyClient=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+;
+/* XiaoBao v1.2.0 P3: on-launch CloudBase v3 session recovery.
+ * The SDK owns secure session persistence/refresh tokens. Never copy tokens
+ * to the diaper state, custom localStorage keys or the outbox.
+ * No requests or timers on module import; no OTP issued automatically.
+ */
+(function(root){
+ 'use strict';
+ const AUTH_LOSS=new Set(['invalid_refresh_token','refresh_token_expired',
+  'user_not_found','invalid_grant','not_authenticated']);
+ const TRANSIENT=new Set(['unreachable','network_error','network_unavailable',
+  'timeout','service_unavailable','rate_limited','resource_exhausted']);
+ function errorCode(error){
+  const code=String(error?.code||error?.errorCode||'unknown').toLowerCase();
+  return /^[a-z0-9_]{1,60}$/.test(code)?code:'unknown';
+ }
+ function create({auth,thresholdSeconds=300}={}){
+  if(!auth||typeof auth.getSession!=='function')
+   throw Error('session_recovery:cloudbase_auth_required');
+  if(!Number.isInteger(thresholdSeconds)||thresholdSeconds<0||thresholdSeconds>3600)
+   throw Error('session_recovery:invalid_threshold');
+  let inFlight=null;
+  async function read(){
+   let response;
+   try{response=await auth.getSession();}
+   catch(_){return {status:'degraded',reason:'network-or-sdk-failure'};}
+   if(response?.error){
+    const code=errorCode(response.error);
+    if(AUTH_LOSS.has(code))return {status:'auth-required',reason:'session_expired'};
+    if(code==='token_expired'&&typeof auth.refreshSession==='function')
+     return refresh('expired');
+    return {status:'degraded',reason:TRANSIENT.has(code)?'network-unavailable':'session-check-failed'};
+   }
+   const current=response?.data?.session||null;
+   if(!current)return {status:'auth-required',reason:'no_session'};
+   // Refresh only when the SDK provides a trustworthy remaining lifetime;
+   // otherwise let SDK-owned token lifecycle manage it.
+   const seconds=current.expires_in;
+   if(Number.isFinite(seconds)&&seconds>=0&&seconds<thresholdSeconds
+      &&typeof auth.refreshSession==='function')
+    return refresh('near-expiry');
+   return {status:'authenticated',refresh:'not-needed'};
+  }
+  async function refresh(why){
+   let response;
+   try{response=await auth.refreshSession();}
+   catch(_){return {status:'degraded',reason:'refresh-unavailable'};}
+   if(response?.error){
+    const code=errorCode(response.error);
+    return AUTH_LOSS.has(code)?
+     {status:'auth-required',reason:'refresh_expired'}:
+     {status:'degraded',reason:'refresh-unavailable'};
+   }
+   if(!response?.data?.session)
+    return {status:'auth-required',reason:'session_missing_after_refresh'};
+   return {status:'authenticated',refresh:why};
+  }
+  async function restore({online=true}={}){
+   // Offline PWA access to an already-existing local snapshot remains possible,
+   // but no server authorization or fresh family permission is asserted.
+   if(!online)return {status:'degraded',reason:'offline'};
+   if(inFlight)return inFlight;
+   inFlight=read();
+   try{return await inFlight;}
+   finally{inFlight=null;}
+  }
+  return Object.freeze({restore});
+ }
+ const api=Object.freeze({create});
+ if(root)root.XBSessionRecovery=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+;
+/* XiaoBao v1.2.0 P2-3C access preflight: pure explicit-read adapter.
+ * This is intentionally NOT a production upload authorization.
+ * It checks session identity + fresh CloudBase RLS SELECT on family/member/grant.
+ * Even if all checks succeed, initialized is ALWAYS false until an independently
+ * verified, per-child server + durable IDB baseline handshake is implemented.
+ * No SDK calls at import, no table mutations, no inventory/write RPC.
+ */
+(function(root){
+ 'use strict';
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ function fail(code){throw new Error('access_preflight:'+code);}
+ function uid(value){
+  return typeof value==='string'&&value.length>0&&value.length<=128?value:null;
+ }
+ function requireScope(scope){
+  if(!scope||typeof scope!=='object'||typeof scope.familyId!=='string'
+     ||!UUID.test(scope.familyId)||!uid(scope.actorUid))
+   fail('invalid_scope');
+  return {familyId:scope.familyId,actorUid:scope.actorUid};
+ }
+ function create(app){
+  if(!app||!app.auth||typeof app.auth.getSession!=='function'
+     ||typeof app.rdb!=='function')fail('sdk_required');
+  const db=app.rdb();
+  if(!db||typeof db.from!=='function')fail('rdb_select_required');
+  async function select(table,fields,filters){
+   try{
+    let q=db.from(table).select(fields);
+    for(const [key,value] of filters)q=q.eq(key,value);
+    const result=await q.limit(2);
+    if(!result||result.error||!Array.isArray(result.data))
+     fail('cloud_select_unavailable');
+    return result.data;
+   }catch(error){
+    if(error?.message==='access_preflight:cloud_select_unavailable')throw error;
+    fail('cloud_select_unavailable');
+   }
+  }
+  async function verifyAccess(scope){
+   const {familyId,actorUid}=requireScope(scope);
+   let response;
+   try{response=await app.auth.getSession();}
+   catch(_){fail('session_unavailable');}
+   if(!response||response.error)fail('session_unavailable');
+   if(!response.data||!response.data.session)fail('login_required');
+   const session=response.data.session;
+   // CloudBase Web v3 exposes data.user.id and/or data.session.user.id.
+   // If both are present they must match. No assumption that a caller-supplied
+   // UID or a cached alias is proof of a gateway-authenticated identity.
+   const reported=[response.data.user?.id,session.user?.id]
+    .filter(x=>x!==undefined&&x!==null);
+   if(!reported.length||reported.some(x=>!uid(x))||
+      new Set(reported).size!==1)fail('session_identity_unverified');
+   if(reported[0]!==actorUid)fail('actor_session_mismatch');
+   const families=await select('families','id',[['id',familyId]]);
+   if(families.length!==1||families[0]?.id!==familyId)
+    fail('family_not_visible');
+   const members=await select('family_members','family_id,user_uid,member_role',
+    [['family_id',familyId],['user_uid',actorUid]]);
+   if(members.length!==1||members[0]?.family_id!==familyId
+      ||members[0]?.user_uid!==actorUid
+      ||!['owner','member'].includes(members[0]?.member_role))
+    fail('membership_unverified');
+   const grants=await select('family_app_access','family_id,user_uid,app_code',
+    [['family_id',familyId],['user_uid',actorUid],['app_code','xb']]);
+   if(grants.length!==1||grants[0]?.family_id!==familyId
+      ||grants[0]?.user_uid!==actorUid||grants[0]?.app_code!=='xb')
+    fail('xb_grant_unverified');
+   // At this point only the RLS authorization is verified.
+   // It is NOT safe to upload until an independently verified, durable
+   // child inventory baseline has been created and reconciled.
+   return Object.freeze({
+    familyId,actorUid,appCode:'xb',member:true,
+    initialized:false
+   });
+  }
+  return Object.freeze({verifyAccess});
+ }
+ const api=Object.freeze({create});
+ if(root)root.XBCloudbaseAccessPreflight=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+;
+/* XiaoBao v1.2.0 future cloud-child read/migration safety guard.
+ * Pure module only; NOT loaded by production PWA. No I/O or storage.
+ * A cloud child query MUST include both legacy_slot and deleted_at.
+ */
+(function(root){
+ 'use strict';
+ const SMOKE_PREFIX='__xb_smoke_';
+ const own=(obj,key)=>Object.prototype.hasOwnProperty.call(obj,key);
+ function parse(row){
+  if(!row||typeof row!=='object'||Array.isArray(row)
+      ||!own(row,'legacy_slot')||!own(row,'deleted_at'))
+   throw Error('child_scope:required_classification_fields_missing');
+  if(row.legacy_slot!==null&&typeof row.legacy_slot!=='string')
+   throw Error('child_scope:invalid_legacy_slot');
+  if(row.deleted_at!==null&&typeof row.deleted_at!=='string')
+   throw Error('child_scope:invalid_deleted_at');
+  return Object.freeze({
+   smoke:typeof row.legacy_slot==='string'&&row.legacy_slot.startsWith(SMOKE_PREFIX),
+   archived:row.deleted_at!==null,
+   primary:row.legacy_slot==='primary'
+  });
+ }
+ function activeBusinessChildren(rows){
+  if(!Array.isArray(rows))throw Error('child_scope:expected_array');
+  const out=[];
+  for(const row of rows){
+   const label=parse(row);
+   if(!label.smoke&&!label.archived)out.push(row);
+  }
+  return Object.freeze(out);
+ }
+ function requireLegacyMigrationTarget(row){
+  const scope=parse(row);
+  if(!scope.primary||scope.smoke||scope.archived)
+   throw Error('child_scope:legacy_migration_target_must_be_active_primary');
+  return true;
+ }
+ const api=Object.freeze({parse,activeBusinessChildren,requireLegacyMigrationTarget,SMOKE_PREFIX});
+ if(root)root.XBChildScopeGuard=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+;
+/* XiaoBao v1.2.0 cloud child read-only adapter, feature branch only.
+ * Never imported into production v1.1.2.
+ * A valid session and the user's family xb app grant are required.
+ * The child scope guard fails closed if classification fields are omitted.
+ * No create/retire RPC, mutations, cloud calls or local storage at import time.
+ */
+(function(root){
+ 'use strict';
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const MAX_CHILDREN=100;
+ function fail(code){throw new Error('child_reader:'+code);}
+ function requireFamilyId(value){
+  if(typeof value!=='string'||!UUID.test(value))fail('invalid_family_id');
+  return value;
+ }
+ function create(app,guard){
+  if(!app||!app.auth||typeof app.auth.getSession!=='function'||typeof app.rdb!=='function'
+    ||!guard||typeof guard.activeBusinessChildren!=='function'
+    ||typeof guard.requireLegacyMigrationTarget!=='function')
+   fail('dependencies_required');
+  const db=app.rdb();
+  if(!db||typeof db.from!=='function')fail('database_select_unavailable');
+  async function select(table,fields,scope,limit){
+   try{
+    let q=db.from(table).select(fields);
+    for(const [column,value] of scope)q=q.eq(column,value);
+    const result=await q.limit(limit);
+    if(result&&result.error)fail('cloudbase_query_failed');
+    if(!result||!Array.isArray(result.data))fail('invalid_server_rows');
+    return result.data;
+   }catch(error){
+    if(error instanceof Error&&error.message.startsWith('child_reader:'))throw error;
+    fail('cloudbase_query_failed');
+   }
+  }
+  async function requireAuthorizedFamily(familyId){
+   let session;
+   try{session=await app.auth.getSession();}
+   catch(_){fail('session_unavailable');}
+   if(!session||session.error)fail('session_unavailable');
+   if(!session.data||!session.data.session)fail('login_required');
+   const visible=await select('families','id',[['id',familyId]],2);
+   if(visible.length!==1||visible[0].id!==familyId)
+    fail('family_access_denied');
+   // Do not hard-code the current 2-member household into future releases.
+   // RLS checks the caller's app access; more family members may be added later.
+   const grants=await select('family_app_access','app_code',
+    [['family_id',familyId],['app_code','xb']],MAX_CHILDREN+1);
+   if(grants.length===0||grants.length>MAX_CHILDREN
+      ||grants.some(row=>row.app_code!=='xb'))
+    fail('app_access_denied');
+  }
+  async function load({familyId}={}){
+   const family=requireFamilyId(familyId);
+   await requireAuthorizedFamily(family);
+   // Every query MUST select both legacy_slot and deleted_at.
+   const rows=await select('xb_children',
+    'id,family_id,display_name,legacy_slot,deleted_at,revision',
+    [['family_id',family]],MAX_CHILDREN+1);
+   if(rows.length>MAX_CHILDREN)fail('child_limit_exceeded');
+   const knownIds=new Set();
+   for(const row of rows){
+    if(!row||row.family_id!==family||!UUID.test(String(row.id))
+       ||knownIds.has(row.id)
+       ||typeof row.display_name!=='string'||!row.display_name.trim()
+       ||!Number.isSafeInteger(row.revision)||row.revision<0)
+     fail('invalid_child_rows');
+    knownIds.add(row.id);
+   }
+   let active;
+   try{active=guard.activeBusinessChildren(rows);}
+   catch(_){fail('unclassified_child_rows');}
+   return Object.freeze({
+    familyId:family,
+    totalVisible:rows.length,
+    activeChildren:Object.freeze(active.map(row=>Object.freeze({
+     id:row.id,displayName:row.display_name,revision:row.revision
+    }))),
+    // Deliberately no raw row, test child ID, email or token in the response.
+    suppressedCount:rows.length-active.length
+   });
+  }
+  async function migrationTarget({familyId}={}){
+   const family=requireFamilyId(familyId);
+   await requireAuthorizedFamily(family);
+   const rows=await select('xb_children',
+    'id,family_id,display_name,legacy_slot,deleted_at,revision',
+    [['family_id',family],['legacy_slot','primary']],2);
+   if(rows.length!==1)fail('legacy_primary_unavailable');
+   const row=rows[0];
+   if(!row||row.family_id!==family||!UUID.test(String(row.id)))
+    fail('invalid_child_rows');
+   try{guard.requireLegacyMigrationTarget(row);}
+   catch(_){fail('legacy_primary_unavailable');}
+   return Object.freeze({childId:row.id,familyId:family,readyForMigration:false});
+   // The target can be identified; actual history upload remains disabled.
+  }
+  return Object.freeze({listActiveChildren:load,inspectLegacyTarget:migrationTarget});
+ }
+ const api=Object.freeze({create});
+ if(root)root.XBCloudbaseChildReader=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+;
+/* XiaoBao P2: explicit inventory RPC adapter (not loaded by production PWA).
+ * No network calls, sign-in, state migrations or writes during module initialization.
+ * Operation IDs and timestamps MUST be stable and created by a durable outbox elsewhere.
+ */
+(function(root){
+ 'use strict';
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const SIZES=new Set(['NB','S','M','L','XL','XXL']);
+ const KINDS=new Set(['buy','use','stocktake','reverse']);
+ function fail(code){throw new Error('inventory_client:'+code);}
+ function id(value,name){if(typeof value!=='string'||!UUID.test(value))fail('invalid_'+name);return value;}
+ function qty(value,minimum){if(!Number.isSafeInteger(value)||value<minimum||value>100000)fail('invalid_amount');return value;}
+ function create(app){
+  if(!app||!app.auth||typeof app.auth.getSession!=='function'||typeof app.rdb!=='function')
+   fail('requires_cloudbase_v3');
+  const auth=app.auth;
+  const db=app.rdb();
+  if(typeof db.rpc!=='function'||typeof db.from!=='function')fail('unsupported_database_api');
+  async function checkSession(){
+   const response=await auth.getSession();
+   if(response?.error)fail('session_unavailable');
+   if(!response?.data?.session)fail('login_required');
+  }
+  function purchasePayload(purchase){
+   if(!purchase||typeof purchase!=='object'||Array.isArray(purchase))
+    fail('purchase_details_required');
+   const rawKeys=Object.keys(purchase).sort();
+   if(rawKeys.join(',')!=='brand,purchaseDate,series,totalFen')
+    fail('invalid_purchase_details');
+   if(typeof purchase.brand!=='string'||typeof purchase.series!=='string')
+    fail('invalid_purchase_details');
+   const brand=purchase.brand.trim(),series=purchase.series.trim();
+   if(!brand||!series||Array.from(brand).length>120||Array.from(series).length>120
+     ||/[\u0000-\u001f\u007f]/u.test(brand+series))fail('invalid_purchase_details');
+   if(!Number.isSafeInteger(purchase.totalFen)||purchase.totalFen<1||purchase.totalFen>10000000)
+    fail('invalid_purchase_amount');
+   const date=purchase.purchaseDate;
+   if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    fail('invalid_purchase_date');
+   const parsed=new Date(date+'T00:00:00.000Z');
+   if(!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==date)
+    fail('invalid_purchase_date');
+   return Object.freeze({brand,series,total_fen:purchase.totalFen,purchase_date:date});
+  }
+  function normalizeOperation(input){
+   if(!input||typeof input!=='object')fail('invalid_operation');
+   const familyId=id(input.familyId,'family_id');
+   const childId=id(input.childId,'child_id');
+   const operationId=id(input.operationId,'operation_id');
+   if(!KINDS.has(input.kind)||!SIZES.has(input.size))fail('invalid_operation');
+   const date=new Date(input.occurredAt);
+   if(typeof input.occurredAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(input.occurredAt)
+       ||!/[zZ]|[+-]\d\d:\d\d$/.test(input.occurredAt)||!Number.isFinite(date.getTime()))
+    fail('invalid_occurred_at');
+   const occurredAt=date.toISOString();
+   let amount=null,revision=null,reversed=null;
+   if(input.kind==='buy'||input.kind==='use'){
+    amount=qty(input.amount,1);
+    if(input.expectedRevision!=null||input.reversesOperationId!=null)fail('unexpected_revision_or_reverse');
+   }else if(input.kind==='stocktake'){
+    amount=qty(input.amount,0);
+    if(!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0)
+     fail('revision_required');
+    revision=input.expectedRevision;
+    if(input.reversesOperationId!=null)fail('unexpected_reverse_id');
+   }else{
+    if(input.amount!=null||input.expectedRevision!=null)fail('unexpected_amount_or_revision');
+    reversed=id(input.reversesOperationId,'reverses_operation_id');
+    if(operationId===reversed)fail('cannot_reverse_self');
+   }
+   const purchase=input.kind==='buy'?purchasePayload(input.purchase):null;
+   if(input.kind!=='buy'&&input.purchase!=null)fail('unexpected_purchase_details');
+   return Object.freeze({
+    p_family_id:familyId,p_child_id:childId,p_operation_id:operationId,
+    p_kind:input.kind,p_size:input.size,p_amount:amount,
+    p_expected_revision:revision,p_reverses_operation_id:reversed,
+    p_occurred_at:occurredAt,p_purchase:purchase
+   });
+  }
+  function safeRpcError(error){
+   // The RPC body uses SQLSTATE (possibly wrapped by CloudBase DATABASE_*).
+   // Never include raw backend messages, actor IDs, credentials or operation payload.
+   const code=String(error?.code||error?.errorCode||'UNKNOWN');
+   if(code==='DATABASE_40001'||code==='40001')fail('revision_conflict');
+   if(code==='DATABASE_42501'||code==='42501')fail('permission_denied');
+   if(code==='DATABASE_23514'||code==='23514')fail('stock_out_of_bounds');
+   if(code==='DATABASE_23505'||code==='23505')fail('operation_conflict');
+   fail('cloudbase_request_failed');
+  }
+  async function applyOperation(input){
+   const params=normalizeOperation(input);
+   await checkSession();
+   const response=await db.rpc('xb_apply_inventory_operation',params);
+   if(response?.error)safeRpcError(response.error);
+   const result=Array.isArray(response?.data)?response.data[0]:response?.data;
+   if(!result||result.accepted!==true||result.operation_id!==params.p_operation_id
+      ||!Number.isSafeInteger(result.result_quantity)||result.result_quantity<0
+      ||!Number.isSafeInteger(result.result_revision)||result.result_revision<1)
+    fail('invalid_server_receipt');
+   return Object.freeze({
+    operationId:result.operation_id,childId:result.child_id,size:result.size,
+    quantity:result.result_quantity,revision:result.result_revision,
+    duplicate:result.duplicate===true
+   });
+  }
+  async function readReconciliation({familyId,childId,operationIds=[]}={}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   if(!Array.isArray(operationIds)||operationIds.length>50
+      ||new Set(operationIds).size!==operationIds.length)
+    fail('invalid_reconciliation_ids');
+   for(const oid of operationIds)id(oid,'operation_id');
+   await checkSession();
+   const response=await db.rpc('xb_read_inventory_reconciliation',{
+    p_family_id:family,p_child_id:child,p_operation_ids:operationIds
+   });
+   if(response?.error)safeRpcError(response.error);
+   const data=Array.isArray(response?.data)?response.data[0]:response?.data;
+   if(!data||data.complete!==true||data.family_id!==family
+      ||data.child_id!==child
+      ||typeof data.actor_uid!=='string'||!data.actor_uid
+      ||!Array.isArray(data.checked_operation_ids)
+      ||!Array.isArray(data.seen_operation_ids)
+      ||!Array.isArray(data.rows)||data.rows.length!==SIZES.size)
+    fail('invalid_reconciliation_response');
+   if(data.checked_operation_ids.length!==operationIds.length
+      ||new Set(data.checked_operation_ids).size!==operationIds.length
+      ||operationIds.some(x=>!data.checked_operation_ids.includes(x)))
+    fail('reconciliation_checked_ids_incomplete');
+   const checked=new Set(operationIds),serverSeen=new Set();
+   for(const oid of data.seen_operation_ids){
+    if(typeof oid!=='string'||!checked.has(oid)||serverSeen.has(oid))
+     fail('invalid_reconciliation_receipts');
+    serverSeen.add(oid);
+   }
+   const found=new Set();
+   const rows=data.rows.map(row=>{
+    if(!row||!SIZES.has(row.size)||found.has(row.size)
+       ||!Number.isSafeInteger(row.quantity)||row.quantity<0||row.quantity>100000
+       ||!Number.isSafeInteger(row.revision)||row.revision<0)
+     fail('invalid_reconciliation_stock');
+    found.add(row.size);
+    return {size:row.size,quantity:row.quantity,revision:row.revision};
+   });
+   return {
+    complete:true,familyId:family,childId:child,actorUid:data.actor_uid,
+    checkedOperationIds:[...operationIds],seenOperationIds:[...serverSeen],rows
+   };
+  }
+  async function readPurchases({familyId,childId}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   await checkSession();
+   const response=await db.from('xb_transactions')
+     .select('operation_id,brand,series,size,pieces,total_fen,purchase_date,reversed_by_operation_id,created_by')
+     .eq('family_id',family).eq('child_id',child);
+   if(response?.error)safeRpcError(response.error);
+   if(!Array.isArray(response?.data))fail('invalid_purchase_rows');
+   return response.data.map(row=>{
+    if(!UUID.test(String(row.operation_id))||!SIZES.has(row.size)
+       ||!Number.isSafeInteger(row.pieces)||row.pieces<1
+       ||!Number.isSafeInteger(row.total_fen)||row.total_fen<1)
+      fail('invalid_purchase_rows');
+    return {
+     operationId:row.operation_id,brand:row.brand,series:row.series,
+     size:row.size,pieces:row.pieces,totalFen:row.total_fen,
+     purchaseDate:row.purchase_date,
+     reversed:row.reversed_by_operation_id!=null,actorUid:row.created_by
+    };
+   });
+  }
+  async function readInventory({familyId,childId}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   await checkSession();
+   const response=await db.from('xb_inventory')
+    .select('size,quantity,revision,updated_at')
+    .eq('family_id',family).eq('child_id',child);
+   if(response?.error)safeRpcError(response.error);
+   if(!Array.isArray(response?.data))fail('invalid_inventory_rows');
+   return response.data.map(row=>{
+    if(!SIZES.has(row.size)||!Number.isSafeInteger(row.quantity)||row.quantity<0
+      ||row.quantity>100000||!Number.isSafeInteger(row.revision)||row.revision<0)
+     fail('invalid_inventory_rows');
+    return {size:row.size,quantity:row.quantity,revision:row.revision,
+     updatedAt:row.updated_at};
+   });
+  }
+  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases,readReconciliation});
+ }
+ const api=Object.freeze({create});
+ if(root)root.XBInventoryClient=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* Embedded for isolated deployment: sync/outbox-contract.js */
+/* XiaoBao v1.2.0 offline outbox domain, pure functions only.
+   Does not perform persistence or network requests. */
+(function(root){
+ 'use strict';
+ const TYPES=Object.freeze(['inventory.delta','inventory.count','transaction.reverse','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch']);
+ const NEED_REV=new Set(['inventory.count','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch']);
+ const WAITING=new Set(['pending','retry','conflict']);
+ const validString=x=>typeof x==='string'&&x.length>0&&x.length<=160;
+ const isObject=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+ function check(ok,msg){if(!ok)throw Error('outbox_contract: '+msg)}
+ function createOperation({id,type,familyId,actorUid,payload,expectedRevision=null,createdAt}){
+  check(validString(id),'bad_operation_id');
+  check(TYPES.includes(type),'unknown_operation_type');
+  check(validString(familyId)&&validString(actorUid),'bad_identity');
+  check(isObject(payload),'bad_payload');
+  check(typeof createdAt==='string'&&Number.isFinite(Date.parse(createdAt)),'bad_date');
+  if(NEED_REV.has(type))check(Number.isInteger(expectedRevision)&&expectedRevision>=0,'revision_required');
+  return {id,type,familyId,actorUid,payload:JSON.parse(JSON.stringify(payload)),expectedRevision,
+   createdAt,status:'pending',attempts:0,receipt:null,error:null};
+ }
+ function waiting(ops){
+  check(Array.isArray(ops),'queue_not_array');
+  return ops.filter(x=>WAITING.has(x.status)).slice().sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));
+ }
+ function mode({enabled=true,network=true,authenticated=true,serverAvailable=true,conflicts=0,pendingCount=0,permitted=true}={}){
+  if(!enabled)return 'local-only';
+  if(!permitted)return 'permission-denied';
+  if(!authenticated)return 'auth-required';
+  if(!network||!serverAvailable)return 'degraded';
+  if(conflicts>0)return 'conflict';
+  return pendingCount>0?'recovering':'synced';
+ }
+ function applyResult(op,result){
+  check(isObject(op)&&validString(op.id),'bad_operation');
+  check(isObject(result)&&typeof result.kind==='string','bad_result');
+  if(op.status==='acked')return {...op};
+  if(result.kind==='accepted'||result.kind==='duplicate'){
+   check(validString(result.receiptId),'missing_server_receipt');
+   return {...op,status:'acked',receipt:result.receiptId,error:null};
+  }
+  const errorKinds=['conflict','offline','timeout','rate_limited','server_error','auth_expired','forbidden'];
+  check(errorKinds.includes(result.kind),'unsupported_result');
+  const status=result.kind==='conflict'?'conflict':result.kind==='forbidden'?'blocked':'retry';
+  return {...op,status,error:result.kind,attempts:op.attempts+1};
+ }
+ function forFamily(ops,familyId,actorUid){
+  return waiting(ops).filter(x=>x.familyId===familyId&&x.actorUid===actorUid);
+ }
+ function mergeQueue(existing,incoming){
+  check(Array.isArray(existing)&&Array.isArray(incoming),'invalid_queues');
+  const map=new Map();
+  for(const op of [...existing,...incoming]){
+   check(isObject(op)&&validString(op.id),'bad_queued_operation');
+   const previous=map.get(op.id);
+   if(previous){
+    check(JSON.stringify([previous.familyId,previous.actorUid,previous.type,previous.payload,previous.expectedRevision])===
+     JSON.stringify([op.familyId,op.actorUid,op.type,op.payload,op.expectedRevision]),'same_id_different_payload');
+    if(previous.status==='acked')continue;
+    if(op.status==='acked'||op.attempts>previous.attempts)map.set(op.id,{...op});
+   }else map.set(op.id,{...op});
+  }
+  return [...map.values()];
+ }
+ const api=Object.freeze({TYPES,NEED_REV,createOperation,waiting,mode,applyResult,forFamily,mergeQueue});
+ if(root)root.XBOutboxContract=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* Embedded for isolated deployment: sync/inventory-local-projection.js */
+/* XiaoBao v1.2.0 P3 - deterministic, immutable local diaper projection.
+ * Works on new IndexedDB snapshots; does not read or modify legacy localStorage.
+ * A historical/cloud baseline must be explicitly verified before initialization.
+ * No I/O. Server revisions are not guessed from local pending operations.
+ */
+(function(root){
+ 'use strict';
+ const SIZES=Object.freeze(['NB','S','M','L','XL','XXL']);
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ function fail(code){throw new Error('inventory_projection:'+code);}
+ function uuid(x){return typeof x==='string'&&UUID.test(x);}
+ function integer(n,minimum=0){return Number.isSafeInteger(n)&&n>=minimum&&n<=100000;}
+ function dateOK(x){
+  if(typeof x!=='string'||!/^\d{4}-\d\d-\d\d$/.test(x))return false;
+  const dt=new Date(x+'T00:00:00.000Z');
+  return Number.isFinite(dt.getTime())&&dt.toISOString().slice(0,10)===x;
+ }
+ function inventoryOf(source){
+  if(!source||typeof source!=='object'||Array.isArray(source)
+    ||Object.keys(source).length!==SIZES.length
+    ||!SIZES.every(size=>integer(source[size])))fail('invalid_inventory_baseline');
+  return Object.fromEntries(SIZES.map(size=>[size,source[size]]));
+ }
+ function serverRevisionsOf(raw={}){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))fail('invalid_server_revisions');
+  if(Object.keys(raw).some(x=>!SIZES.includes(x)))fail('invalid_server_revisions');
+  return Object.fromEntries(SIZES.map(size=>{
+   const n=raw[size]??0;
+   if(!Number.isSafeInteger(n)||n<0)fail('invalid_server_revisions');
+   return [size,n];
+  }));
+ }
+ function createSnapshot({familyId,actorUid,childId,inventory,serverRevisions={},source}={}){
+  if(!uuid(familyId)||!uuid(childId)||typeof actorUid!=='string'
+     ||!actorUid||actorUid.length>128)fail('invalid_identity');
+  if(source!=='test-fixture'&&source!=='verified-server')
+   fail('unverified_initial_baseline');
+  return {
+   familyId,actorUid,childId,
+   inventory:inventoryOf(inventory),
+   serverRevisions:serverRevisionsOf(serverRevisions),
+   transactions:[],localRevision:0,source
+  };
+ }
+ function checkPurchase(p){
+  if(!p||typeof p!=='object'||Array.isArray(p))fail('purchase_required');
+  const keys=Object.keys(p).sort().join(',');
+  if(keys!=='brand,purchaseDate,series,totalFen')fail('invalid_purchase');
+  for(const k of ['brand','series']){
+   if(typeof p[k]!=='string'||!p[k].trim()
+    ||Array.from(p[k].trim()).length>120||/[\u0000-\u001f\u007f]/u.test(p[k]))
+     fail('invalid_purchase');
+  }
+  if(!Number.isSafeInteger(p.totalFen)||p.totalFen<1||p.totalFen>10000000
+    ||!dateOK(p.purchaseDate))fail('invalid_purchase');
+  return {brand:p.brand.trim(),series:p.series.trim(),
+   totalFen:p.totalFen,purchaseDate:p.purchaseDate};
+ }
+ function apply(snapshot,operation){
+  if(!snapshot||!operation||!uuid(operation.id)
+    ||snapshot.familyId!==operation.familyId
+    ||snapshot.actorUid!==operation.actorUid
+    ||snapshot.childId!==operation.payload?.childId)
+   fail('identity_mismatch');
+  if(!SIZES.includes(operation.payload.size))fail('invalid_size');
+  if(!Number.isSafeInteger(snapshot.localRevision)||snapshot.localRevision<0
+     ||!Array.isArray(snapshot.transactions))fail('invalid_snapshot');
+  const size=operation.payload.size,p=operation.payload,kind=operation.type;
+  if(snapshot.transactions.some(t=>t.id===operation.id))fail('operation_already_applied');
+  const inventory=inventoryOf(snapshot.inventory),history=snapshot.transactions.map(x=>({...x}));
+  const before=inventory[size];
+  let after,entry;
+  if(kind==='inventory.delta'){
+   if(!['buy','use'].includes(p.kind)||!integer(p.amount,1))fail('invalid_delta');
+   const purchase=p.kind==='buy'?checkPurchase(p.purchase):null;
+   if(p.kind==='use'&&p.purchase!=null)fail('unexpected_purchase');
+   after=before+(p.kind==='buy'?p.amount:-p.amount);
+   entry={
+    id:operation.id,kind:p.kind,size,pieces:p.amount,
+    occurredAt:p.occurredAt||operation.createdAt,reversedBy:null,
+    ...(purchase||{})
+   };
+  }else if(kind==='inventory.count'){
+   if(!integer(p.count)||!Number.isSafeInteger(operation.expectedRevision)
+      ||operation.expectedRevision<0)fail('invalid_stocktake');
+   after=p.count;
+   entry={id:operation.id,kind:'stocktake',size,count:p.count,
+    expectedRevision:operation.expectedRevision,occurredAt:p.occurredAt||operation.createdAt};
+  }else if(kind==='transaction.reverse'){
+   if(!uuid(p.reversesOperationId)||p.reversesOperationId===operation.id)
+    fail('invalid_reverse');
+   const target=history.find(t=>t.id===p.reversesOperationId);
+   if(!target||!['buy','use'].includes(target.kind)||target.size!==size)
+    fail('reverse_target_missing');
+   if(target.reversedBy)fail('already_reversed');
+   after=before+(target.kind==='buy'?-target.pieces:target.pieces);
+   target.reversedBy=operation.id;
+   entry={id:operation.id,kind:'reverse',size,
+    reversesOperationId:target.id,occurredAt:p.occurredAt||operation.createdAt};
+  }else{
+   fail('unsupported_operation_type');
+  }
+  if(!integer(after))fail('inventory_out_of_bounds');
+  inventory[size]=after;
+  history.push(entry);
+  return {
+   ...snapshot,inventory,transactions:history,
+   localRevision:snapshot.localRevision+1
+  };
+ }
+ const api=Object.freeze({SIZES,createSnapshot,apply});
+ if(root)root.XBInventoryProjection=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* Embedded for isolated deployment: sync/inventory-reconciler.js */
+/* XiaoBao P3: inventory reconciliation plan.
+ * Pure and fail-closed. Server quantities are authoritative; only LOCAL
+ * operations verified absent on the server may be overlaid for offline UX.
+ * This is not the complete cross-device purchase-history merge.
+ */
+(function(root){
+ 'use strict';
+ const SIZES=Object.freeze(['NB','S','M','L','XL','XXL']);
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const ACTIVE=new Set(['pending','retry']);
+ const ALL=new Set(['pending','retry','conflict','blocked','acked']);
+ function fail(code){throw new Error('inventory_reconcile:'+code);}
+ function number(n){return Number.isSafeInteger(n)&&n>=0&&n<=100000;}
+ function safeRev(n){return Number.isSafeInteger(n)&&n>=0;}
+ function distinctIds(input,code){
+  if(!Array.isArray(input)||input.length>50)fail(code);
+  const seen=new Set();
+  for(const id of input){
+   if(typeof id!=='string'||!UUID.test(id)||seen.has(id))fail(code);
+   seen.add(id);
+  }
+  return seen;
+ }
+ function build({snapshot,operations,response}={}){
+  if(!snapshot||!Array.isArray(operations)||!response
+    ||response.complete!==true
+    ||snapshot.familyId!==response.familyId||snapshot.childId!==response.childId
+    ||snapshot.actorUid!==response.actorUid)
+   fail('unverified_scope');
+  const checked=distinctIds(response.checkedOperationIds,'invalid_checked_ids');
+  const seen=distinctIds(response.seenOperationIds,'invalid_seen_ids');
+  const scoped=operations.filter(op=>op?.payload?.childId===snapshot.childId);
+  if(scoped.length>50)fail('too_many_operations_for_one_snapshot');
+  const actual=new Set();
+  for(const op of scoped){
+   if(op.familyId!==snapshot.familyId||op.actorUid!==snapshot.actorUid
+     ||typeof op.id!=='string'||!UUID.test(op.id)||actual.has(op.id)
+     ||!ALL.has(op.status))fail('invalid_scoped_operation');
+   actual.add(op.id);
+  }
+  // The response must prove it checked exactly the records that are still
+  // queued at commit time. A stale response cannot overwrite newer local work.
+  if(actual.size!==checked.size||[...actual].some(id=>!checked.has(id)))
+   fail('stale_checked_set');
+  if([...seen].some(id=>!checked.has(id)))fail('unrequested_server_receipt');
+
+  if(!Array.isArray(response.rows)||response.rows.length!==6)
+   fail('partial_server_inventory');
+  const qty={},revisions={};
+  for(const row of response.rows){
+   if(!row||!SIZES.includes(row.size)
+     ||Object.hasOwn(qty,row.size)||!number(row.quantity)||!safeRev(row.revision))
+    fail('invalid_server_inventory');
+   qty[row.size]=row.quantity;
+   revisions[row.size]=row.revision;
+  }
+  if(SIZES.some(s=>!Object.hasOwn(qty,s)))fail('partial_server_inventory');
+  for(const size of SIZES){
+   if(!safeRev(snapshot.serverRevisions?.[size])
+      ||revisions[size]<snapshot.serverRevisions[size])
+    fail('server_revision_regressed');
+  }
+
+  const acknowledge=[],unsubmitted=[];
+  for(const op of scoped){
+   if(seen.has(op.id)){acknowledge.push(op.id);continue;}
+   // A server receipt once acknowledged is never allowed to disappear during
+   // silent recovery. This could indicate a deleted/restored cloud database.
+   if(op.status==='acked')fail('confirmed_operation_missing_server');
+   if(!ACTIVE.has(op.status))fail('manual_conflict_or_permission_block');
+   unsubmitted.push(op);
+  }
+  unsubmitted.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));
+  const provisional={...qty};
+  for(const op of unsubmitted){
+   const p=op.payload||{},size=p.size;
+   if(!SIZES.includes(size))fail('invalid_pending_size');
+   // Stocktake and reverse require extra server ordering/history guarantees.
+   // Do not infer safe reconciliation from local counter or a partial history.
+   if(op.type!=='inventory.delta'||!['buy','use'].includes(p.kind)
+      ||!Number.isSafeInteger(p.amount)||p.amount<1||p.amount>100000)
+    fail('needs_manual_or_sequential_rebase');
+   if(p.kind==='buy'){
+    if(!p.purchase||!Number.isSafeInteger(p.purchase.totalFen)
+      ||p.purchase.totalFen<1)fail('invalid_pending_purchase');
+   }else if(p.purchase!=null)fail('invalid_pending_purchase');
+   const after=provisional[size]+(p.kind==='buy'?p.amount:-p.amount);
+   if(!number(after))fail('pending_stock_out_of_bounds');
+   provisional[size]=after;
+  }
+  return {
+   snapshot:{
+    ...snapshot,inventory:provisional,serverRevisions:revisions,
+    // This local-only history cannot be presented as the complete family
+    // purchase ledger. A separate server event synchronization is required.
+    transactions:snapshot.transactions,
+    localRevision:snapshot.localRevision+1
+   },
+   acknowledgedIds:acknowledge,
+   pendingCount:unsubmitted.length,
+   status:unsubmitted.length?'local-pending':'verified-as-of-server-read'
+  };
+ }
+ const api=Object.freeze({build});
+ if(root)root.XBInventoryReconciler=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* Embedded for isolated deployment: sync/idb-outbox.js */
+/* XiaoBao v1.2.0 P3. IndexedDB-backed durable outbox, deliberately
+ * NOT imported by v1.1.2 production PWA and NEVER reads legacy localStorage.
+ *
+ * Guarantees only within one browser origin whose storage still exists:
+ * - enlist an immutable operation in a single IndexedDB transaction
+ * - do not return success until the transaction commits
+ * - only ACK a receipt with the original operation ID
+ * - preserve queue across reloads; login + family scopes are enforced locally
+ * - forbid any automatic network calls or implicit upload at import time
+ */
+(function(root){
+ 'use strict';
+ const DB_NAME='xiaobao-family-sync-v1';
+ const DB_VERSION=2;
+ const STORE='operations';
+ const SNAPSHOTS='inventory_snapshots';
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const SENDABLE=new Set(['pending','retry']);
+ const OUTSTANDING=new Set(['pending','retry','conflict','blocked']);
+ function fail(code){throw new Error('outbox_store:'+code);}
+ function id(v,name){if(typeof v!=='string'||!UUID.test(v))fail('invalid_'+name);return v;}
+ function actor(v){if(typeof v!=='string'||!v||v.length>128)fail('invalid_actor');return v;}
+ function scopeOf(scope){
+  if(!scope||typeof scope!=='object')fail('scope_required');
+  return {familyId:id(scope.familyId,'family_id'),actorUid:actor(scope.actorUid)};
+ }
+ function stable(v){
+  if(Array.isArray(v))return '['+v.map(stable).join(',')+']';
+  if(v!==null&&typeof v==='object'){
+   const keys=Object.keys(v).sort();
+   return '{'+keys.map(k=>JSON.stringify(k)+':'+stable(v[k])).join(',')+'}';
+  }
+  const s=JSON.stringify(v);
+  if(s===undefined)fail('unsupported_payload');
+  return s;
+ }
+ function signature(op){
+  return stable({id:op.id,familyId:op.familyId,actorUid:op.actorUid,
+   type:op.type,payload:op.payload,expectedRevision:op.expectedRevision,
+   createdAt:op.createdAt});
+ }
+ function clone(x){return JSON.parse(JSON.stringify(x));}
+ function create({indexedDB:factory,contract,projection=null,reconciler=null,dbName=DB_NAME}={}){
+  if(!factory||typeof factory.open!=='function')fail('indexeddb_unavailable');
+  if(!contract||typeof contract.createOperation!=='function'
+    ||typeof contract.applyResult!=='function')fail('contract_required');
+  if(typeof dbName!=='string'||!dbName.trim())fail('db_name_invalid');
+  let dbPromise=null;
+  function database(){
+   if(dbPromise)return dbPromise;
+   dbPromise=new Promise((resolve,reject)=>{
+    let request;
+    try{request=factory.open(dbName,DB_VERSION);}
+    catch(_){reject(new Error('outbox_store:open_failed'));return;}
+    request.onupgradeneeded=()=>{
+     const db=request.result;
+     if(!db.objectStoreNames.contains(STORE)){
+      const store=db.createObjectStore(STORE,{keyPath:'id'});
+      store.createIndex('by_identity',['familyId','actorUid'],{unique:false});
+     }
+     // Version 1 outbox records are never dropped or rewritten by v2 upgrade.
+     if(!db.objectStoreNames.contains(SNAPSHOTS))
+      db.createObjectStore(SNAPSHOTS,{keyPath:'key'});
+    };
+    request.onblocked=()=>reject(new Error('outbox_store:open_blocked'));
+    request.onerror=()=>reject(new Error('outbox_store:open_failed'));
+    request.onsuccess=()=>{
+     const db=request.result;
+     db.onversionchange=()=>{
+      try{db.close();}catch(_){}
+      dbPromise=null;
+     };
+     resolve(db);
+    };
+   }).catch(e=>{dbPromise=null;throw e;});
+   return dbPromise;
+  }
+  async function run(mode,work,storeNames=[STORE]){
+   const db=await database();
+   return new Promise((resolve,reject)=>{
+    let tx,output,logicalError=null,finished=false;
+    const done=(ok,v)=>{
+     if(finished)return;
+     finished=true;
+     if(ok)resolve(clone(v));
+     else reject(v);
+    };
+    try{tx=db.transaction(storeNames,mode);}catch(_){done(false,new Error('outbox_store:transaction_unavailable'));return;}
+    tx.oncomplete=()=>logicalError?done(false,logicalError):done(true,output);
+    tx.onabort=()=>done(false,logicalError||new Error('outbox_store:transaction_aborted'));
+    tx.onerror=()=>{}; // the abort event is authoritative
+    const succeed=x=>{output=x;};
+    const abort=e=>{
+     logicalError=e instanceof Error?e:new Error('outbox_store:transaction_failed');
+     try{tx.abort();}catch(_){done(false,logicalError);}
+    };
+    try{work(tx.objectStore(storeNames[0]),succeed,abort,tx);}
+    catch(e){abort(e);}
+   });
+  }
+  function validateNewOperation(op){
+   if(!op||typeof op!=='object')fail('operation_required');
+   id(op.id,'operation_id');id(op.familyId,'family_id');actor(op.actorUid);
+   const item=contract.createOperation({
+    id:op.id,type:op.type,familyId:op.familyId,
+    actorUid:op.actorUid,payload:op.payload,
+    expectedRevision:op.expectedRevision??null,createdAt:op.createdAt
+   });
+   return {...item,_signature:signature(item)};
+  }
+  function checkIdentity(item,scope){
+   if(!item||item.familyId!==scope.familyId||item.actorUid!==scope.actorUid)
+    fail('operation_not_in_scope');
+  }
+  async function enqueue(op){
+   const item=validateNewOperation(op);
+   return run('readwrite',(store,complete,abort)=>{
+    const get=store.get(item.id);
+    get.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    get.onsuccess=()=>{
+     const existing=get.result;
+     if(existing){
+      if(existing._signature!==item._signature) {
+       abort(new Error('outbox_store:same_id_different_payload'));return;
+      }
+      complete(existing);
+      return;
+     }
+     const add=store.add(item);
+     add.onerror=()=>abort(new Error('outbox_store:write_failed'));
+     add.onsuccess=()=>complete(item);
+    };
+   });
+  }
+  async function get(scopeInput,operationId){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   return run('readonly',(store,complete,abort)=>{
+    const req=store.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     if(!req.result){complete(null);return;}
+     try{checkIdentity(req.result,scope);complete(req.result);}
+     catch(e){abort(e);}
+    };
+   });
+  }
+  async function list(scopeInput,{includeAcked=false}={}){
+   const scope=scopeOf(scopeInput);
+   return run('readonly',(store,complete,abort)=>{
+    const req=store.index('by_identity').getAll([scope.familyId,scope.actorUid]);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     const rows=(req.result||[])
+      .filter(x=>includeAcked||OUTSTANDING.has(x.status))
+      .sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));
+     complete(rows);
+    };
+   });
+  }
+  async function ready(scopeInput){
+   const rows=await list(scopeInput);
+   return rows.filter(x=>SENDABLE.has(x.status));
+  }
+  async function recordResult(scopeInput,operationId,result){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   if(!result||typeof result!=='object')fail('result_required');
+   if((result.kind==='accepted'||result.kind==='duplicate')&&result.receiptId!==oid)
+    fail('receipt_operation_id_mismatch');
+   return run('readwrite',(store,complete,abort)=>{
+    const req=store.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     let current;
+     try{
+      current=req.result;
+      checkIdentity(current,scope);
+      const updated=contract.applyResult(current,result);
+      if(updated.id!==current.id||updated.familyId!==current.familyId
+        ||updated.actorUid!==current.actorUid||updated._signature!==current._signature)
+       fail('immutable_operation_changed');
+      const put=store.put(updated);
+      put.onerror=()=>abort(new Error('outbox_store:write_failed'));
+      put.onsuccess=()=>complete(updated);
+     }catch(e){abort(e);}
+    };
+   });
+  }
+  async function stats(scopeInput){
+   const rows=await list(scopeInput,{includeAcked:true});
+   const counts={pending:0,retry:0,conflict:0,blocked:0,acked:0};
+   for(const row of rows){
+    if(!Object.prototype.hasOwnProperty.call(counts,row.status))fail('unknown_status');
+    counts[row.status]++;
+   }
+   return {...counts,total:rows.length,outstanding:rows.length-counts.acked};
+  }
+
+  function identityKey(scope,childId){
+   const item=scopeOf(scope);
+   return JSON.stringify([item.familyId,item.actorUid,id(childId,'child_id')]);
+  }
+  function requiredProjection(){
+   if(!projection||typeof projection.createSnapshot!=='function'
+     ||typeof projection.apply!=='function')fail('projection_required');
+  }
+  // Only explicit, already-verified baseline initialization is allowed;
+  // callers must not pass default empty stock for an existing family.
+  async function initializeInventory(scopeInput,{childId,inventory,serverRevisions,source}={}){
+   requiredProjection();
+   const scope=scopeOf(scopeInput),key=identityKey(scope,childId);
+   const initial=projection.createSnapshot({
+    familyId:scope.familyId,actorUid:scope.actorUid,childId,
+    inventory,serverRevisions,source
+   });
+   const record={key,...initial};
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const read=snapshots.get(key);
+    read.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    read.onsuccess=()=>{
+     if(read.result){
+      abort(new Error('outbox_store:snapshot_already_initialized'));return;
+     }
+     // Old v1 outbox operations cannot be silently ignored when a baseline
+     // arrives later. Never overwrite a pending event by seeding a new stock.
+     const queued=operations.index('by_identity').getAll([scope.familyId,scope.actorUid]);
+     queued.onerror=()=>abort(new Error('outbox_store:read_failed'));
+     queued.onsuccess=()=>{
+      if((queued.result||[]).some(x=>x.payload?.childId===childId)){
+       abort(new Error('outbox_store:queue_exists_before_baseline'));return;
+      }
+      const insert=snapshots.add(record);
+      insert.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      insert.onsuccess=()=>complete(record);
+     };
+    };
+   },[STORE,SNAPSHOTS]);
+  }
+  async function readInventory(scopeInput,childId){
+   const scope=scopeOf(scopeInput),key=identityKey(scope,childId);
+   return run('readonly',(snapshots,complete,abort)=>{
+    const req=snapshots.get(key);
+    req.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    req.onsuccess=()=>complete(req.result||null);
+   },[SNAPSHOTS]);
+  }
+  // The local inventory projection and network outbox event must commit
+  // atomically in the SAME IndexedDB transaction. Never mutate old localStorage.
+  async function commitInventory(scopeInput,operation){
+   requiredProjection();
+   const scope=scopeOf(scopeInput),item=validateNewOperation(operation);
+   if(item.familyId!==scope.familyId||item.actorUid!==scope.actorUid)
+    fail('operation_not_in_scope');
+   const childId=id(item.payload?.childId,'child_id');
+   const key=identityKey(scope,childId);
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const snapReq=snapshots.get(key);
+    snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    snapReq.onsuccess=()=>{
+     if(!snapReq.result){
+      abort(new Error('outbox_store:snapshot_not_initialized'));return;
+     }
+     const opReq=operations.get(item.id);
+     opReq.onerror=()=>abort(new Error('outbox_store:read_failed'));
+     opReq.onsuccess=()=>{
+      const existing=opReq.result;
+      if(existing){
+       if(existing._signature!==item._signature){
+        abort(new Error('outbox_store:same_id_different_payload'));return;
+       }
+       if(existing.familyId!==scope.familyId||existing.actorUid!==scope.actorUid)
+        {abort(new Error('outbox_store:operation_not_in_scope'));return;}
+       complete({duplicate:true,operation:existing,snapshot:snapReq.result});
+       return;
+      }
+      let next;
+      try{next=projection.apply(snapReq.result,item);}
+      catch(e){abort(e);return;}
+      if(next.familyId!==scope.familyId||next.actorUid!==scope.actorUid
+        ||next.childId!==childId){
+       abort(new Error('outbox_store:projection_identity_changed'));return;
+      }
+      const stored={...next,key};
+      let writes=0;
+      const finish=()=>{
+       writes++;
+       if(writes===2)complete({duplicate:false,operation:item,snapshot:stored});
+      };
+      const writeSnapshot=snapshots.put(stored);
+      writeSnapshot.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      writeSnapshot.onsuccess=finish;
+      const writeOperation=operations.add(item);
+      writeOperation.onerror=()=>abort(new Error('outbox_store:write_failed'));
+      writeOperation.onsuccess=finish;
+     };
+    };
+   },[STORE,SNAPSHOTS]);
+  }
+
+  function requiredReconciler(){
+   if(!reconciler||typeof reconciler.build!=='function')
+    fail('reconciler_required');
+  }
+  // The caller must request ALL IDs, including already-ACKed IDs, from the
+  // server. Never truncate to 50: that could silently erase evidence that a
+  // previously confirmed cloud operation has disappeared.
+  async function reconciliationIds(scopeInput,childId){
+   const scope=scopeOf(scopeInput),child=id(childId,'child_id');
+   const rows=await list(scope,{includeAcked:true});
+   const matches=rows.filter(row=>row.payload?.childId===child);
+   if(matches.length>50)fail('reconciliation_requires_pagination');
+   return matches.map(row=>row.id);
+  }
+  // Runs only AFTER explicit authenticated server snapshot read.
+  // No legacy localStorage writes; both the local projection and all receipt
+  // ACKs commit or roll back together. A changed local queue after the remote
+  // read causes 'stale_checked_set', not an overwrite of a newer local edit.
+  async function reconcileInventory(scopeInput,childId,response){
+   requiredReconciler();
+   const scope=scopeOf(scopeInput),child=id(childId,'child_id');
+   const key=identityKey(scope,child);
+   return run('readwrite',(opsStore,complete,abort,tx)=>{
+    const snaps=tx.objectStore(SNAPSHOTS);
+    const pendingReq=opsStore.index('by_identity').getAll([scope.familyId,scope.actorUid]);
+    pendingReq.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    pendingReq.onsuccess=()=>{
+     const scoped=(pendingReq.result||[]).filter(op=>op.payload?.childId===child);
+     if(scoped.length>50){
+      abort(new Error('outbox_store:reconciliation_requires_pagination'));return;
+     }
+     const snapReq=snaps.get(key);
+     snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+     snapReq.onsuccess=()=>{
+      if(!snapReq.result){
+       abort(new Error('outbox_store:snapshot_not_initialized'));return;
+      }
+      let plan,updates;
+      try{
+       plan=reconciler.build({snapshot:snapReq.result,operations:scoped,response});
+       const seen=new Set(plan.acknowledgedIds);
+       updates=scoped.filter(op=>seen.has(op.id)).map(op=>{
+        const updated=contract.applyResult(op,{kind:'accepted',receiptId:op.id});
+        if(updated.id!==op.id||updated._signature!==op._signature
+          ||updated.actorUid!==op.actorUid||updated.familyId!==op.familyId)
+         fail('reconcile_operation_identity_changed');
+        return updated;
+       });
+      }catch(e){abort(e);return;}
+      const stored={...plan.snapshot,key};
+      const total=1+updates.length;
+      let completed=0;
+      const success=()=>{
+       completed++;
+       if(completed===total)complete({
+        snapshot:stored,acknowledgedIds:plan.acknowledgedIds,
+        pendingCount:plan.pendingCount,status:plan.status
+       });
+      };
+      const snapshotWrite=snaps.put(stored);
+      snapshotWrite.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      snapshotWrite.onsuccess=success;
+      for(const row of updates){
+       const write=opsStore.put(row);
+       write.onerror=()=>abort(new Error('outbox_store:receipt_write_failed'));
+       write.onsuccess=success;
+      }
+     };
+    };
+   },[STORE,SNAPSHOTS]);
+  }
+  return Object.freeze({enqueue,get,list,ready,recordResult,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
+ }
+ const api=Object.freeze({create,DB_NAME,DB_VERSION});
+ if(root)root.XBDurableOutbox=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* Embedded for isolated deployment: sync/inventory-outbox-runner.js */
+/* XiaoBao P3: explicitly invoked, fail-closed inventory outbox replay.
+ * NO automatic invocation, NO legacy localStorage access, NO CloudBase SDK
+ * import. This is a standalone integration contract until P3/P4 approval.
+ */
+(function(root){
+ 'use strict';
+ const TYPES=new Set(['inventory.delta','inventory.count','transaction.reverse']);
+ function errorCode(e){
+  const msg=String(e?.message||'');
+  if(msg==='inventory_client:revision_conflict'
+    ||msg==='inventory_client:operation_conflict'
+    ||msg==='inventory_client:stock_out_of_bounds'
+    ||msg.startsWith('inventory_client:invalid_'))
+   return 'conflict';
+  if(msg==='inventory_client:permission_denied')return 'forbidden';
+  if(msg==='inventory_client:login_required'
+    ||msg==='inventory_client:session_unavailable')return 'auth_expired';
+  // Unknown errors and network failure must never become an ACK.
+  return 'server_error';
+ }
+ function create({outbox,remote,verifyAccess}={}){
+  if(!outbox||typeof outbox.ready!=='function'
+    ||typeof outbox.recordResult!=='function')throw Error('replay:outbox_required');
+  if(!remote||typeof remote.applyOperation!=='function')throw Error('replay:remote_required');
+  if(typeof verifyAccess!=='function')throw Error('replay:verify_access_required');
+
+  function toRemote(op){
+   if(!op||!TYPES.has(op.type))throw Error('replay:unsupported_type');
+   const p=op.payload||{},base={
+    familyId:op.familyId,operationId:op.id,childId:p.childId,
+    size:p.size,occurredAt:p.occurredAt||op.createdAt,
+    expectedRevision:null,reversesOperationId:null,amount:null,purchase:null
+   };
+   if(op.type==='inventory.count'){
+    return {...base,kind:'stocktake',amount:p.count,
+     expectedRevision:op.expectedRevision};
+   }
+   if(op.type==='transaction.reverse'){
+    return {...base,kind:'reverse',reversesOperationId:p.reversesOperationId};
+   }
+   if(p.kind!=='buy'&&p.kind!=='use')throw Error('replay:invalid_inventory_delta');
+   return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
+  }
+  async function flush(scope,{uploadEnabled=false,maxItems=20}={}){
+   if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
+     ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
+   if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
+    throw Error('replay:invalid_batch_size');
+   // This guard deliberately runs before even querying the pending queue.
+   if(uploadEnabled!==true)
+    return {status:'upload-disabled',attempted:0,accepted:0,remaining:null};
+
+   let grant;
+   try{grant=await verifyAccess({familyId:scope.familyId,actorUid:scope.actorUid});}
+   catch(_){
+    return {status:'verification-unavailable',attempted:0,accepted:0,remaining:null};
+   }
+   // Must come from a fresh authenticated cloud read; NOT a cached alias or
+   // an operator-selected role in localStorage.
+   if(!grant||grant.familyId!==scope.familyId||grant.actorUid!==scope.actorUid
+      ||grant.appCode!=='xb'||grant.member!==true)
+    return {status:'permission-unverified',attempted:0,accepted:0,remaining:null};
+   if(grant.initialized!==true)
+    return {status:'family-not-initialized',attempted:0,accepted:0,remaining:null};
+
+   const queued=await outbox.ready(scope);
+   let accepted=0,attempted=0,status='awaiting-reconciliation';
+   for(const op of queued.slice(0,maxItems)){
+    if(op.familyId!==scope.familyId||op.actorUid!==scope.actorUid)
+      throw Error('replay:cross_identity_queue_violation');
+    if(!TYPES.has(op.type)){status='unsupported-pending-type';break;}
+    let request;
+    try{request=toRemote(op);}
+    catch(_){
+     await outbox.recordResult(scope,op.id,{kind:'conflict'});
+     status='manual-review-required';break;
+    }
+    attempted++;
+    try{
+     const receipt=await remote.applyOperation(request);
+     if(!receipt||receipt.operationId!==op.id)
+      throw Error('replay:receipt_id_mismatch');
+     await outbox.recordResult(scope,op.id,{
+      kind:receipt.duplicate?'duplicate':'accepted',receiptId:op.id
+     });
+     accepted++;
+    }catch(e){
+     // If server committed but ACK/local storage failed, it is safer to
+     // retry the exact same ID than to invent a replacement operation.
+     const kind=errorCode(e);
+     if(String(e?.message||'').startsWith('outbox_store:'))throw e;
+     await outbox.recordResult(scope,op.id,{kind});
+     status=kind==='conflict'?'manual-review-required'
+      :kind==='forbidden'?'permission-denied'
+      :kind==='auth_expired'?'auth-required':'network-or-server-failure';
+     break;
+    }
+   }
+   const remaining=(await outbox.ready(scope)).length;
+   return {status,attempted,accepted,remaining};
+  }
+  return Object.freeze({flush,toRemote});
+ }
+ const api=Object.freeze({create,errorCode});
+ if(root)root.XBInventoryOutboxRunner=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* Embedded for isolated deployment: sync/inventory-sync-reader.js */
+/* XiaoBao P3: explicit server-to-local inventory reconciliation coordinator.
+ * No import side effects. This is separate from the upload runner; caller
+ * must first ensure a real CloudBase session and family app permission.
+ */
+(function(root){
+ 'use strict';
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ function fail(code){throw new Error('inventory_sync_read:'+code);}
+ function create({outbox,remote,verifyAccess}={}){
+  if(!outbox||typeof outbox.reconciliationIds!=='function'
+    ||typeof outbox.reconcileInventory!=='function')fail('outbox_required');
+  if(!remote||typeof remote.readReconciliation!=='function')fail('remote_required');
+  if(typeof verifyAccess!=='function')fail('verify_access_required');
+  async function reconcile({familyId,childId,actorUid,readEnabled=false}={}){
+   if(!UUID.test(String(familyId||''))||!UUID.test(String(childId||''))
+     ||typeof actorUid!=='string'||!actorUid||actorUid.length>128)
+    fail('scope_required');
+   if(readEnabled!==true)return {status:'disabled',localUnchanged:true};
+   const scope={familyId,actorUid};
+   let grant;
+   try{grant=await verifyAccess(scope);}
+   catch(_){return {status:'offline-or-auth-unverified',localUnchanged:true};}
+   if(!grant||grant.familyId!==familyId||grant.actorUid!==actorUid
+     ||grant.appCode!=='xb'||grant.member!==true)
+    return {status:'permission-unverified',localUnchanged:true};
+   if(grant.initialized!==true)
+    return {status:'family-not-initialized',localUnchanged:true};
+   let ids;
+   try{ids=await outbox.reconciliationIds(scope,childId);}
+   catch(_){return {status:'local-review-required',localUnchanged:true};}
+   let response;
+   try{response=await remote.readReconciliation({familyId,childId,operationIds:ids});}
+   catch(_){return {status:'cloud-read-failed',localUnchanged:true};}
+   try{
+    const committed=await outbox.reconcileInventory(scope,childId,response);
+    return {
+     status:committed.status,
+     acknowledgedCount:committed.acknowledgedIds.length,
+     pendingCount:committed.pendingCount,
+     localUnchanged:false
+    };
+   }catch(_){
+    // Local state may have changed between server request and IDB transaction,
+    // or an unsafe stocktake/undo is awaiting manual resolution. NEVER retry
+    // automatically with an old server response, and NEVER erase the queue.
+    return {status:'reconcile-review-required',localUnchanged:true};
+   }
+  }
+  return Object.freeze({reconcile});
+ }
+ const api=Object.freeze({create});
+ if(root)root.XBInventorySyncReader=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* XiaoBao v1.2.0 P2-4F-A: explicit read-only legacy history/settings.
+ * SQL 024 is UNDEPLOYED. This module MUST NOT be loaded in production v1.1.2.
+ * No auto login/network/storage at module initialization; every call is
+ * explicit and an existing authenticated session is required. Database RPC
+ * enforces family membership and a verified, committed migration receipt.
+ * Imported buys/uses/quotes NEVER become inventory commands here.
+ */
+(function(root){
+ 'use strict';
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const KINDS=new Set(['all','transaction','quote','weight']);
+ const ROW_KINDS=new Set(['transaction','quote','weight']);
+ function fail(code){throw new Error('legacy_history_reader:'+code);}
+ function id(value,name){
+  if(typeof value!=='string'||!UUID.test(value))fail('invalid_'+name);
+  return value;
+ }
+ function isObject(x){return x!==null&&typeof x==='object'&&!Array.isArray(x);}
+ function create(app){
+  if(!app||!app.auth||typeof app.auth.getSession!=='function'
+      ||typeof app.rdb!=='function')fail('sdk_required');
+  const db=app.rdb();
+  if(!db||typeof db.rpc!=='function')fail('rpc_required');
+  async function session(){
+   let res;
+   try{res=await app.auth.getSession();}
+   catch(_){fail('session_unavailable');}
+   if(!res||res.error)fail('session_unavailable');
+   if(!res.data?.session)fail('login_required');
+   const users=[res.data.user?.id,res.data.session.user?.id]
+     .filter(x=>x!==undefined&&x!==null);
+   if(!users.length||users.some(u=>typeof u!=='string'||!u||u.length>128)
+      ||new Set(users).size!==1)fail('identity_unverified');
+  }
+  async function rpc(name,params){
+   let result;
+   try{result=await db.rpc(name,params);}
+   catch(_){fail('cloud_read_failed');}
+   if(!result||result.error){
+    const code=String(result?.error?.code||result?.error?.errorCode||'');
+    if(code==='42501'||code==='DATABASE_42501')fail('permission_denied');
+    fail('cloud_read_failed');
+   }
+   const data=Array.isArray(result.data)?
+       (result.data.length===1?result.data[0]:null):result.data;
+   if(!isObject(data))fail('invalid_server_response');
+   return data;
+  }
+  async function readPage({familyId,childId,kind='all',offset=0,limit=20}={}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   if(!KINDS.has(kind)||!Number.isSafeInteger(offset)||offset<0||offset>10000
+      ||!Number.isSafeInteger(limit)||limit<1||limit>50)
+    fail('invalid_page_request');
+   await session();
+   const data=await rpc('xb_read_legacy_history_page_draft',{
+    p_family_id:family,p_child_id:child,p_record_kind:kind,
+    p_offset:offset,p_limit:limit
+   });
+   if(data.complete!==true||data.can_edit!==false||data.can_upload!==false
+      ||data.record_kind!==kind||data.offset!==offset||data.limit!==limit
+      ||!Number.isSafeInteger(data.total)||data.total<0||data.total>30000
+      ||typeof data.has_more!=='boolean'||!Array.isArray(data.rows)
+      ||data.rows.length>limit)
+    fail('invalid_history_page');
+   if(data.has_more!==(offset+data.rows.length<data.total)
+      ||data.rows.length!==Math.min(limit,Math.max(0,data.total-offset)))
+    fail('history_page_incomplete');
+   let prevKey='',prevOrdinal=0,prevId='',seen=new Set();
+   const rows=data.rows.map(row=>{
+    if(!isObject(row)||!ROW_KINDS.has(row.kind)
+       ||(kind!=='all'&&row.kind!==kind)
+       ||typeof row.id!=='string'||row.id.length<1||row.id.length>200
+       ||!Number.isSafeInteger(row.ordinal)||row.ordinal<1||row.ordinal>10000
+       ||!isObject(row.payload)||row.payload.id!==row.id)
+     fail('invalid_history_row');
+    const duplicate=row.kind+'\x00'+row.id;
+    if(seen.has(duplicate))fail('duplicate_history_row');
+    seen.add(duplicate);
+    if(row.kind<prevKey||
+        (row.kind===prevKey&&(row.ordinal<prevOrdinal||
+          row.ordinal===prevOrdinal&&row.id<=prevId)))
+     fail('unordered_history_rows');
+    prevKey=row.kind;prevOrdinal=row.ordinal;prevId=row.id;
+    return Object.freeze({
+     kind:row.kind,id:row.id,ordinal:row.ordinal,payload:row.payload
+    });
+   });
+   return Object.freeze({
+    complete:true,kind,offset,limit,total:data.total,
+    hasMore:data.has_more,rows:Object.freeze(rows),
+    canEdit:false,canUpload:false
+   });
+  }
+  async function readSettings({familyId,childId}={}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   await session();
+   const data=await rpc('xb_read_legacy_settings_draft',{
+    p_family_id:family,p_child_id:child
+   });
+   if(data.complete!==true||data.can_edit!==false||data.can_upload!==false
+      ||!Number.isSafeInteger(data.revision)||data.revision<0
+      ||!isObject(data.settings)
+      ||!isObject(data.settings.referenceOverrides)
+      ||!isObject(data.settings.target)
+      ||!isObject(data.settings.daily))
+    fail('invalid_settings_response');
+   return Object.freeze({
+    complete:true,revision:data.revision,settings:data.settings,
+    canEdit:false,canUpload:false
+   });
+  }
+  return Object.freeze({readPage,readSettings});
+ }
+ const api=Object.freeze({create});
+ if(root)root.XBLegacyHistoryReader=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* XiaoBao V1.2.0 M3 early integration: READ-ONLY view-model adapter for the
+ * existing formal UI. Feature only; never imported into the v1.1.2 main PWA.
+ *
+ * Only an active legacy_slot='primary' child can be selected. The existing
+ * child reader + access preflight must authenticate the actor and family.
+ * SQL 024 must verify a COMMITTED migration receipt before this module will
+ * show a formal history, settings, or stock view.
+ *
+ * Historical buys/uses are PRESENTED, NEVER replayed into current inventory.
+ * Current stock comes solely from 010 authoritative six-size read RPC.
+ * Current (post-migration) purchases come solely from xb_transactions scoped
+ * to the same child. Zero automatic network calls or write methods on import.
+ */
+(function(root){
+ 'use strict';
+ const SIZES=['NB','S','M','L','XL','XXL'];
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ function fail(code){throw Error('primary_view:'+code);}
+ function numbers(rows){
+  if(!Array.isArray(rows)||rows.length!==6)fail('incomplete_inventory');
+  const inventory={},revisions={};
+  for(const r of rows){
+   if(!r||!SIZES.includes(r.size)||Object.hasOwn(inventory,r.size)
+      ||!Number.isSafeInteger(r.quantity)||r.quantity<0||r.quantity>100000
+      ||!Number.isSafeInteger(r.revision)||r.revision<0)
+    fail('invalid_inventory');
+   inventory[r.size]=r.quantity;revisions[r.size]=r.revision;
+  }
+  if(SIZES.some(s=>!Object.hasOwn(inventory,s)))fail('incomplete_inventory');
+  return {inventory,revisions};
+ }
+ function equalStock(a,b){
+  const x=numbers(a),y=numbers(b);
+  return SIZES.every(s=>x.inventory[s]===y.inventory[s]&&x.revisions[s]===y.revisions[s]);
+ }
+ function create({app,childReader,scopeGuard,accessPreflight,
+  inventoryClient,legacyHistoryReader}={}){
+  if(!app||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget
+     ||!accessPreflight?.create||!inventoryClient?.create
+     ||!legacyHistoryReader?.create||typeof app.rdb!=='function')
+    fail('dependencies_required');
+  const children=childReader.create(app,scopeGuard);
+  const inventory=inventoryClient.create(app);
+  const legacy=legacyHistoryReader.create(app);
+  async function read({familyId,actorUid,offset=0,limit=50}={}){
+   if(!UUID.test(String(familyId))||typeof actorUid!=='string'
+     ||!actorUid||actorUid.length>128||!Number.isSafeInteger(offset)
+     ||offset<0||offset>10000||!Number.isSafeInteger(limit)||limit<1||limit>50)
+    fail('invalid_request');
+   // A fresh verified CloudBase session is necessary for every explicit read.
+   const grant=await accessPreflight.create(app).verifyAccess({familyId,actorUid});
+   if(grant.member!==true||grant.appCode!=='xb'
+      ||grant.familyId!==familyId||grant.actorUid!==actorUid)
+    fail('grant_unverified');
+   let target;
+   try{target=await children.inspectLegacyTarget({familyId});}
+   catch(e){
+    if(e?.message==='child_reader:legacy_primary_unavailable')
+     return Object.freeze({status:'PRIMARY_NOT_READY',canWrite:false,
+      noDataImported:true});
+    throw e;
+   }
+   if(target.familyId!==familyId||!UUID.test(target.childId)
+      ||target.readyForMigration!==false)fail('primary_scope_unverified');
+   const childId=target.childId;
+   const scope={familyId,childId};
+   // A completed receipt is required BEFORE showing any stock in a formal UI.
+   // SQL 024 does not exist in the real database until independently approved.
+   let settings,history;
+   try{
+    settings=await legacy.readSettings(scope);
+    history=await legacy.readPage({...scope,kind:'all',offset,limit});
+   }catch(e){
+    // Do not echo RPC/SDK exceptions: they may contain private row details.
+    return Object.freeze({status:'MIGRATION_READ_NOT_READY',canWrite:false,
+      noDataImported:true});
+   }
+   if(settings.complete!==true||settings.canEdit!==false
+      ||settings.canUpload!==false||history.complete!==true
+      ||history.canEdit!==false||history.canUpload!==false)
+    fail('legacy_receipt_unverified');
+   // Only the selected PRIMARY is ever used in all cloud data queries.
+   const before=await inventory.readReconciliation({...scope,operationIds:[]});
+   if(before.complete!==true||before.actorUid!==actorUid
+      ||before.familyId!==familyId||before.childId!==childId)
+    fail('server_scope_unverified');
+   const currentPurchases=await inventory.readPurchases(scope);
+   if(!Array.isArray(currentPurchases))fail('current_purchases_unverified');
+   const after=await inventory.readReconciliation({...scope,operationIds:[]});
+   if(after.complete!==true||after.actorUid!==actorUid
+     ||after.familyId!==familyId||after.childId!==childId
+     ||!equalStock(before.rows,after.rows))fail('server_changed_during_read');
+   const stock=numbers(after.rows);
+   // Profile is a separate migrated table: never borrow sandbox baby details.
+   const profileQuery=await app.rdb().from('xb_baby_profiles')
+    .select('family_id,child_id,profile_data')
+    .eq('family_id',familyId).eq('child_id',childId).limit(2);
+   if(profileQuery?.error||!Array.isArray(profileQuery?.data)
+      ||profileQuery.data.length!==1
+      ||profileQuery.data[0].family_id!==familyId
+      ||profileQuery.data[0].child_id!==childId
+      ||!profileQuery.data[0].profile_data
+      ||typeof profileQuery.data[0].profile_data!=='object'
+      ||Array.isArray(profileQuery.data[0].profile_data))
+    fail('formal_profile_unverified');
+   const profile=profileQuery.data[0].profile_data;
+   if(!profile.babyProfile||typeof profile.babyProfile!=='object'
+     ||Array.isArray(profile.babyProfile))fail('formal_profile_unverified');
+   // Never sum historical purchases into inventory. They are archival facts,
+   // and original v1.1.2 stocktake is already the authoritative baseline.
+   return Object.freeze({
+    status:'PRIMARY_READ_ONLY_READY',familyId,childId,
+    source:'cloudbase-primary-receipt-verified',canWrite:false,
+    inventory:Object.freeze(stock.inventory),
+    revisions:Object.freeze(stock.revisions),
+    settings:settings.settings,settingsRevision:settings.revision,
+    profileData:Object.freeze({...profile}),
+    legacyHistory:Object.freeze({
+      rows:history.rows,total:history.total,offset:history.offset,
+      hasMore:history.hasMore,complete:history.complete
+    }),
+    livePurchases:Object.freeze(currentPurchases.slice()),
+    legacyPurchasesAppliedToInventory:false
+   });
+  }
+  return Object.freeze({read});
+ }
+ const api=Object.freeze({create,numbers,equalStock});
+ if(root)root.XBPrimaryCloudReadModel=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* M3: project verified PRIMARY cloud data into the existing five-page
+ * V1.1.2 read-only view. Never updates a datastore or replays history.
+ * Demo data are explicitly synthetic and are never sent to CloudBase.
+ */
+(function(root){
+ 'use strict';
+ const SIZES=['NB','S','M','L','XL','XXL'];
+ const clone=x=>JSON.parse(JSON.stringify(x));
+ function fail(code){throw Error('primary_ui:'+code);}
+ function object(x){return x!==null&&typeof x==='object'&&!Array.isArray(x);}
+ function project(view,defaults){
+  if(!object(view)||!object(defaults)
+    ||!['PRIMARY_READ_ONLY_READY','SYNTHETIC_PRIMARY_DEMO'].includes(view.status)
+    ||view.canWrite!==false||!object(view.inventory)||!object(view.revisions)
+    ||!object(view.settings)||!object(view.profileData)
+    ||!object(view.profileData.babyProfile)
+    ||!object(view.legacyHistory)||!Array.isArray(view.legacyHistory.rows)
+    ||!Array.isArray(view.livePurchases))
+   fail('unverified_read_model');
+  if(view.legacyHistory.hasMore===true
+    ||view.legacyHistory.rows.length!==view.legacyHistory.total)
+   fail('incomplete_history_page');
+  if(!SIZES.every(size=>Number.isSafeInteger(view.inventory[size])
+     &&view.inventory[size]>=0
+     &&Number.isSafeInteger(view.revisions[size])
+     &&view.revisions[size]>=0))
+   fail('invalid_stock');
+  const state=clone(defaults),data=view.settings,profile=view.profileData;
+  // The settings table intentionally excludes profile, original inventory and
+  // record arrays: they must be sourced from dedicated verified tables.
+  const allowed=['currentSize','sizeMode','autoSize','goalPrice','plannedBudget',
+   'target','daily','preset','replenishPolicy','referenceOverrides'];
+  for(const key of allowed){
+   if(Object.hasOwn(data,key))state[key]=clone(data[key]);
+  }
+  state.inventory=clone(view.inventory);
+  state.dueDate=profile.dueDate;
+  state.birthDate=profile.birthDate;
+  state.babyWeight=profile.babyWeight;
+  state.babyProfile=clone(profile.babyProfile);
+  state.transactions=[];state.quotes=[];state.weightRecords=[];
+  const seen=new Set();
+  for(const row of view.legacyHistory.rows){
+   if(!row||!['transaction','quote','weight'].includes(row.kind)
+     ||!object(row.payload)||typeof row.payload.id!=='string'
+     ||row.id!==row.payload.id)fail('invalid_history_row');
+   const key=row.kind+':'+row.id;
+   if(seen.has(key))fail('duplicate_history');
+   seen.add(key);
+   if(row.kind==='transaction')state.transactions.push({
+    ...clone(row.payload),origin:'legacy_migration'});
+   else if(row.kind==='quote')state.quotes.push(clone(row.payload));
+   else state.weightRecords.push(clone(row.payload));
+  }
+  for(const row of view.livePurchases){
+   if(!row||typeof row.operationId!=='string'||!row.operationId
+     ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
+     ||row.pieces<1||!Number.isSafeInteger(row.totalFen)
+     ||row.totalFen<1||row.reversed===true)
+    fail('invalid_post_migration_purchase');
+   const id='cloud:'+row.operationId;
+   if(seen.has('transaction:'+id))fail('duplicate_history');
+   seen.add('transaction:'+id);
+   state.transactions.push({
+    id,type:'buy',date:row.purchaseDate,brand:row.brand,
+    series:row.series,size:row.size,pieces:row.pieces,
+    price:row.totalFen/100,origin:'cloud_post_migration'
+   });
+  }
+  return Object.freeze({
+   status:view.status,source:view.source||'unverified',canWrite:false,
+   state:Object.freeze(state),revisions:Object.freeze(clone(view.revisions)),
+   historyCount:state.transactions.length,
+   quoteCount:state.quotes.length,weightCount:state.weightRecords.length,
+   // This is a critical distinction: migrated purchases are display-only,
+   // and state.inventory already contains the CURRENT authoritative stock.
+   historicPurchasesAddedToStock:false,
+   synthetic:view.status==='SYNTHETIC_PRIMARY_DEMO'
+  });
+ }
+ function demo(){
+  const rows=[
+   {kind:'transaction',id:'mock-old-buy',payload:{
+    id:'mock-old-buy',type:'buy',date:'2026-10-06',brand:'好奇',
+    series:'小森林',size:'S',pieces:100,price:100}},
+   {kind:'transaction',id:'mock-old-use',payload:{
+    id:'mock-old-use',type:'use',date:'2026-10-09',size:'S',
+    pieces:20,price:0}},
+   {kind:'quote',id:'mock-quote-1',payload:{
+    id:'mock-quote-1',date:'2026-10-05',brand:'好奇',series:'小森林',
+    size:'S',per:50,packs:2,pieces:100,price:130,unit:1.3}},
+   {kind:'weight',id:'mock-weight-1',payload:{
+    id:'mock-weight-1',date:'2026-10-03',time:'09:20',weight:3.35,note:'模拟测量'}},
+   {kind:'weight',id:'mock-weight-2',payload:{
+    id:'mock-weight-2',date:'2026-11-01',time:'09:20',weight:4.25,note:'模拟测量'}}
+  ];
+  const inventory={NB:20,S:230,M:0,L:0,XL:0,XXL:0};
+  const revisions={NB:1,S:2,M:1,L:1,XL:1,XXL:1};
+  return Object.freeze({
+   status:'SYNTHETIC_PRIMARY_DEMO',source:'synthetic-fixture',
+   canWrite:false,inventory,revisions,
+   settings:{currentSize:'S',sizeMode:'manual',autoSize:'S',goalPrice:1.5,
+    plannedBudget:350,target:{NB:50,S:300,M:0,L:0,XL:0,XXL:0},
+    daily:{NB:10,S:9,M:7,L:6,XL:5,XXL:5},preset:'balanced',
+    replenishPolicy:{mode:'days',days:7},
+    referenceOverrides:{'好奇|小森林|S':1.123}},
+   profileData:{babyProfile:{name:'演示宝宝',sex:'女',birthTime:'10:00:00',
+    birthWeight:3.2,birthLength:50},dueDate:'2026-10-01',
+    birthDate:'2026-10-01',babyWeight:''},
+   legacyHistory:{rows,total:rows.length,hasMore:false,complete:true},
+   livePurchases:[{operationId:'mock-post-migration-1',size:'S',
+    pieces:30,totalFen:4200,brand:'好奇',series:'小森林',
+    purchaseDate:'2026-11-02',reversed:false}]
+  });
+ }
+ const api=Object.freeze({project,demo});
+ if(root)root.XBPrimaryUIProjection=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script src="../m1-controller.js" defer></script>
+<script defer>
+/* M3 original five-tab browser preview. All modes are READ ONLY.
+ * The synthetic demo never reads CloudBase nor old V1.1.2 localStorage.
+ * Real primary read requires receipt-verified 024 and active primary; if
+ * unavailable, it NEVER falls back to smoke or to local sandbox as cloud.
+ */
+(function(root){
+ 'use strict';
+ function create({host,projection,view,modelFactory}={}){
+  if(!host||!projection?.project||!projection?.demo
+    ||!view?.show||!view?.clear||!view?.status
+    ||typeof modelFactory!=='function')
+   throw Error('m3_preview:dependencies_required');
+  let mode='LOCAL_SANDBOX',busy=false;
+  function publish(code){mode=code;view.status(code);return code;}
+  function demo(){
+   if(busy)return publish('BUSY');
+   if(host.XBM102?.isActive())return publish('EXIT_SMOKE_MODE_FIRST');
+   try{
+    const mapped=projection.project(projection.demo(),view.defaults());
+    view.show(mapped);
+    return publish('SYNTHETIC_DEMO_READ_ONLY');
+   }catch(_){return publish('SYNTHETIC_DEMO_UNVERIFIED');}
+  }
+  async function cloud(){
+   if(busy)return publish('BUSY');
+   if(host.XBM102?.isActive())return publish('EXIT_SMOKE_MODE_FIRST');
+   // Do not keep a synthetic/previous snapshot visible while a real
+   // primary receipt is being checked. Unavailable cloud always shows no view.
+   view.clear();
+   busy=true;publish('VERIFYING_PRIMARY_RECEIPT');
+   try{
+    const controller=host.XBM1Preview;
+    if(!controller||typeof controller.connect!=='function'
+      ||typeof controller.verifiedContext!=='function')
+     return publish('LOGIN_REQUIRED');
+    await controller.connect();
+    const context=controller.verifiedContext();
+    if(!context)return publish('LOGIN_REQUIRED');
+    const reader=modelFactory(context.app);
+    const data=await reader.read({familyId:context.familyId,actorUid:context.actorUid});
+    if(data?.status==='PRIMARY_NOT_READY')
+     return publish('PRIMARY_NOT_READY_NO_CLOUD_VIEW');
+    if(data?.status==='MIGRATION_READ_NOT_READY')
+     return publish('MIGRATION_RECEIPT_NOT_READY');
+    if(data?.status!=='PRIMARY_READ_ONLY_READY'||data.canWrite!==false)
+     return publish('PRIMARY_CLOUD_UNVERIFIED');
+    const mapped=projection.project(data,view.defaults());
+    view.show(mapped);
+    return publish('PRIMARY_CLOUD_READ_ONLY');
+   }catch(_){
+    return publish('PRIMARY_CLOUD_UNVERIFIED');
+   }finally{busy=false;}
+  }
+  function exit(){view.clear();return publish('LOCAL_SANDBOX');}
+  return Object.freeze({demo,cloud,exit,get status(){return mode;}});
+ }
+ function browserStart(){
+  const doc=root.document,$=id=>doc.getElementById(id);
+  const ids=['m3Demo','m3Cloud','m3Exit','m3Status'];
+  if(ids.some(id=>!$(id))||!root.XBM3UI||!root.XBPrimaryUIProjection)
+   return;
+  const view={
+   defaults:()=>root.XBM3UI.defaults(),
+   show:value=>root.XBM3UI.show(value),
+   clear:()=>root.XBM3UI.clear(),
+   status:code=>{
+    const notes={
+     LOCAL_SANDBOX:'本机演练，不代表云端正式数据。',
+     SYNTHETIC_DEMO_READ_ONLY:'合成示例：五个页面均只读，库存/价格/成长均非真实家庭数据。',
+     PRIMARY_CLOUD_READ_ONLY:'已验证 primary、已完成迁移收据和权威云端读取；本页只读。',
+     PRIMARY_NOT_READY_NO_CLOUD_VIEW:'尚无正式 primary，原有测试宝宝 S140 不会混入。',
+     MIGRATION_RECEIPT_NOT_READY:'M2 未完成：无正式完成收据，不显示云端正式数据。',
+     EXIT_SMOKE_MODE_FIRST:'请先退出 M1-02 专用测试宝宝模式。',
+     LOGIN_REQUIRED:'尚未验证家庭登录，请使用现有账号登录。',
+     PRIMARY_CLOUD_UNVERIFIED:'云端正式读取未核实，未打开正式数据。',
+     VERIFYING_PRIMARY_RECEIPT:'正在核验正式宝宝及迁移完成收据。'
+    };
+    $('m3Status').textContent='M3 · '+code+'：'+(notes[code]||'未确认，未执行任何写入。');
+    $('m3Exit').disabled=!root.XBM3UI.isActive();
+   }
+  };
+  const factory=app=>root.XBPrimaryCloudReadModel.create({
+   app,childReader:root.XBCloudbaseChildReader,
+   scopeGuard:root.XBChildScopeGuard,
+   accessPreflight:root.XBCloudbaseAccessPreflight,
+   inventoryClient:root.XBInventoryClient,
+   legacyHistoryReader:root.XBLegacyHistoryReader
+  });
+  const bridge=create({host:root,projection:root.XBPrimaryUIProjection,
+   view,modelFactory:factory});
+  root.XBM3Preview=bridge;
+  $('m3Demo').addEventListener('click',()=>bridge.demo());
+  $('m3Cloud').addEventListener('click',()=>bridge.cloud());
+  $('m3Exit').addEventListener('click',()=>bridge.exit());
+  // Prevent any mutation through original UI when shadow state is displayed:
+  // document CAPTURE precedes the existing bubbling click/action listeners.
+  const readOnlyElements=new Set([
+   'saveQuote','buyNow','clearQuotes','saveWeight','cancelWeight',
+   'savePlans','saveProfile','saveSizePreferences','saveStocks',
+   'importDataBtn','importFile','resetAll','saveReference',
+   'm102Arm','m102Create','m102Mode','m102Retire','m102Retry',
+   'm102Refresh','m102RetireConfirmation','m102ArmText'
+  ]);
+  const allowedReadFilters=new Set(['growthRange','refBrand','refSize','refSearch']);
+  doc.addEventListener('click',event=>{
+   if(!root.XBM3UI.isActive())return;
+   const el=event.target.closest('button,[data-action],input,select,textarea');
+   if(!el||['m3Demo','m3Cloud','m3Exit'].includes(el.id))return;
+   if(el.classList.contains('tab')||el.dataset.action==='go')return;
+   if(allowedReadFilters.has(el.id))return;
+   if(el.dataset.action&&['pickref','series'].includes(el.dataset.action))return;
+   // For M3 read-only mode, block EVERY other action (not just known IDs).
+   if(el.tagName==='BUTTON'||el.dataset.action||readOnlyElements.has(el.id)){
+    event.preventDefault();event.stopImmediatePropagation();
+    view.status('PRIMARY_READ_ONLY_NO_WRITES');
+   }
+  },true);
+  for(const type of ['submit','input','change']){
+   doc.addEventListener(type,event=>{
+    if(!root.XBM3UI.isActive())return;
+    const el=event.target;
+    if(type!=='submit'&&allowedReadFilters.has(el.id))return;
+    if(type!=='submit'&&el.id==='m3Status')return;
+    event.preventDefault();event.stopImmediatePropagation();
+   },true);
+  }
+  view.status('LOCAL_SANDBOX');
+ }
+ const api=Object.freeze({create});
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+ if(root?.document){
+  root.XBM3PreviewModule=api;
+  if(root.document.readyState==='loading')
+   root.document.addEventListener('DOMContentLoaded',browserStart,{once:true});
+  else browserStart();
+ }
+})(typeof window!=='undefined'?window:null);
+
+</script>
+</body>
+</html>
