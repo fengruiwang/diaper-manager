@@ -395,18 +395,58 @@ RESET ROLE;
 -- P2-4E DRAFT / SYNTHETIC CI ONLY: not installed in the real family DB.
 -- M2 formal primary RPC installed in disposable PG before 021-024.
 \i cloudbase/sql/025_xb_create_primary_child_owner_only_DRAFT_DO_NOT_DEPLOY.sql
+-- DRAFT Phase A: writing RPC installed but NOT executable by authenticated.
+SELECT public.xb_test_assert(
+ NOT has_function_privilege('authenticated','public.xb_create_primary_child(uuid)','EXECUTE')
+ AND NOT has_function_privilege('anon','public.xb_create_primary_child(uuid)','EXECUTE'),
+ 'Phase A no write RPC grant: public.xb_create_primary_child(uuid)');
+-- Disposable PostgreSQL synthetic fixture ONLY. Never grant on CloudBase here.
+GRANT EXECUTE ON FUNCTION public.xb_create_primary_child(uuid) TO authenticated;
+
 \i cloudbase/sql/021_xb_migration_receipt_preflight_DRAFT_DO_NOT_DEPLOY.sql
 \i tests/postgres/p2_migration_receipt_preflight_contract.sql
 -- P2-4E-B1 atomic archive-only DRAFT, synthetic owner/history ONLY.
 \i cloudbase/sql/022_xb_legacy_archive_atomic_STAGE_DRAFT_DO_NOT_DEPLOY.sql
+-- DRAFT Phase A: writing RPC installed but NOT executable by authenticated.
+SELECT public.xb_test_assert(
+ NOT has_function_privilege('authenticated','public.xb_stage_legacy_archive_draft(uuid,uuid,uuid,text)','EXECUTE')
+ AND NOT has_function_privilege('anon','public.xb_stage_legacy_archive_draft(uuid,uuid,uuid,text)','EXECUTE'),
+ 'Phase A no write RPC grant: public.xb_stage_legacy_archive_draft(uuid,uuid,uuid,text)');
+-- Disposable PostgreSQL synthetic fixture ONLY. Never grant on CloudBase here.
+GRANT EXECUTE ON FUNCTION public.xb_stage_legacy_archive_draft(uuid,uuid,uuid,text) TO authenticated;
+
 \i tests/postgres/p2_legacy_archive_atomic_contract.sql
 -- P2-4E-B2 isolated synthetic full history+baseline promotion, NEVER LIVE.
 \i cloudbase/sql/023_xb_legacy_promotion_atomic_DRAFT_DO_NOT_DEPLOY.sql
+-- DRAFT Phase A: writing RPC installed but NOT executable by authenticated.
+SELECT public.xb_test_assert(
+ NOT has_function_privilege('authenticated','public.xb_promote_legacy_archive_draft(uuid,uuid,uuid,text)','EXECUTE')
+ AND NOT has_function_privilege('anon','public.xb_promote_legacy_archive_draft(uuid,uuid,uuid,text)','EXECUTE'),
+ 'Phase A no write RPC grant: public.xb_promote_legacy_archive_draft(uuid,uuid,uuid,text)');
+-- Disposable PostgreSQL synthetic fixture ONLY. Never grant on CloudBase here.
+GRANT EXECUTE ON FUNCTION public.xb_promote_legacy_archive_draft(uuid,uuid,uuid,text) TO authenticated;
+
 \i tests/postgres/p2_legacy_promotion_atomic_contract.sql
 -- P2-4F-A: owner/member read-only bounded history and settings, CI synthetic only.
 \i cloudbase/sql/024_xb_legacy_history_read_DRAFT_DO_NOT_DEPLOY.sql
 \i cloudbase/sql/026_xb_primary_document_cas_DRAFT_DO_NOT_DEPLOY.sql
+-- DRAFT Phase A: writing RPC installed but NOT executable by authenticated.
+SELECT public.xb_test_assert(
+ NOT has_function_privilege('authenticated','public.xb_put_primary_document_draft(uuid,uuid,text,bigint,uuid,jsonb)','EXECUTE')
+ AND NOT has_function_privilege('anon','public.xb_put_primary_document_draft(uuid,uuid,text,bigint,uuid,jsonb)','EXECUTE'),
+ 'Phase A no write RPC grant: public.xb_put_primary_document_draft(uuid,uuid,text,bigint,uuid,jsonb)');
+-- Disposable PostgreSQL synthetic fixture ONLY. Never grant on CloudBase here.
+GRANT EXECUTE ON FUNCTION public.xb_put_primary_document_draft(uuid,uuid,text,bigint,uuid,jsonb) TO authenticated;
+
 \i cloudbase/sql/027_xb_primary_stocktake_batch_DRAFT_DO_NOT_DEPLOY.sql
+-- DRAFT Phase A: writing RPC installed but NOT executable by authenticated.
+SELECT public.xb_test_assert(
+ NOT has_function_privilege('authenticated','public.xb_primary_stocktake_batch_draft(uuid,uuid,uuid,jsonb)','EXECUTE')
+ AND NOT has_function_privilege('anon','public.xb_primary_stocktake_batch_draft(uuid,uuid,uuid,jsonb)','EXECUTE'),
+ 'Phase A no write RPC grant: public.xb_primary_stocktake_batch_draft(uuid,uuid,uuid,jsonb)');
+-- Disposable PostgreSQL synthetic fixture ONLY. Never grant on CloudBase here.
+GRANT EXECUTE ON FUNCTION public.xb_primary_stocktake_batch_draft(uuid,uuid,uuid,jsonb) TO authenticated;
+
 \i tests/postgres/p2_legacy_history_read_contract.sql
 -- Owner-only primary lifecycle and retained smoke S140, isolated synthetic only.
 \i tests/postgres/m2_primary_child_contract.sql
