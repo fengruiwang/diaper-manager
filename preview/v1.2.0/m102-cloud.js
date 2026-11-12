@@ -10,6 +10,8 @@
  const SIZES=['NB','S','M','L','XL','XXL'];
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const DEFAULT_WRITE_APPROVAL=false;
+ const DEFAULT_CREATE_APPROVAL=false;
+ const DEFAULT_RETIRE_APPROVAL=false;
  function fail(code){throw Error('m102:'+code);}
  function validRows(rows){
   if(!Array.isArray(rows)||rows.length!==6)fail('inventory_incomplete');
@@ -63,7 +65,8 @@
     purchase:{brand,series,totalFen,purchaseDate:createdAt.slice(0,10)}}
   };
  }
- function create({host,controller,view,approvedWrites=DEFAULT_WRITE_APPROVAL}={}){
+ function create({host,controller,view,approvedWrites=DEFAULT_WRITE_APPROVAL,
+  approvedCreate=DEFAULT_CREATE_APPROVAL,approvedRetire=DEFAULT_RETIRE_APPROVAL}={}){
   if(!host||!controller||typeof controller.verifiedContext!=='function'
     ||!view||typeof view.status!=='function'||!host.indexedDB
     ||!host.XBDurableOutbox||!host.XBInventoryClient||!host.XBOutboxContract
@@ -76,11 +79,12 @@
    dbName:DB_NAME
   });
   let active=false,busy=false,context=null,snapshot=null,purchases=[],status='LOCAL_SANDBOX';
+  function viewState(){return {active,busy,canWrite:approvedWrites===true,
+   canCreate:approvedCreate===true,canRetire:approvedRetire===true,
+   selected:active&&context?.childId?true:false,
+   pending:0,inventory:snapshot?.inventory||null};}
   function publish(code){
-   status=code;view.status(code,{
-    active,busy,canWrite:approvedWrites===true,
-    pending:0,inventory:snapshot?.inventory||null
-   });
+   status=code;view.status(code,viewState());
    if(typeof view.render==='function')view.render();
    return code;
   }
@@ -118,6 +122,77 @@
    if(!local||local.source!=='verified-server')fail('baseline_unverified');
    return {familyId:scope.familyId,actorUid:scope.actorUid,
     member:true,appCode:'xb',initialized:true};
+  }
+  async function ownerAuthorized(live){
+   const grant=await host.XBCloudbaseAccessPreflight.create(live.app)
+    .verifyAccess({familyId:live.familyId,actorUid:live.actorUid});
+   if(grant.member!==true||grant.appCode!=='xb'||grant.familyId!==live.familyId
+      ||grant.actorUid!==live.actorUid)fail('grant_unverified');
+   const result=await live.app.rdb().from('family_members')
+    .select('family_id,user_uid,member_role')
+    .eq('family_id',live.familyId).eq('user_uid',live.actorUid).limit(2);
+   if(result?.error||!Array.isArray(result?.data)||result.data.length!==1
+      ||result.data[0].family_id!==live.familyId
+      ||result.data[0].user_uid!==live.actorUid
+      ||result.data[0].member_role!=='owner')fail('owner_permission_required');
+   return true;
+  }
+  // Not callable for cloud writes in any build without separate approval.
+  async function createSmokeChild(){
+   if(approvedCreate!==true)return publish('CREATE_NOT_AUTHORIZED');
+   if(busy)return 'BUSY';
+   if(active)return publish('EXIT_CLOUD_MODE_BEFORE_CREATE');
+   busy=true;publish('VERIFYING_OWNER_FOR_CREATE');
+   try{
+    if(host.navigator&&host.navigator.onLine===false)fail('offline');
+    await controller.connect();
+    const live=identity();
+    await ownerAuthorized(live);
+    const result=await live.app.rdb().from('xb_children')
+     .select('id,family_id,legacy_slot,deleted_at')
+     .eq('family_id',live.familyId).eq('legacy_slot',SMOKE).limit(2);
+    if(result?.error||!Array.isArray(result?.data))fail('smoke_lookup_unavailable');
+    if(result.data.length!==0)return publish('SMOKE_ALREADY_PRESENT_DO_NOT_RECREATE');
+    const created=await live.app.rdb().rpc('xb_create_smoke_child',
+     {p_family_id:live.familyId});
+    if(created?.error)fail('smoke_create_rpc_failed');
+    const payload=Array.isArray(created?.data)?created.data[0]:created?.data;
+    if(!payload||!UUID.test(String(payload.child_id))
+       ||payload.test_only!==true)fail('smoke_create_receipt_unverified');
+    const scope=await smokeScope(live);
+    if(scope.childId!==payload.child_id)fail('smoke_create_receipt_unverified');
+    return publish(payload.created===true?
+      'SMOKE_CREATED_SELECT_TO_ENTER':'SMOKE_ALREADY_PRESENT_DO_NOT_RECREATE');
+   }catch(e){return publish(errorCode(e));}
+   finally{busy=false;view.status(status,viewState());}
+  }
+  // Permanent child-slot retirement; never automatic.
+  async function retireSmokeChild(confirmation){
+   if(approvedRetire!==true)return publish('RETIRE_NOT_AUTHORIZED');
+   if(confirmation!=='确认停用')return publish('RETIRE_CONFIRMATION_REQUIRED');
+   if(busy)return 'BUSY';
+   if(!active||!context)return publish('SELECT_SMOKE_CHILD_FIRST');
+   busy=true;publish('VERIFYING_OWNER_FOR_RETIRE');
+   try{
+    if(host.navigator&&host.navigator.onLine===false)fail('offline');
+    const live=identity();
+    await ownerAuthorized(live);
+    const liveScope=await smokeScope(live);
+    if(liveScope.childId!==context.childId)fail('scope_changed');
+    const q=await outbox.stats(context);
+    if(q.outstanding!==0)fail('outbox_not_drained');
+    const stopped=await live.app.rdb().rpc('xb_retire_smoke_child',{
+     p_family_id:context.familyId,p_child_id:context.childId
+    });
+    if(stopped?.error)fail('smoke_retire_rpc_failed');
+    const result=Array.isArray(stopped?.data)?stopped.data[0]:stopped?.data;
+    if(!result||result.child_id!==context.childId
+       ||result.retired!==true||result.already_retired===true)
+     fail('smoke_retire_receipt_unverified');
+    active=false;context=null;snapshot=null;purchases=[];
+    return publish('SMOKE_RETIRED_PERMANENTLY');
+   }catch(e){return publish(errorCode(e));}
+   finally{busy=false;view.status(status,viewState());}
   }
   function remote(scope){return host.XBInventoryClient.create(scope.app);}
   async function initialSnapshot(scope,client){
@@ -184,8 +259,7 @@
    }catch(e){
     active=false;context=null;snapshot=null;purchases=[];
     return publish(errorCode(e));
-   }finally{busy=false;view.status(status,{active,busy,canWrite:approvedWrites===true,
-    pending:0,inventory:snapshot?.inventory||null});}
+   }finally{busy=false;view.status(status,viewState());}
   }
   async function refresh({retry=false}={}){
    if(!active)return publish('LOCAL_SANDBOX');
@@ -215,8 +289,7 @@
      active=false;context=null;snapshot=null;purchases=[];
     }else if(context)snapshot=await outbox.readInventory(context,context.childId).catch(()=>snapshot);
     return publish(errorCode(e));
-   }finally{busy=false;view.status(status,{active,busy,canWrite:approvedWrites===true,
-    pending:0,inventory:snapshot?.inventory||null});}
+   }finally{busy=false;view.status(status,viewState());}
   }
   async function submitPurchase(q){
    if(!active)return publish('CLOUD_MODE_NOT_ACTIVE');
@@ -252,8 +325,7 @@
    }catch(e){
     if(context)snapshot=await outbox.readInventory(context,context.childId).catch(()=>snapshot);
     return publish(errorCode(e));
-   }finally{busy=false;view.status(status,{active,busy,canWrite:approvedWrites===true,
-    pending:0,inventory:snapshot?.inventory||null});}
+   }finally{busy=false;view.status(status,viewState());}
   }
   function errorCode(e){
    const m=String(e?.message||'');
@@ -267,18 +339,21 @@
    return publish('LOCAL_SANDBOX');
   }
   return Object.freeze({
-   activate,refresh,submitPurchase,reset,isActive:()=>active,
+   activate,refresh,submitPurchase,createSmokeChild,retireSmokeChild,reset,isActive:()=>active,
    stock:size=>active&&snapshot?snapshot.inventory[size]:null,
    spend:()=>active?purchases.filter(x=>!x.reversed).reduce((n,x)=>n+x.totalFen,0)/100:null,
    history:()=>active?purchases.slice():[],
    get status(){return status;},
-   get approvedWrites(){return approvedWrites===true;}
+   get approvedWrites(){return approvedWrites===true;},
+   get approvals(){return Object.freeze({create:approvedCreate===true,
+    purchase:approvedWrites===true,retire:approvedRetire===true});}
   });
  }
  function browserStart(){
   if(!root.document||!root.XBM1Preview)return;
   const doc=root.document,$=id=>doc.getElementById(id);
-  const required=['m102Mode','m102Status','m102Refresh','m102Retry','buyNow'];
+  const required=['m102Mode','m102Status','m102Refresh','m102Retry',
+   'm102Create','m102Retire','m102RetireConfirmation','m102ChildInfo','buyNow'];
   if(required.some(x=>!$(x)))return;
   const view={
    status:(code,state)=>{
@@ -290,6 +365,11 @@
     $('m102Mode').textContent=state.active?'退出云端模式':'进入隔离云端模式';
     $('m102Retry').disabled=!state.active||!state.canWrite||state.busy;
     $('m102Refresh').disabled=!state.active||state.busy;
+    $('m102Create').disabled=!state.canCreate||state.busy||state.active;
+    $('m102Retire').disabled=!state.canRetire||state.busy||!state.selected
+      ||$('m102RetireConfirmation').value.trim()!=='确认停用';
+    $('m102ChildInfo').textContent=state.selected?'已选择经过身份、家庭、标识核验的专用测试宝宝。':
+      '当前未选择专用测试宝宝；没有测试宝宝时，云端模式不会自动创建记录。';
    },
    render:()=>{if(typeof root.XBM1UI?.refresh==='function')root.XBM1UI.refresh();}
   };
@@ -304,8 +384,22 @@
   $('m102Mode').addEventListener('click',()=>bridge.activate());
   $('m102Refresh').addEventListener('click',()=>bridge.refresh());
   $('m102Retry').addEventListener('click',()=>bridge.refresh({retry:true}));
+  $('m102Create').addEventListener('click',()=>{
+   if(!root.confirm('仅在另行批准创建后使用。确认在家庭中创建唯一测试宝宝吗？'))return;
+   bridge.createSmokeChild();
+  });
+  $('m102RetireConfirmation').addEventListener('input',()=>{
+   $('m102Retire').disabled=!bridge.approvals.retire||!bridge.isActive()
+     ||$('m102RetireConfirmation').value.trim()!=='确认停用';
+  });
+  $('m102Retire').addEventListener('click',()=>{
+   if(!root.confirm('停用后不能重建同一标识测试宝宝，审计不会删除。确认永久停用吗？'))return;
+   bridge.retireSmokeChild($('m102RetireConfirmation').value.trim());
+   $('m102RetireConfirmation').value='';
+  });
   root.addEventListener('online',()=>{if(bridge.isActive())bridge.refresh({retry:true});});
-  view.status('LOCAL_SANDBOX',{active:false,busy:false,canWrite:false});
+  view.status('LOCAL_SANDBOX',{active:false,busy:false,canWrite:false,
+   canCreate:false,canRetire:false,selected:false});
  }
  const api=Object.freeze({create,makeOperation,verifyPurchaseOnlyBaseline,
   validRows,sameRows,DB_NAME,SMOKE});
