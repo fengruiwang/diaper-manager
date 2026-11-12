@@ -515,30 +515,14 @@ function refPrice(row,size){if(!row)return null;const idx=REF_SIZES.indexOf(size
 function getRef(brand,series,size){const row=findReferenceRow(brand,series);return {row,price:refPrice(row,size),note:row?.notes?.[size]||''}}
 function priceSignal(unit,brand,series,size){const r=getRef(brand,series,size);if(!(unit>0))return {...r,kind:'',label:'等待实付价',delta:null,pct:null};if(!(r.price>0))return {...r,kind:'muted',label:r.row?'该尺码无参考价':'系列暂无参考价',delta:null,pct:null};const rawDelta=unit-r.price,delta=Math.abs(rawDelta)<1e-9?0:rawDelta,pct=delta/r.price*100;let kind,label;if(pct<=-5){kind='good';label='低于参考价'}else if(pct<=5){kind='good';label='接近参考价'}else if(pct<=15){kind='warn';label='略高于参考价'}else{kind='bad';label='明显高于参考价'}return {...r,kind,label,delta,pct}}
 
-const KEY='xiaobao_v120_m1_local_sandbox';
+// Standalone M3 memory-only data. Do not read/write any M1 or V1.1.2 store.
 const defaults=()=>({dueDate:'2027-01-08',birthDate:'',currentSize:'NB',babyWeight:'',babyProfile:{name:'小宝',sex:'',birthTime:'',birthWeight:'',birthLength:''},weightRecords:[],sizeMode:'manual',autoSize:'NB',replenishPolicy:{mode:'days',days:7},goalPrice:1.5,plannedBudget:250,target:{NB:100,S:60,M:0,L:0,XL:0,XXL:0},daily:{NB:10,S:9,M:7,L:6,XL:5,XXL:5},inventory:Object.fromEntries(SIZES.map(x=>[x,0])),quotes:[],transactions:[],referenceOverrides:{},preset:'balanced'});
 const num=(x,fb=0)=>Number.isFinite(+x)?+x:fb;
 const clamp=(x,lo,hi)=>Math.min(hi,Math.max(lo,x));
-function load(){
- try{
-  const raw=JSON.parse(localStorage.getItem(KEY));
-  if(!raw||typeof raw!=='object')return defaults();
-  const d=defaults(),n={...d,...raw};
-  for(const k of ['target','daily','inventory'])n[k]={...d[k],...(raw[k]||{})};
-  n.quotes=Array.isArray(raw.quotes)?raw.quotes:[];
-  n.transactions=Array.isArray(raw.transactions)?raw.transactions:[];
-  n.referenceOverrides=raw.referenceOverrides&&typeof raw.referenceOverrides==='object'&&!Array.isArray(raw.referenceOverrides)?raw.referenceOverrides:{};
-  Object.assign(n,XBGrowth.extras({...raw,currentSize:n.currentSize}));
-  // One-time additive migration; existing prices, inventory and purchases remain byte-equivalent as data.
-  if(!raw.babyProfile||!Array.isArray(raw.weightRecords)||!['manual','auto'].includes(raw.sizeMode)||!SIZES.includes(raw.autoSize)||!raw.replenishPolicy||!['days','custom'].includes(raw.replenishPolicy.mode)||![5,7,10].includes(Number(raw.replenishPolicy.days))){
-   try{localStorage.setItem(KEY,JSON.stringify(n))}catch(_){/* Keep loaded data in memory if storage is unavailable. */}
-  }
-  return n;
- }catch(_){return defaults()}
-}
+function load(){return defaults();}
 let state=load();
 let m3SavedSandboxState=null,m3ReadOnly=false;
-function save(){if(m3ReadOnly){toast('M3 为只读预览，未保存任何修改');return false;}try{localStorage.setItem(KEY,JSON.stringify(state));return true}catch{toast('当前浏览器无法持久保存，请导出备份文件');return false}}
+function save(){return false;}
 const $=id=>document.getElementById(id);
 const money=n=>'¥'+num(n).toFixed(2);
 const int=n=>Math.round(num(n)).toLocaleString('zh-CN');
@@ -548,10 +532,10 @@ const localDate=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.ge
 const currMonth=()=>localDate().slice(0,7);
 const fmtDate=d=>String(d??'').slice(0,10);
 let toastTimer;function toast(txt){const el=$('toast');el.textContent=txt;el.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('on'),2600)}
-const ACTIVE_TAB_KEY='xiaobao_v120_m1_active_tab';
+// M3 tab navigation is memory-only.
 const VALID_TABS=new Set(['overview','compare','history','growth','settings']);
-function tab(to,{scroll=true}={}){if(!VALID_TABS.has(to))return;document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===to));document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));try{localStorage.setItem(ACTIVE_TAB_KEY,to)}catch(_){/* UI preference is optional */}if(to==='history')renderHistory();if(to==='settings')renderSettings();if(to==='growth')renderGrowth();if(to==='compare'){renderQuotes();renderReferenceTable();}if(scroll)window.scrollTo({top:0,behavior:'smooth'})}
-function restoreActiveTab(){let savedTab='overview';try{savedTab=localStorage.getItem(ACTIVE_TAB_KEY)||'overview'}catch(_){/* Storage unavailable: default to overview */}if(VALID_TABS.has(savedTab)&&savedTab!=='overview')tab(savedTab,{scroll:false})}
+function tab(to,{scroll=true}={}){if(!VALID_TABS.has(to))return;document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===to));document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));void 0;if(to==='history')renderHistory();if(to==='settings')renderSettings();if(to==='growth')renderGrowth();if(to==='compare'){renderQuotes();renderReferenceTable();}if(scroll)window.scrollTo({top:0,behavior:'smooth'})}
+function restoreActiveTab(){/* default overview, never read tab storage */}
 // Calendar-month age. Month anniversaries are capped to the last day in short months.
 function calculateBirthAge(birth,today){
  const [by,bm,bd]=birth.split('-').map(Number);
