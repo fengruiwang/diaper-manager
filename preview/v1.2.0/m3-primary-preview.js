@@ -107,12 +107,16 @@
    'm102Refresh','m102RetireConfirmation','m102ArmText'
   ]);
   const allowedReadFilters=new Set(['growthRange','refBrand','refSize','refSearch']);
+  // Auth forms are not business mutations. Reuse M1 SDK/session recovery so a
+  // signed-out A/B user can reach the future read-only primary view.
+  const allowedAuthControls=new Set(['m1Email','m1Otp','m1SendOtp',
+   'm1ConfirmOtp','m1Refresh','m1SignOut']);
   doc.addEventListener('click',event=>{
    if(!standalone&&!root.XBM3UI.isActive())return;
    const el=event.target.closest('button,[data-action],input,select,textarea');
    if(!el||['m3Demo','m3Cloud','m3Exit'].includes(el.id))return;
    if(el.classList.contains('tab')||el.dataset.action==='go')return;
-   if(allowedReadFilters.has(el.id))return;
+   if(allowedReadFilters.has(el.id)||allowedAuthControls.has(el.id))return;
    if(el.dataset.action&&['pickref','series'].includes(el.dataset.action))return;
    // For M3 read-only mode, block EVERY other action (not just known IDs).
    if(el.tagName==='BUTTON'||el.dataset.action||readOnlyElements.has(el.id)){
@@ -124,7 +128,7 @@
    doc.addEventListener(type,event=>{
     if(!standalone&&!root.XBM3UI.isActive())return;
     const el=event.target;
-    if(type!=='submit'&&allowedReadFilters.has(el.id))return;
+    if(type!=='submit'&&(allowedReadFilters.has(el.id)||allowedAuthControls.has(el.id)))return;
     if(type!=='submit'&&el.id==='m3Status')return;
     event.preventDefault();event.stopImmediatePropagation();
    },true);
