@@ -260,10 +260,10 @@ BEGIN
   'kind',p_kind,'family_id',p_family_id,'child_id',p_child_id);
 END;
 $put$;
+-- Phase A: read-only RPCs may be executable; business document PUT is not.
+-- Enable only in an approved future M3 write-acceptance phase.
 REVOKE ALL ON FUNCTION public.xb_put_primary_document_draft(uuid,uuid,text,bigint,uuid,jsonb)
- FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.xb_put_primary_document_draft(uuid,uuid,text,bigint,uuid,jsonb)
- TO authenticated;
+ FROM PUBLIC,anon,authenticated;
 
 -- Read-only request receipt. After an HTTP timeout, callers inspect this
 -- before deciding whether to retry the EXACT SAME request UUID; never invent
