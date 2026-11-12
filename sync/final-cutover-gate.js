@@ -33,7 +33,8 @@
  }
  function diff(a,b){
   const keys=new Set([...Object.keys(a),...Object.keys(b)]);
-  return [...keys].sort().filter(key=>stable(a[key])!==stable(b[key]));
+  return [...keys].sort().filter(key=>
+   !Object.hasOwn(a,key)||!Object.hasOwn(b,key)||stable(a[key])!==stable(b[key]));
  }
  async function prepare({sources,selectedSlot,allDevicesEnumerated=false,
    oldWritesStopped=false,strictReview,digest}={}){
@@ -58,9 +59,7 @@
   const winner=reviewed[selectedSlot],issues=[];
   if(!allDevicesEnumerated)issues.push('DEVICE_INVENTORY_UNCONFIRMED');
   if(!oldWritesStopped)issues.push('OLD_VERSION_WRITES_NOT_STOPPED');
-  if(!reviewed.every(x=>x.review?.status==='READY_FOR_MIGRATION'
-      ||x.review?.readyForMigration===true
-      ||x.review?.readOnlyPreflightPass===true))
+  if(!reviewed.every(x=>x.review?.status==='MAPPING_PREFLIGHT_CLEAN_UPLOAD_DISABLED'))
    issues.push('STRICT_PREFLIGHT_NOT_PASSED');
   const differences=[];
   for(let i=0;i<reviewed.length;i++){
@@ -93,9 +92,7 @@
   if(sourceHash!==plan.sourceSha256)
    return Object.freeze({status:'FINAL_EXPORT_CHANGED',canUpload:false});
   const recheck=await strictReview(raw);
-  if(!(recheck?.status==='READY_FOR_MIGRATION'
-    ||recheck?.readyForMigration===true
-    ||recheck?.readOnlyPreflightPass===true))
+  if(!(recheck?.status==='MAPPING_PREFLIGHT_CLEAN_UPLOAD_DISABLED'))
    return Object.freeze({status:'STRICT_PREFLIGHT_NOT_PASSED',canUpload:false});
   // The authorized uploader must do a fresh client+server check; this module
   // intentionally cannot grant write permission, even on success.
