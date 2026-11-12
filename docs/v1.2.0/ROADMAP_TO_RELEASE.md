@@ -1,3 +1,5 @@
+> **最新状态｜2026-11-12，M1-02 REAL PASS → M2 主线 / M3 并行**：用户已在现有 CloudBase 双账号实际完成测试宝宝 `__xb_smoke_v1__` 创建与 A 买 S60、B 买 S80，双方读到云端权威 S140/revision=2，刷新一致。**断网恢复与原 operation ID 真实幂等重试未验收**；最终交易表/操作表的 2+2 计数未附单独数据库证据。测试宝宝和 S140 永久保留待用户以后另行决定。本轮 M2 增加只在 Feature 的 owner-only primary 创建 SQL 025 **草案（未部署、未获授权）**，M3 增加 **只读** primary 数据适配器（未接入正式页面），不接触旧版主站。权威状态见 [M1_02_REAL_CLOUDBASE_ACCEPTANCE.md](./M1_02_REAL_CLOUDBASE_ACCEPTANCE.md)，下一步见 [M2_M3_MINIMUM_EXECUTION_PLAN.md](./M2_M3_MINIMUM_EXECUTION_PLAN.md)。下方早期“阶段 B 未部署/未采购”均为历史时点，不可代表当前状态。**main / V1.1.2 不变**。
+
 > **M1-02 最新执行状态（2026-11-12）**：现有 `xiaobao-family` 数据库阶段 A 已由用户真实验收：019A 18/18、019 完整安装、020 18/18。M1-02 阶段 B 独立测试界面已完成候选构建和定向测试，但**创建宝宝/真实采购尚未获授权，亦未部署**。请使用 [M1_02_STAGE_B_ACCEPTANCE.md](./M1_02_STAGE_B_ACCEPTANCE.md) 的一次性授权和 S60+S80→S140 验收流程。原下文的“019/020 未部署”是截至早期版本的历史记录，不能再作为当前状态。main/V1.1.2 不变。
 
 # 小宝管家 v1.2.0 — 开发计划与验收路线图
