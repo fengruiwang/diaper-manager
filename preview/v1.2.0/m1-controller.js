@@ -36,7 +36,7 @@
   if(!host||!view||typeof view.status!=='function'||typeof scriptLoader!=='function')
    throw Error('m1:dependencies_required');
   let app=null,familyClient=null,sessionRecovery=null,busy=false;
-  let familyId=null,activeChildId=null,actorUid=null;
+  let familyId=null,activeChildId=null,actorUid=null,verifiedFamily=false;
   const getKey=()=>{
    let cached='';
    try{cached=storage&&storage.getItem(KEY_NAME)||'';}catch(_){}
@@ -87,7 +87,7 @@
    try{
     const recovered=await sessionRecovery.restore({online:true});
     if(recovered.status==='auth-required'){
-     familyId=null;actorUid=null;activeChildId=null;
+     familyId=null;actorUid=null;activeChildId=null;verifiedFamily=false;
      view.identity(false);view.cloudStock(null);
      return emit('LOGIN_REQUIRED');
     }
@@ -109,6 +109,7 @@
    }
   }
   async function readFamily(){
+   verifiedFamily=false;
    if(!app||!actorUid)return emit('LOGIN_REQUIRED');
    try{
     const db=app.rdb();
@@ -125,6 +126,7 @@
     if(!verification.member||verification.appCode!=='xb'){
      familyId=null;return emit('FAMILY_PERMISSION_DENIED');
     }
+    verifiedFamily=true;
     const reader=host.XBCloudbaseChildReader.create(app,host.XBChildScopeGuard);
     const children=await reader.listActiveChildren({familyId});
     view.family(true,children.activeChildren.length);
@@ -158,6 +160,7 @@
     })));
     return emit('CLOUD_READ_ONLY_CONNECTED');
    }catch(e){
+    verifiedFamily=false;
     view.family(false,0);view.cloudStock(null);
     return emit('CLOUD_READ_UNVERIFIED',safeCode(e));
    }
@@ -179,7 +182,8 @@
    if(!familyClient)return emit('CONFIG_REQUIRED');
    try{
     await familyClient.logout();
-    actorUid=null;familyId=null;activeChildId=null;
+    actorUid=null;familyId=null;activeChildId=null;verifiedFamily=false;
+    if(root&&root.XBM102&&typeof root.XBM102.reset==='function')root.XBM102.reset();
     view.identity(false);view.family(false,0);view.cloudStock(null);
     // Never remove any business cache or old v1.1.2 localStorage.
     return emit('LOGIN_REQUIRED');
@@ -197,7 +201,9 @@
   }
   return Object.freeze({
    connect,checkSession,requestOtp,confirmOtp,signOut,savePublicKeyOnce,
-   envId:ENV_ID,source:'M1-01-READ-ONLY',
+   verifiedContext:()=>verifiedFamily&&app&&familyId&&actorUid?
+    Object.freeze({app,familyId,actorUid}):null,
+   envId:ENV_ID,source:'M1-01-READ-ONLY + M1-02-SMOKE',
    get configured(){return !!getKey();}
   });
  }
@@ -210,7 +216,7 @@
   const view={
    status:(code,detail)=>{
     $('m1Status').textContent='云端连接：'+code+(detail?' ('+detail+')':'')+
-       '。页面下方的采购、库存及设置操作仅保存在独立本机演练区，不会同步至云端。';
+       '。默认只用独立本机演练区；仅手动启用 M1-02 隔离云端模式且单独批准写入后，购买才会联网同步。';
    },
    needsKey:needed=>{$('m1Config').hidden=!needed;},
    identity:ok=>{$('m1SignOut').disabled=!ok;},
