@@ -47,7 +47,7 @@ BEGIN
  IF NOT EXISTS(
   SELECT 1 FROM public.xb_children
   WHERE family_id=p_family_id AND id=p_child_id
-   AND deleted_at IS NULL
+   AND legacy_slot='primary' AND deleted_at IS NULL
  ) THEN
   RAISE EXCEPTION 'child_unavailable' USING ERRCODE='42501';
  END IF;
@@ -129,7 +129,7 @@ BEGIN
  IF NOT EXISTS(
   SELECT 1 FROM public.xb_children
   WHERE family_id=p_family_id AND id=p_child_id
-   AND deleted_at IS NULL
+   AND legacy_slot='primary' AND deleted_at IS NULL
  ) THEN
   RAISE EXCEPTION 'child_unavailable' USING ERRCODE='42501';
  END IF;
