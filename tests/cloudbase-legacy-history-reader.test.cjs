@@ -51,7 +51,7 @@ function fake({session=true,identity='owner',mismatch=false,throwSession=false,
 test('module construction is inert; reads require explicit action and never auto-login',()=>{
  const s=fake();
  assert.equal(s.sessions,0);assert.equal(s.calls.length,0);
- assert.deepEqual(Object.keys(s.reader).sort(),['readPage','readSettings']);
+ assert.deepEqual(Object.keys(s.reader).sort(),['readAll','readPage','readSettings']);
 });
 test('authorized family member reads full immutable purchase/use/quote/weight history',async()=>{
  const f=fake();
