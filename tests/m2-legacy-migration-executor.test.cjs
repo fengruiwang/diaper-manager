@@ -18,7 +18,8 @@ const source={
 };
 const copy=x=>JSON.parse(JSON.stringify(x));
 function fixture({enabled=false,receipt=false,stageAckLost=false,
- promoteAckLost=false,changed=false,receiptConflict=false}={}){
+ promoteAckLost=false,changed=false,receiptConflict=false,
+ badBaseline=false,badNativeGrowth=false}={}){
  const raw=JSON.stringify({app:'xiaobao-diapers',version:1,
   exportedAt:'2026-11-13T02:00:00.000Z',data:source});
  const plan={status:'CUTOVER_LOCAL_REVIEW_READY',sourceSha256:DIGEST,
@@ -76,6 +77,18 @@ function fixture({enabled=false,receipt=false,stageAckLost=false,
   readProfile:async()=>({babyProfile:copy(source.babyProfile),dueDate:source.dueDate,
    birthDate:source.birthDate,babyWeight:source.babyWeight,
    legacySourceSha256:DIGEST}),
+  readBaselineOperations:async()=>sizes.map(size=>({
+   family_id:FAMILY,child_id:PRIMARY,size,kind:'migration_baseline',
+   delta:null,old_quantity:0,new_quantity:badBaseline&&size==='S'?999:
+    source.inventory[size],expected_revision:null,resulting_revision:1,
+   legacy_transaction_id:null,reverses_operation_id:null
+  })),
+  readNativeWeights:async()=>source.weightRecords.map(w=>({
+   family_id:FAMILY,child_id:PRIMARY,legacy_record_id:w.id,
+   measured_on:w.date,measured_at:(w.time||'00:00')+':00',
+   weight_kg:badNativeGrowth?4.0:w.weight,note:w.note||'',
+   deleted_at:null
+  })),
   cloudWritesEnabled:enabled
  });
  return {executor,plan,raw,calls,db,state,
@@ -140,4 +153,17 @@ test('different existing receipt prevents staging or promotion',async()=>{
  const f=fixture({enabled:true,receiptConflict:true});
  const r=await f.executor.execute(f.input);
  assert.equal(r.status,'RECEIPT_OR_PRIMARY_TARGET_CONFLICT');assert.equal(f.calls.length,0);
+});
+
+test('completed receipt is not sufficient if any of six baseline audit operations differ',async()=>{
+ const f=fixture({enabled:true,receipt:true,badBaseline:true});
+ const r=await f.executor.execute(f.input);
+ assert.equal(r.status,'BASELINE_OPERATION_EVENTS_MISMATCH');
+ assert.equal(f.calls.length,0);
+});
+test('completed receipt is not sufficient if native growth rows differ',async()=>{
+ const f=fixture({enabled:true,receipt:true,badNativeGrowth:true});
+ const r=await f.executor.execute(f.input);
+ assert.equal(r.status,'NATIVE_GROWTH_RECORDS_MISMATCH');
+ assert.equal(f.calls.length,0);
 });
