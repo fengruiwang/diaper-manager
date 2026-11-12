@@ -154,6 +154,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
    <strong>小宝管家 V1.2.0 · 正式业务测试入口</strong>
    <div id="formalSyncState" class="fine">等待正式 primary；目前不允许真实云端业务写入。</div>
    <button id="formalRefresh" class="btn secondary sm" type="button">刷新云端数据</button>
+   <button id="formalSyncNow" class="btn sm" type="button" disabled title="等待独立数据库部署和业务写入授权">提交待同步操作（尚未授权）</button>
   </div>
   <nav class="tabs" role="tablist" aria-label="功能导航">
     <button class="tab active" data-tab="overview">🏠 备货总览</button>
@@ -3259,6 +3260,7 @@ restoreActiveTab();
  if(root)root.XBPrimaryCloudOperations=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
+
 </script>
 <script>/* M3 original five-page inventory command adapter.
  * Maps existing compare/addBuy, consume, stock-editor and undo actions into
@@ -3388,13 +3390,14 @@ restoreActiveTab();
  const SIZES=['NB','S','M','L','XL','XXL'];
  const guardedIds=new Set(['saveQuote','clearQuotes','saveWeight',
   'saveProfile','savePlans','saveStocks','saveSizePreferences','resetAll',
-  'importDataBtn','importFile','saveReference','saveQuoteEdit']);
- const guardedActions=new Set(['deletequote','editweight','deleteweight',
-  'buyquote','consume','deletetx']);
+  'importDataBtn','importFile','saveEditedReference','restoreDefaultReference']);
+ const guardedActions=new Set(['deletequote','editquote','deleteweight',
+  'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   notify,formalModeSelected,buildAllowsWrites=false,
-  operatorApproved=()=>false}={}){
+  operatorApproved=()=>false,documentCommands=null,
+  readDocumentInput=null,prepareQuoteEdit=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -3448,6 +3451,15 @@ restoreActiveTab();
     return invoke('consume',{size:el.dataset?.size,count:Number(el.dataset?.count)});
    if(el.id==='saveStocks')
     return readStocktakeInputs(doc);
+   if(action==='editquote'&&typeof prepareQuoteEdit==='function'){
+    return prepareQuoteEdit(el.dataset?.id);
+   }
+   if(documentCommands?.submit&&typeof readDocumentInput==='function'){
+    const docAction=readDocumentInput(el,doc);
+    if(docAction){
+     return documentCommands.submit({...docAction,operatorApproved:true});
+    }
+   }
    if(action==='deletetx'){
     const record=readTransaction(el.dataset?.id);
     if(!record||record.origin!=='cloud_post_migration'
@@ -3465,20 +3477,36 @@ restoreActiveTab();
    if(attached)throw Error('formal_ui:already_attached');
    const handler=event=>{
     if(!formalModeSelected())return;
-    const el=event.target?.closest?.('button,[data-action],input');
+    const el=event.target?.closest?.('button,[data-action],[data-preset]');
     if(!el)return;
-    if(!guardedIds.has(el.id)&&!guardedActions.has(el.dataset?.action)
-      &&el.id!=='buyNow')return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
+    const action=el.dataset?.action||'';
+    const allowedIds=new Set(['formalRefresh','formalSignOut',
+      'formalGateSignOut','formalRetry','formalSendOtp',
+      'formalConfirmOtp','closeRefEditor','cancelEditedReference',
+      'cancelWeight']);
+    const allowedActions=new Set(['go','editstock','series','pickref','editref','editweight']);
+    if(el.classList?.contains('tab')||allowedIds.has(el.id)
+      ||allowedActions.has(action))return;
+    // Any unrecognized business button is also blocked: it must not fall
+    // through to the old localStorage-only V1.1.2 handler by accident.
+    event.preventDefault();event.stopImmediatePropagation();
+    Promise.resolve().then(()=>handle(el,doc)).then(notify,
+      ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
+   };
+   const formHandler=event=>{
+    if(!formalModeSelected())return;
+    event.preventDefault();event.stopImmediatePropagation();
+    const el={id:'saveEditedReference',dataset:{}};
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
    doc.addEventListener('click',handler,true);
-   attached={doc,handler};
+   doc.addEventListener('submit',formHandler,true);
+   attached={doc,handler,formHandler};
    return Object.freeze({detach(){
     if(!attached)return;
     attached.doc.removeEventListener('click',attached.handler,true);
+    attached.doc.removeEventListener('submit',attached.formHandler,true);
     attached=null;
    }});
   }
@@ -3488,6 +3516,7 @@ restoreActiveTab();
  if(root)root.XBPrimaryFormalUIActions=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
+
 </script>
 <script>/* M3 CloudBase primary document client: quotes/reference/growth/profile/settings.
  * Reuses SDK sessions and family preflight, SQL 026 CAS + request receipts.
@@ -3529,8 +3558,13 @@ restoreActiveTab();
   }
   async function rpc(name,args){
    const response=await db.rpc(name,args);
-   if(response?.error||!response)
+   if(response?.error){
+    const code=String(response.error.code||response.error.errorCode||'');
+    if(code==='40001')throw Error('primary_docs:revision_conflict');
+    if(code==='23505')throw Error('primary_docs:duplicate_request_conflict');
     throw Error('primary_docs:rpc_unverified');
+   }
+   if(!response)throw Error('primary_docs:rpc_unverified');
    const value=Array.isArray(response.data)?
     (response.data.length===1?response.data[0]:null):response.data;
    if(!object(value))throw Error('primary_docs:invalid_reply');
@@ -3603,7 +3637,12 @@ restoreActiveTab();
      kind:input.kind,revision:d.revision,
      duplicate:d.duplicate===true,requestId:input.requestId
     });
-   }catch(_){
+   }catch(error){
+    // A real 40001 conflict never gets promoted to "maybe committed".
+    if(error?.message==='primary_docs:revision_conflict')
+     return result('PRIMARY_DOCUMENT_VERSION_CONFLICT',{requestId:input.requestId});
+    if(error?.message==='primary_docs:duplicate_request_conflict')
+     return result('PRIMARY_DOCUMENT_REQUEST_ID_CONFLICT',{requestId:input.requestId});
     // No auto re-submit with a new UUID. The next action is receipt check.
     return result('PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID',
      {requestId:input.requestId});
@@ -3639,6 +3678,7 @@ restoreActiveTab();
  if(root)root.XBPrimaryDocumentsClient=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
+
 </script>
 <script>/* M3 verified CAS documents overlay: old transactions and stock immutable. */
 (function(root){
@@ -3713,6 +3753,267 @@ function apply(original,snapshot){
 }
 const api=Object.freeze({apply});
 if(root)root.XBPrimaryDocumentsOverlay=api;
+if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+</script>
+<script>/* M3 CAS document durable queue: SDK + existing P3 IndexedDB/outbox contract.
+ * Separate DB from primary inventory so inventory 009 replay cannot consume
+ * non-stock commands. Same request UUID is durable BEFORE any server write.
+ * Server SQL 026 remains UNDEPLOYED; this module is not in live PWA.
+ */
+(function(root){
+'use strict';
+const DB_NAME='xiaobao-primary-documents-v120';
+const DOC_TYPES={quotes:'quote.upsert',reference:'reference.patch',
+ growth:'weight.upsert',profile:'profile.patch',settings:'settings.patch'};
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ans=(status,more={})=>Object.freeze({status,...more});
+function create({controller,host,documentsClient,outboxFactory,contract,
+ cloudWritesEnabled=false}={}){
+ if(!controller?.verifiedContext||!documentsClient?.read
+   ||!documentsClient?.put||!documentsClient?.checkRequest
+   ||!outboxFactory?.create||!contract?.createOperation
+   ||!host?.indexedDB)throw Error('primary_docs_outbox:dependencies_required');
+ const outbox=outboxFactory.create({indexedDB:host.indexedDB,
+  contract,dbName:DB_NAME});
+ if(!outbox?.enqueue||!outbox?.ready||!outbox?.stats
+   ||!outbox?.recordResult||!outbox?.get)
+  throw Error('primary_docs_outbox:outbox_incomplete');
+ let busy=false;
+ const online=()=>host.navigator?.onLine!==false;
+ const current=()=>controller.verifiedContext();
+ function identity(){
+  const x=current();
+  if(!x||!UUID.test(x.familyId)||!x.actorUid)
+   throw Error('primary_docs_outbox:identity_unverified');
+  return {familyId:x.familyId,actorUid:x.actorUid};
+ }
+ async function pending(){
+  try{
+   const scope=identity(),counts=await outbox.stats(scope);
+   if(!Number.isSafeInteger(counts.outstanding)||counts.outstanding<0)
+    throw Error('counts');
+   return ans('DOCUMENT_QUEUE_COUNTS_VERIFIED',{...counts});
+  }catch(_){return ans('DOCUMENT_QUEUE_COUNTS_UNVERIFIED');}
+ }
+ async function queue({kind,nextBody,expectedRevision,requestId,
+  operatorApproved=false,action='upsert'}={}){
+  if(cloudWritesEnabled!==true||operatorApproved!==true)
+   return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
+  if(busy)return ans('DOCUMENT_QUEUE_BUSY');
+  if(!online())return ans('DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE');
+  if(!DOC_TYPES[kind]||!UUID.test(String(requestId))
+    ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0
+    ||!nextBody||typeof nextBody!=='object'||Array.isArray(nextBody))
+   return ans('INVALID_DOCUMENT_OPERATION');
+  busy=true;
+  try{
+   const scope=identity();
+   const state=await documentsClient.read({...scope,kind,readEnabled:true});
+   if(state.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+     ||state.revision!==expectedRevision||!UUID.test(state.childId))
+    return ans('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
+   const op=contract.createOperation({
+    id:requestId,type:kind==='quotes'&&action==='delete'?'quote.delete':
+     kind==='growth'&&action==='delete'?'weight.delete':DOC_TYPES[kind],
+    familyId:scope.familyId,actorUid:scope.actorUid,
+    expectedRevision,createdAt:new Date().toISOString(),
+    payload:{childId:state.childId,kind,nextBody}
+   });
+   const inserted=await outbox.enqueue(op);
+   return ans('DOCUMENT_OPERATION_DURABLY_QUEUED',{
+    requestId:op.id,duplicate:inserted?.duplicate===true,
+    cloudWriteCommitted:false
+   });
+  }catch(_){return ans('DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID',
+   {requestId});}
+  finally{busy=false;}
+ }
+ async function send({operatorApproved=false}={}){
+  if(cloudWritesEnabled!==true||operatorApproved!==true)
+   return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
+  if(!online())return ans('DOCUMENT_OFFLINE_QUEUE_PRESERVED');
+  if(busy)return ans('DOCUMENT_QUEUE_BUSY');
+  busy=true;
+  try{
+   const scope=identity(),items=await outbox.ready(scope);
+   if(!items.length){
+    const counts=await outbox.stats(scope);
+    return ans(counts.outstanding>0?'DOCUMENT_CONFLICT_REVIEW_REQUIRED':
+     'DOCUMENT_QUEUE_EMPTY');
+   }
+   for(const op of items){
+    if(!DOC_TYPES[op.payload?.kind]||!UUID.test(op.payload?.childId))
+     return ans('DOCUMENT_INVALID_PENDING_EVENT_BLOCKED',
+      {requestId:op.id});
+    const command={...scope,kind:op.payload.kind,
+     nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
+     requestId:op.id,operatorApproved:true};
+    const result=await documentsClient.put(command);
+    let acknowledged=result.status==='PRIMARY_DOCUMENT_COMMITTED';
+    if(!acknowledged &&
+      result.status==='PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID'){
+     const check=await documentsClient.checkRequest({
+      ...scope,requestId:op.id,readEnabled:true
+     });
+     acknowledged=check.status==='REQUEST_COMMITTED_VERIFIED'
+       &&check.kind===op.payload.kind;
+     if(!acknowledged)return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',
+      {requestId:op.id});
+    }
+    if(result.status==='PRIMARY_DOCUMENT_VERSION_CONFLICT'){
+     await outbox.recordResult(scope,op.id,{kind:'conflict'});
+     return ans('DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW',
+      {requestId:op.id});
+    }
+    if(!acknowledged)return ans('DOCUMENT_ACK_NOT_VERIFIED',
+     {requestId:op.id});
+    await outbox.recordResult(scope,op.id,{
+     kind:'accepted',receiptId:op.id
+    });
+   }
+   const remaining=await outbox.stats(scope);
+   return ans(remaining.outstanding===0?'DOCUMENT_SYNC_CONFIRMED':
+    'DOCUMENT_STILL_PENDING',{outstanding:remaining.outstanding});
+  }catch(_){return ans('DOCUMENT_SYNC_UNKNOWN_QUEUE_PRESERVED');}
+  finally{busy=false;}
+ }
+ async function checkSavedRequest(requestId){
+  if(!UUID.test(String(requestId)))return ans('INVALID_REQUEST_ID');
+  try{
+   const scope=identity(),op=await outbox.get(scope,requestId);
+   if(!op)return ans('ORIGINAL_REQUEST_ID_NOT_FOUND');
+   const status=await documentsClient.checkRequest({
+    ...scope,requestId,readEnabled:true
+   });
+   if(status.status!=='REQUEST_COMMITTED_VERIFIED'
+     ||status.kind!==op.payload?.kind)
+    return ans('REQUEST_NOT_VERIFIED_KEEP_PENDING');
+   await outbox.recordResult(scope,requestId,{
+    kind:'accepted',receiptId:requestId
+   });
+   return ans('REQUEST_ACK_RECOVERED',{requestId});
+  }catch(_){return ans('REQUEST_ACK_RECOVERY_UNVERIFIED');}
+ }
+ return Object.freeze({queue,send,pending,checkSavedRequest,
+  get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
+}
+const api=Object.freeze({create,DB_NAME});
+if(root)root.XBPrimaryDocumentsOperations=api;
+if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+</script>
+<script>/* M3 domain commands for A/B shared CAS documents.
+ * Uses existing document SDK read + durable command queue. Original migration
+ * history entries remain untouched by quote/growth corrections.
+ * Not loaded by any accepted M3 synthetic preview or production V1.1.2.
+ */
+(function(root){
+'use strict';
+const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+const clone=x=>JSON.parse(JSON.stringify(x));
+const reply=(status,extra={})=>Object.freeze({status,...extra});
+const sizeSet=new Set(['NB','S','M','L','XL','XXL']);
+function create({client,queue,uuid}={}){
+ if(!client?.read||!queue?.queue||!queue?.pending||typeof uuid!=='function')
+  throw Error('document_commands:dependencies_required');
+ let busy=false;
+ function transform(kind,action,body,record){
+  const next=clone(body);
+  if(kind==='quotes'||kind==='growth'){
+   if(!Array.isArray(next.items))throw Error('invalid_list');
+   if(action==='clear'){
+    if(kind!=='quotes')throw Error('unsupported_list_action');
+    next.items=[];
+    return next;
+   }
+   if(!object(record))throw Error('invalid_record');
+   if(action==='add'){
+    if(typeof record.id!=='string'||!record.id
+      ||next.items.some(x=>x.id===record.id))throw Error('duplicate_record');
+    next.items.push(clone(record));
+   }else if(action==='edit'){
+    const index=next.items.findIndex(x=>x.id===record.id);
+    if(index<0)throw Error('record_missing');
+    // Preserve all unknown fields from the originally migrated record.
+    next.items[index]={...next.items[index],...clone(record)};
+   }else if(action==='delete'){
+    const index=next.items.findIndex(x=>x.id===record.id);
+    if(index<0)throw Error('record_missing');
+    next.items.splice(index,1);
+   }else throw Error('unsupported_list_action');
+  }else if(kind==='reference'){
+   if(!object(next.referenceOverrides)||!record?.key)
+    throw Error('invalid_reference');
+   if(action==='reset')delete next.referenceOverrides[record.key];
+   else if(action==='set'){
+    if(typeof record.value!=='number'||!Number.isFinite(record.value)
+      ||record.value<=0||record.value>100
+      ||Math.abs(record.value*1000-Math.round(record.value*1000))>1e-7)
+     throw Error('reference_precision');
+    next.referenceOverrides[record.key]=record.value;
+   }else throw Error('unsupported_reference_action');
+  }else if(kind==='settings'){
+   if(action!=='patch'||!object(record))throw Error('invalid_settings');
+   const editable=new Set(['currentSize','sizeMode','autoSize','replenishPolicy',
+    'preset','goalPrice','plannedBudget','target','daily']);
+   for(const [k,v] of Object.entries(record)){
+    if(!editable.has(k))throw Error('unknown_edit_field');
+    if((k==='target'||k==='daily')&&!object(v))
+     throw Error('invalid_settings');
+    next[k]=clone(v);
+   }
+   if(!object(next.target)||!object(next.daily))
+    throw Error('invalid_settings');
+   for(const k of ['target','daily']){
+    for(const [sz,val] of Object.entries(next[k])){
+     if(!sizeSet.has(sz)||!Number.isSafeInteger(val)||val<0
+       ||(k==='daily'&&val<1))throw Error('invalid_settings');
+    }
+   }
+  }else if(kind==='profile'){
+   if(action!=='patch'||!object(record))throw Error('invalid_profile');
+   const editable=new Set(['babyProfile','dueDate','birthDate','babyWeight']);
+   for(const [k,v] of Object.entries(record)){
+    if(!editable.has(k))throw Error('unknown_edit_field');
+    if(k==='babyProfile'){
+     if(!object(v))throw Error('invalid_profile');
+     next.babyProfile={...next.babyProfile,...clone(v)};
+    }else next[k]=clone(v);
+   }
+  }else throw Error('unknown_document_kind');
+  return next;
+ }
+ async function submit({familyId,actorUid,kind,action,record,
+  operatorApproved=false}={}){
+  if(queue.cloudWritesEnabled!==true||operatorApproved!==true)
+   return reply('DOCUMENT_WRITES_NOT_AUTHORIZED');
+  if(busy)return reply('BUSY');
+  busy=true;
+  try{
+   // Do not issue a second request while a prior ACK or conflict is unsettled.
+   const wait=await queue.pending();
+   if(wait.status!=='DOCUMENT_QUEUE_COUNTS_VERIFIED'
+     ||wait.outstanding>0)
+    return reply('DOCUMENT_PENDING_REVIEW_REQUIRED');
+   const read=await client.read({familyId,actorUid,kind,readEnabled:true});
+   if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
+    return reply('DOCUMENT_BASELINE_UNVERIFIED');
+   const body=transform(kind,action,read.body,record);
+   const requestId=uuid();
+   const saved=await queue.queue({kind,nextBody:body,
+    expectedRevision:read.revision,requestId,operatorApproved:true,
+    action});
+   return reply(saved.status,{
+    requestId:saved.requestId||requestId,cloudWriteCommitted:false
+   });
+  }catch(_){return reply('DOCUMENT_COMMAND_REJECTED');}
+  finally{busy=false;}
+ }
+ return Object.freeze({submit,transform});
+}
+const api=Object.freeze({create});
+if(root)root.XBPrimaryDocumentsBusinessCommands=api;
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
