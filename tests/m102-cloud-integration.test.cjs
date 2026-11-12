@@ -215,3 +215,18 @@ test('server/network error retains original ID for retry, does not claim confirm
  assert.equal([...f.local._ops.keys()][0],original);
  assert.equal(f.server.S,60);assert.equal(f.server.purchases.length,1);
 });
+
+test('lifecycle controls are installed in the existing page but cannot mutate cloud without individual approvals',async()=>{
+ const source=fs.readFileSync(require('node:path').join(__dirname,'../preview/v1.2.0/m102-cloud.js'),'utf8');
+ assert.match(source,/DEFAULT_CREATE_APPROVAL=false/);
+ assert.match(source,/DEFAULT_WRITE_APPROVAL=false/);
+ assert.match(source,/DEFAULT_RETIRE_APPROVAL=false/);
+ for(const item of ['m102Create','m102Retire','m102RetireConfirmation','m102ChildInfo'])
+  assert.match(html,new RegExp('id="'+item+'"'));
+ const f=fixture(),a=f.user('dad');
+ assert.equal(await a.client.createSmokeChild(),'CREATE_NOT_AUTHORIZED');
+ assert.equal(await a.client.retireSmokeChild('确认停用'),'RETIRE_NOT_AUTHORIZED');
+ assert.equal(f.server.S,0);
+ assert.equal(f.server.purchases.length,0);
+ assert.equal(f.local._ops.size,0);
+});
