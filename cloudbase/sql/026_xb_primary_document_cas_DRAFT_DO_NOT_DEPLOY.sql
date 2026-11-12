@@ -264,4 +264,46 @@ REVOKE ALL ON FUNCTION public.xb_put_primary_document_draft(uuid,uuid,text,bigin
  FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.xb_put_primary_document_draft(uuid,uuid,text,bigint,uuid,jsonb)
  TO authenticated;
+
+-- Read-only request receipt. After an HTTP timeout, callers inspect this
+-- before deciding whether to retry the EXACT SAME request UUID; never invent
+-- a new UUID for a potentially already-committed update.
+CREATE FUNCTION public.xb_check_primary_document_request_draft(
+ p_family_id uuid,p_child_id uuid,p_request_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,public,pg_temp
+AS $request_read$
+DECLARE v_row public.xb_primary_document_commands%ROWTYPE;
+BEGIN
+ IF COALESCE(auth.role(),'')<>'authenticated' OR NULLIF(auth.uid(),'') IS NULL
+  THEN RAISE EXCEPTION 'authentication_required' USING ERRCODE='42501';END IF;
+ IF p_family_id IS NULL OR p_child_id IS NULL OR p_request_id IS NULL THEN
+  RAISE EXCEPTION 'invalid_request_scope' USING ERRCODE='22023';END IF;
+ IF NOT xb_private.can_use_app(p_family_id,'xb')
+  OR NOT EXISTS(SELECT 1 FROM public.xb_children
+    WHERE family_id=p_family_id AND id=p_child_id
+      AND legacy_slot='primary' AND deleted_at IS NULL)
+  OR NOT EXISTS(SELECT 1 FROM public.xb_migrations
+    WHERE family_id=p_family_id AND child_id=p_child_id
+      AND source_format='xiaobao-diapers:v1') THEN
+  RAISE EXCEPTION 'primary_request_permission_denied' USING ERRCODE='42501';
+ END IF;
+ SELECT * INTO v_row FROM public.xb_primary_document_commands
+  WHERE family_id=p_family_id AND child_id=p_child_id
+    AND request_id=p_request_id;
+ IF NOT FOUND THEN RETURN jsonb_build_object(
+  'status','NO_RECEIPT','request_id',p_request_id,
+  'family_id',p_family_id,'child_id',p_child_id);
+ END IF;
+ RETURN jsonb_build_object('status','COMMITTED',
+  'request_id',p_request_id,'family_id',p_family_id,'child_id',p_child_id,
+  'kind',v_row.document_kind,'resulting_revision',v_row.resulting_revision,
+  'body_sha256',v_row.body_sha256);
+END;
+$request_read$;
+REVOKE ALL ON FUNCTION public.xb_check_primary_document_request_draft(uuid,uuid,uuid)
+ FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.xb_check_primary_document_request_draft(uuid,uuid,uuid)
+ TO authenticated;
 COMMIT;
