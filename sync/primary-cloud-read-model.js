@@ -37,7 +37,7 @@
   inventoryClient,legacyHistoryReader}={}){
   if(!app||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget
      ||!accessPreflight?.create||!inventoryClient?.create
-     ||!legacyHistoryReader?.create)
+     ||!legacyHistoryReader?.create||typeof app.rdb!=='function')
     fail('dependencies_required');
   const children=childReader.create(app,scopeGuard);
   const inventory=inventoryClient.create(app);
@@ -91,6 +91,21 @@
      ||after.familyId!==familyId||after.childId!==childId
      ||!equalStock(before.rows,after.rows))fail('server_changed_during_read');
    const stock=numbers(after.rows);
+   // Profile is a separate migrated table: never borrow sandbox baby details.
+   const profileQuery=await app.rdb().from('xb_baby_profiles')
+    .select('family_id,child_id,profile_data')
+    .eq('family_id',familyId).eq('child_id',childId).limit(2);
+   if(profileQuery?.error||!Array.isArray(profileQuery?.data)
+      ||profileQuery.data.length!==1
+      ||profileQuery.data[0].family_id!==familyId
+      ||profileQuery.data[0].child_id!==childId
+      ||!profileQuery.data[0].profile_data
+      ||typeof profileQuery.data[0].profile_data!=='object'
+      ||Array.isArray(profileQuery.data[0].profile_data))
+    fail('formal_profile_unverified');
+   const profile=profileQuery.data[0].profile_data;
+   if(!profile.babyProfile||typeof profile.babyProfile!=='object'
+     ||Array.isArray(profile.babyProfile))fail('formal_profile_unverified');
    // Never sum historical purchases into inventory. They are archival facts,
    // and original v1.1.2 stocktake is already the authoritative baseline.
    return Object.freeze({
@@ -99,6 +114,7 @@
     inventory:Object.freeze(stock.inventory),
     revisions:Object.freeze(stock.revisions),
     settings:settings.settings,settingsRevision:settings.revision,
+    profileData:Object.freeze({...profile}),
     legacyHistory:Object.freeze({
       rows:history.rows,total:history.total,offset:history.offset,
       hasMore:history.hasMore,complete:history.complete
