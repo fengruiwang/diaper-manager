@@ -139,6 +139,18 @@
     <div id="m1Stock" style="margin-top:12px;font-size:12px;color:#525d70">暂无已确认的云端库存。</div>
     <p class="fine" style="margin-top:11px">云端只读检查不会创建宝宝、修改采购或初始化库存。M1-02 真实 A/B 采购必须先单独批准隔离测试环境与写入范围；不能将此页面的本机演练结果视为云端同步。</p>
   </section>
+  <section class="card" id="m3Panel" aria-label="M3 正式宝宝五页只读体验"
+      style="border:2px solid #7c9a81;margin-bottom:14px">
+    <strong>📱 M3 · 原有五页正式宝宝只读体验（Feature 独立测试）</strong>
+    <p class="fine">合成预览不读取任何真实家庭数据；“读取正式云端”只在 primary 已完成 M2 迁移并有服务器完成收据时可显示。测试宝宝 S140 永不作为正式数据。此模式不支持任何业务编辑或写入。</p>
+    <div id="m3Status" role="status" aria-live="polite">M3 页面初始化中</div>
+    <div class="action-row">
+      <button class="btn secondary sm" id="m3Demo" type="button">体验合成数据（五页只读）</button>
+      <button class="btn secondary sm" id="m3Cloud" type="button">读取正式 primary 云端（只读）</button>
+      <button class="btn ghost sm" id="m3Exit" type="button" disabled>退出 M3，返回本机演练</button>
+    </div>
+    <p class="fine">当前 M2 正式数据尚未迁移；预期先使用“体验合成数据”查看保留的五页布局。此预览不代表正式云端已可用。</p>
+  </section>
   <nav class="tabs" role="tablist" aria-label="功能导航">
     <button class="tab active" data-tab="overview">🏠 备货总览</button>
     <button class="tab" data-tab="compare">🏷️ 好价比对</button>
@@ -549,7 +561,8 @@ function load(){
  }catch(_){return defaults()}
 }
 let state=load();
-function save(){try{localStorage.setItem(KEY,JSON.stringify(state));return true}catch{toast('当前浏览器无法持久保存，请导出备份文件');return false}}
+let m3SavedSandboxState=null,m3ReadOnly=false;
+function save(){if(m3ReadOnly){toast('M3 为只读预览，未保存任何修改');return false;}try{localStorage.setItem(KEY,JSON.stringify(state));return true}catch{toast('当前浏览器无法持久保存，请导出备份文件');return false}}
 const $=id=>document.getElementById(id);
 const money=n=>'¥'+num(n).toFixed(2);
 const int=n=>Math.round(num(n)).toLocaleString('zh-CN');
@@ -596,9 +609,9 @@ function dateInfo(){
   $('dueSub').textContent='预产期 '+state.dueDate;
  }
 }
-function stageStock(size){const cloud=window.XBM102?.stock(size);return cloud===null||cloud===undefined?Math.max(0,Math.round(num(state.inventory[size]))):cloud}
+function stageStock(size){if(m3ReadOnly)return Math.max(0,Math.round(num(state.inventory[size])));const cloud=window.XBM102?.stock(size);return cloud===null||cloud===undefined?Math.max(0,Math.round(num(state.inventory[size]))):cloud}
 function stockDays(size){const days=clamp(num(state.daily[size],1),1,30);return stageStock(size)/days}
-function spend(){const cloud=window.XBM102?.spend();return cloud===null||cloud===undefined?state.transactions.filter(t=>t.type==='buy').reduce((s,t)=>s+num(t.price),0):cloud}
+function spend(){if(m3ReadOnly)return state.transactions.filter(t=>t.type==='buy').reduce((n,t)=>n+num(t.price),0);const cloud=window.XBM102?.spend();return cloud===null||cloud===undefined?state.transactions.filter(t=>t.type==='buy').reduce((s,t)=>s+num(t.price),0):cloud}
 function firstTarget(){return state.target.NB+state.target.S}
 function firstStock(){return Math.min(stageStock('NB'),state.target.NB)+Math.min(stageStock('S'),state.target.S)}
 function renderKpisLegacy(){const neededNB=Math.max(0,state.target.NB-stageStock('NB'));const neededS=Math.max(0,state.target.S-stageStock('S'));const current=state.currentSize||'NB';const days=stockDays(current);const pct=firstTarget()>0?Math.round(100*firstStock()/firstTarget()):100;
@@ -792,7 +805,7 @@ function renderM102History(){
   '<div class="empty">暂无云端确认的采购记录；本机演练流水不会出现在这里。</div>');
  renderStockEditor();
 }
-function renderHistory(){if(window.XBM102?.isActive()){renderM102History();return;}const buys=state.transactions.filter(t=>t.type==='buy'),used=state.transactions.filter(t=>t.type==='use'),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
+function renderHistory(){if(!m3ReadOnly&&window.XBM102?.isActive()){renderM102History();return;}const buys=state.transactions.filter(t=>t.type==='buy'),used=state.transactions.filter(t=>t.type==='use'),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
 const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td><button class="btn ghost sm" data-action="deletetx" data-id="${esc(t.id)}">撤销</button></td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
 renderStockEditor()}
 function updateSizeModePreview(){
@@ -986,6 +999,26 @@ $('exportData').addEventListener('click',()=>toast('此页面仅为演练数据�
 $('importDataBtn').addEventListener('click',()=>toast('测试版不允许导入真实历史备份；正式 V1.1.2 数据未读取'));
 $('importFile').addEventListener('change',e=>{e.target.value='';toast('测试版已禁止历史导入');});
 $('resetAll').addEventListener('click',()=>{if(window.XBM102?.isActive()){toast('云端模式不能清空记录，请先退出云端模式');return;}if(!confirm('此操作会删除本浏览器的全部库存、候选价、购买与消耗记录。确定继续？'))return;state=defaults();save();renderAll();toast('已恢复初始状态')});
+// Feature-only M3 read-through shadow: replace DISPLAY state, never the stored
+// M1 local sandbox state. Cloud and synthetic data are both immutable in UI.
+window.XBM3UI=Object.freeze({
+ defaults:()=>defaults(),
+ isActive:()=>m3ReadOnly,
+ show:projection=>{
+  if(window.XBM102?.isActive())throw Error('m3:smoke_mode_active');
+  if(!projection||projection.canWrite!==false||!projection.state)
+   throw Error('m3:unverified_projection');
+  if(!m3ReadOnly)m3SavedSandboxState=state;
+  state=JSON.parse(JSON.stringify(projection.state));
+  m3ReadOnly=true;renderAll();
+ },
+ clear:()=>{
+  if(!m3ReadOnly)return;
+  state=m3SavedSandboxState;
+  m3SavedSandboxState=null;m3ReadOnly=false;
+  renderAll();
+ }
+});
 window.XBM1UI=Object.freeze({refresh:renderAll});
 updateSeriesPicks();
 clearWeightForm();
@@ -2472,7 +2505,383 @@ restoreActiveTab();
 })(typeof window!=='undefined'?window:null);
 
 </script>
+<script>
+/* XiaoBao v1.2.0 P2-4F-A: explicit read-only legacy history/settings.
+ * SQL 024 is UNDEPLOYED. This module MUST NOT be loaded in production v1.1.2.
+ * No auto login/network/storage at module initialization; every call is
+ * explicit and an existing authenticated session is required. Database RPC
+ * enforces family membership and a verified, committed migration receipt.
+ * Imported buys/uses/quotes NEVER become inventory commands here.
+ */
+(function(root){
+ 'use strict';
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const KINDS=new Set(['all','transaction','quote','weight']);
+ const ROW_KINDS=new Set(['transaction','quote','weight']);
+ function fail(code){throw new Error('legacy_history_reader:'+code);}
+ function id(value,name){
+  if(typeof value!=='string'||!UUID.test(value))fail('invalid_'+name);
+  return value;
+ }
+ function isObject(x){return x!==null&&typeof x==='object'&&!Array.isArray(x);}
+ function create(app){
+  if(!app||!app.auth||typeof app.auth.getSession!=='function'
+      ||typeof app.rdb!=='function')fail('sdk_required');
+  const db=app.rdb();
+  if(!db||typeof db.rpc!=='function')fail('rpc_required');
+  async function session(){
+   let res;
+   try{res=await app.auth.getSession();}
+   catch(_){fail('session_unavailable');}
+   if(!res||res.error)fail('session_unavailable');
+   if(!res.data?.session)fail('login_required');
+   const users=[res.data.user?.id,res.data.session.user?.id]
+     .filter(x=>x!==undefined&&x!==null);
+   if(!users.length||users.some(u=>typeof u!=='string'||!u||u.length>128)
+      ||new Set(users).size!==1)fail('identity_unverified');
+  }
+  async function rpc(name,params){
+   let result;
+   try{result=await db.rpc(name,params);}
+   catch(_){fail('cloud_read_failed');}
+   if(!result||result.error){
+    const code=String(result?.error?.code||result?.error?.errorCode||'');
+    if(code==='42501'||code==='DATABASE_42501')fail('permission_denied');
+    fail('cloud_read_failed');
+   }
+   const data=Array.isArray(result.data)?
+       (result.data.length===1?result.data[0]:null):result.data;
+   if(!isObject(data))fail('invalid_server_response');
+   return data;
+  }
+  async function readPage({familyId,childId,kind='all',offset=0,limit=20}={}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   if(!KINDS.has(kind)||!Number.isSafeInteger(offset)||offset<0||offset>10000
+      ||!Number.isSafeInteger(limit)||limit<1||limit>50)
+    fail('invalid_page_request');
+   await session();
+   const data=await rpc('xb_read_legacy_history_page_draft',{
+    p_family_id:family,p_child_id:child,p_record_kind:kind,
+    p_offset:offset,p_limit:limit
+   });
+   if(data.complete!==true||data.can_edit!==false||data.can_upload!==false
+      ||data.record_kind!==kind||data.offset!==offset||data.limit!==limit
+      ||!Number.isSafeInteger(data.total)||data.total<0||data.total>30000
+      ||typeof data.has_more!=='boolean'||!Array.isArray(data.rows)
+      ||data.rows.length>limit)
+    fail('invalid_history_page');
+   if(data.has_more!==(offset+data.rows.length<data.total)
+      ||data.rows.length!==Math.min(limit,Math.max(0,data.total-offset)))
+    fail('history_page_incomplete');
+   let prevKey='',prevOrdinal=0,prevId='',seen=new Set();
+   const rows=data.rows.map(row=>{
+    if(!isObject(row)||!ROW_KINDS.has(row.kind)
+       ||(kind!=='all'&&row.kind!==kind)
+       ||typeof row.id!=='string'||row.id.length<1||row.id.length>200
+       ||!Number.isSafeInteger(row.ordinal)||row.ordinal<1||row.ordinal>10000
+       ||!isObject(row.payload)||row.payload.id!==row.id)
+     fail('invalid_history_row');
+    const duplicate=row.kind+'\x00'+row.id;
+    if(seen.has(duplicate))fail('duplicate_history_row');
+    seen.add(duplicate);
+    if(row.kind<prevKey||
+        (row.kind===prevKey&&(row.ordinal<prevOrdinal||
+          row.ordinal===prevOrdinal&&row.id<=prevId)))
+     fail('unordered_history_rows');
+    prevKey=row.kind;prevOrdinal=row.ordinal;prevId=row.id;
+    return Object.freeze({
+     kind:row.kind,id:row.id,ordinal:row.ordinal,payload:row.payload
+    });
+   });
+   return Object.freeze({
+    complete:true,kind,offset,limit,total:data.total,
+    hasMore:data.has_more,rows:Object.freeze(rows),
+    canEdit:false,canUpload:false
+   });
+  }
+  async function readSettings({familyId,childId}={}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   await session();
+   const data=await rpc('xb_read_legacy_settings_draft',{
+    p_family_id:family,p_child_id:child
+   });
+   if(data.complete!==true||data.can_edit!==false||data.can_upload!==false
+      ||!Number.isSafeInteger(data.revision)||data.revision<0
+      ||!isObject(data.settings)
+      ||!isObject(data.settings.referenceOverrides)
+      ||!isObject(data.settings.target)
+      ||!isObject(data.settings.daily))
+    fail('invalid_settings_response');
+   return Object.freeze({
+    complete:true,revision:data.revision,settings:data.settings,
+    canEdit:false,canUpload:false
+   });
+  }
+  return Object.freeze({readPage,readSettings});
+ }
+ const api=Object.freeze({create});
+ if(root)root.XBLegacyHistoryReader=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* XiaoBao V1.2.0 M3 early integration: READ-ONLY view-model adapter for the
+ * existing formal UI. Feature only; never imported into the v1.1.2 main PWA.
+ *
+ * Only an active legacy_slot='primary' child can be selected. The existing
+ * child reader + access preflight must authenticate the actor and family.
+ * SQL 024 must verify a COMMITTED migration receipt before this module will
+ * show a formal history, settings, or stock view.
+ *
+ * Historical buys/uses are PRESENTED, NEVER replayed into current inventory.
+ * Current stock comes solely from 010 authoritative six-size read RPC.
+ * Current (post-migration) purchases come solely from xb_transactions scoped
+ * to the same child. Zero automatic network calls or write methods on import.
+ */
+(function(root){
+ 'use strict';
+ const SIZES=['NB','S','M','L','XL','XXL'];
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ function fail(code){throw Error('primary_view:'+code);}
+ function numbers(rows){
+  if(!Array.isArray(rows)||rows.length!==6)fail('incomplete_inventory');
+  const inventory={},revisions={};
+  for(const r of rows){
+   if(!r||!SIZES.includes(r.size)||Object.hasOwn(inventory,r.size)
+      ||!Number.isSafeInteger(r.quantity)||r.quantity<0||r.quantity>100000
+      ||!Number.isSafeInteger(r.revision)||r.revision<0)
+    fail('invalid_inventory');
+   inventory[r.size]=r.quantity;revisions[r.size]=r.revision;
+  }
+  if(SIZES.some(s=>!Object.hasOwn(inventory,s)))fail('incomplete_inventory');
+  return {inventory,revisions};
+ }
+ function equalStock(a,b){
+  const x=numbers(a),y=numbers(b);
+  return SIZES.every(s=>x.inventory[s]===y.inventory[s]&&x.revisions[s]===y.revisions[s]);
+ }
+ function create({app,childReader,scopeGuard,accessPreflight,
+  inventoryClient,legacyHistoryReader}={}){
+  if(!app||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget
+     ||!accessPreflight?.create||!inventoryClient?.create
+     ||!legacyHistoryReader?.create||typeof app.rdb!=='function')
+    fail('dependencies_required');
+  const children=childReader.create(app,scopeGuard);
+  const inventory=inventoryClient.create(app);
+  const legacy=legacyHistoryReader.create(app);
+  async function read({familyId,actorUid,offset=0,limit=50}={}){
+   if(!UUID.test(String(familyId))||typeof actorUid!=='string'
+     ||!actorUid||actorUid.length>128||!Number.isSafeInteger(offset)
+     ||offset<0||offset>10000||!Number.isSafeInteger(limit)||limit<1||limit>50)
+    fail('invalid_request');
+   // A fresh verified CloudBase session is necessary for every explicit read.
+   const grant=await accessPreflight.create(app).verifyAccess({familyId,actorUid});
+   if(grant.member!==true||grant.appCode!=='xb'
+      ||grant.familyId!==familyId||grant.actorUid!==actorUid)
+    fail('grant_unverified');
+   let target;
+   try{target=await children.inspectLegacyTarget({familyId});}
+   catch(e){
+    if(e?.message==='child_reader:legacy_primary_unavailable')
+     return Object.freeze({status:'PRIMARY_NOT_READY',canWrite:false,
+      noDataImported:true});
+    throw e;
+   }
+   if(target.familyId!==familyId||!UUID.test(target.childId)
+      ||target.readyForMigration!==false)fail('primary_scope_unverified');
+   const childId=target.childId;
+   const scope={familyId,childId};
+   // A completed receipt is required BEFORE showing any stock in a formal UI.
+   // SQL 024 does not exist in the real database until independently approved.
+   let settings,history;
+   try{
+    settings=await legacy.readSettings(scope);
+    history=await legacy.readPage({...scope,kind:'all',offset,limit});
+   }catch(e){
+    // Do not echo RPC/SDK exceptions: they may contain private row details.
+    return Object.freeze({status:'MIGRATION_READ_NOT_READY',canWrite:false,
+      noDataImported:true});
+   }
+   if(settings.complete!==true||settings.canEdit!==false
+      ||settings.canUpload!==false||history.complete!==true
+      ||history.canEdit!==false||history.canUpload!==false)
+    fail('legacy_receipt_unverified');
+   // Only the selected PRIMARY is ever used in all cloud data queries.
+   const before=await inventory.readReconciliation({...scope,operationIds:[]});
+   if(before.complete!==true||before.actorUid!==actorUid
+      ||before.familyId!==familyId||before.childId!==childId)
+    fail('server_scope_unverified');
+   const currentPurchases=await inventory.readPurchases(scope);
+   if(!Array.isArray(currentPurchases))fail('current_purchases_unverified');
+   const after=await inventory.readReconciliation({...scope,operationIds:[]});
+   if(after.complete!==true||after.actorUid!==actorUid
+     ||after.familyId!==familyId||after.childId!==childId
+     ||!equalStock(before.rows,after.rows))fail('server_changed_during_read');
+   const stock=numbers(after.rows);
+   // Profile is a separate migrated table: never borrow sandbox baby details.
+   const profileQuery=await app.rdb().from('xb_baby_profiles')
+    .select('family_id,child_id,profile_data')
+    .eq('family_id',familyId).eq('child_id',childId).limit(2);
+   if(profileQuery?.error||!Array.isArray(profileQuery?.data)
+      ||profileQuery.data.length!==1
+      ||profileQuery.data[0].family_id!==familyId
+      ||profileQuery.data[0].child_id!==childId
+      ||!profileQuery.data[0].profile_data
+      ||typeof profileQuery.data[0].profile_data!=='object'
+      ||Array.isArray(profileQuery.data[0].profile_data))
+    fail('formal_profile_unverified');
+   const profile=profileQuery.data[0].profile_data;
+   if(!profile.babyProfile||typeof profile.babyProfile!=='object'
+     ||Array.isArray(profile.babyProfile))fail('formal_profile_unverified');
+   // Never sum historical purchases into inventory. They are archival facts,
+   // and original v1.1.2 stocktake is already the authoritative baseline.
+   return Object.freeze({
+    status:'PRIMARY_READ_ONLY_READY',familyId,childId,
+    source:'cloudbase-primary-receipt-verified',canWrite:false,
+    inventory:Object.freeze(stock.inventory),
+    revisions:Object.freeze(stock.revisions),
+    settings:settings.settings,settingsRevision:settings.revision,
+    profileData:Object.freeze({...profile}),
+    legacyHistory:Object.freeze({
+      rows:history.rows,total:history.total,offset:history.offset,
+      hasMore:history.hasMore,complete:history.complete
+    }),
+    livePurchases:Object.freeze(currentPurchases.slice()),
+    legacyPurchasesAppliedToInventory:false
+   });
+  }
+  return Object.freeze({read});
+ }
+ const api=Object.freeze({create,numbers,equalStock});
+ if(root)root.XBPrimaryCloudReadModel=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
+<script>
+/* M3: project verified PRIMARY cloud data into the existing five-page
+ * V1.1.2 read-only view. Never updates a datastore or replays history.
+ * Demo data are explicitly synthetic and are never sent to CloudBase.
+ */
+(function(root){
+ 'use strict';
+ const SIZES=['NB','S','M','L','XL','XXL'];
+ const clone=x=>JSON.parse(JSON.stringify(x));
+ function fail(code){throw Error('primary_ui:'+code);}
+ function object(x){return x!==null&&typeof x==='object'&&!Array.isArray(x);}
+ function project(view,defaults){
+  if(!object(view)||!object(defaults)
+    ||!['PRIMARY_READ_ONLY_READY','SYNTHETIC_PRIMARY_DEMO'].includes(view.status)
+    ||view.canWrite!==false||!object(view.inventory)||!object(view.revisions)
+    ||!object(view.settings)||!object(view.profileData)
+    ||!object(view.profileData.babyProfile)
+    ||!object(view.legacyHistory)||!Array.isArray(view.legacyHistory.rows)
+    ||!Array.isArray(view.livePurchases))
+   fail('unverified_read_model');
+  if(view.legacyHistory.hasMore===true
+    ||view.legacyHistory.rows.length!==view.legacyHistory.total)
+   fail('incomplete_history_page');
+  if(!SIZES.every(size=>Number.isSafeInteger(view.inventory[size])
+     &&view.inventory[size]>=0
+     &&Number.isSafeInteger(view.revisions[size])
+     &&view.revisions[size]>=0))
+   fail('invalid_stock');
+  const state=clone(defaults),data=view.settings,profile=view.profileData;
+  // The settings table intentionally excludes profile, original inventory and
+  // record arrays: they must be sourced from dedicated verified tables.
+  const allowed=['currentSize','sizeMode','autoSize','goalPrice','plannedBudget',
+   'target','daily','preset','replenishPolicy','referenceOverrides'];
+  for(const key of allowed){
+   if(Object.hasOwn(data,key))state[key]=clone(data[key]);
+  }
+  state.inventory=clone(view.inventory);
+  state.dueDate=profile.dueDate;
+  state.birthDate=profile.birthDate;
+  state.babyWeight=profile.babyWeight;
+  state.babyProfile=clone(profile.babyProfile);
+  state.transactions=[];state.quotes=[];state.weightRecords=[];
+  const seen=new Set();
+  for(const row of view.legacyHistory.rows){
+   if(!row||!['transaction','quote','weight'].includes(row.kind)
+     ||!object(row.payload)||typeof row.payload.id!=='string'
+     ||row.id!==row.payload.id)fail('invalid_history_row');
+   const key=row.kind+':'+row.id;
+   if(seen.has(key))fail('duplicate_history');
+   seen.add(key);
+   if(row.kind==='transaction')state.transactions.push(clone(row.payload));
+   else if(row.kind==='quote')state.quotes.push(clone(row.payload));
+   else state.weightRecords.push(clone(row.payload));
+  }
+  for(const row of view.livePurchases){
+   if(!row||typeof row.operationId!=='string'||!row.operationId
+     ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
+     ||row.pieces<1||!Number.isSafeInteger(row.totalFen)
+     ||row.totalFen<1||row.reversed===true)
+    fail('invalid_post_migration_purchase');
+   const id='cloud:'+row.operationId;
+   if(seen.has('transaction:'+id))fail('duplicate_history');
+   seen.add('transaction:'+id);
+   state.transactions.push({
+    id,type:'buy',date:row.purchaseDate,brand:row.brand,
+    series:row.series,size:row.size,pieces:row.pieces,
+    price:row.totalFen/100
+   });
+  }
+  return Object.freeze({
+   status:view.status,source:view.source||'unverified',canWrite:false,
+   state:Object.freeze(state),revisions:Object.freeze(clone(view.revisions)),
+   historyCount:state.transactions.length,
+   quoteCount:state.quotes.length,weightCount:state.weightRecords.length,
+   // This is a critical distinction: migrated purchases are display-only,
+   // and state.inventory already contains the CURRENT authoritative stock.
+   historicPurchasesAddedToStock:false,
+   synthetic:view.status==='SYNTHETIC_PRIMARY_DEMO'
+  });
+ }
+ function demo(){
+  const rows=[
+   {kind:'transaction',id:'mock-old-buy',payload:{
+    id:'mock-old-buy',type:'buy',date:'2026-10-06',brand:'好奇',
+    series:'小森林',size:'S',pieces:100,price:100}},
+   {kind:'transaction',id:'mock-old-use',payload:{
+    id:'mock-old-use',type:'use',date:'2026-10-09',size:'S',
+    pieces:20,price:0}},
+   {kind:'quote',id:'mock-quote-1',payload:{
+    id:'mock-quote-1',date:'2026-10-05',brand:'好奇',series:'小森林',
+    size:'S',per:50,packs:2,pieces:100,price:130,unit:1.3}},
+   {kind:'weight',id:'mock-weight-1',payload:{
+    id:'mock-weight-1',date:'2026-10-03',time:'09:20',weight:3.35,note:'模拟测量'}},
+   {kind:'weight',id:'mock-weight-2',payload:{
+    id:'mock-weight-2',date:'2026-11-01',time:'09:20',weight:4.25,note:'模拟测量'}}
+  ];
+  const inventory={NB:20,S:230,M:0,L:0,XL:0,XXL:0};
+  const revisions={NB:1,S:2,M:1,L:1,XL:1,XXL:1};
+  return Object.freeze({
+   status:'SYNTHETIC_PRIMARY_DEMO',source:'synthetic-fixture',
+   canWrite:false,inventory,revisions,
+   settings:{currentSize:'S',sizeMode:'manual',autoSize:'S',goalPrice:1.5,
+    plannedBudget:350,target:{NB:50,S:300,M:0,L:0,XL:0,XXL:0},
+    daily:{NB:10,S:9,M:7,L:6,XL:5,XXL:5},preset:'balanced',
+    replenishPolicy:{mode:'days',days:7},
+    referenceOverrides:{'好奇|小森林|S':1.123}},
+   profileData:{babyProfile:{name:'演示宝宝',sex:'女',birthTime:'10:00:00',
+    birthWeight:3.2,birthLength:50},dueDate:'2026-10-01',
+    birthDate:'2026-10-01',babyWeight:''},
+   legacyHistory:{rows,total:rows.length,hasMore:false,complete:true},
+   livePurchases:[{operationId:'mock-post-migration-1',size:'S',
+    pieces:30,totalFen:4200,brand:'好奇',series:'小森林',
+    purchaseDate:'2026-11-02',reversed:false}]
+  });
+ }
+ const api=Object.freeze({project,demo});
+ if(root)root.XBPrimaryUIProjection=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+
+</script>
 <script src="./m1-controller.js" defer></script>
 <script src="./m102-cloud.js" defer></script>
+<script src="./m3-primary-preview.js" defer></script>
 </body>
 </html>
