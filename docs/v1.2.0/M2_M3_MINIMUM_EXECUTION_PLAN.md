@@ -1,3 +1,9 @@
+> **2026-11-12 本轮 M2/M3 联调代码进展（尚未部署、尚未授权写入）**：M3 独立文件 `preview/v1.2.0/m3/index.html` 彻底去除了 M1 沙盒 `localStorage` 的初始化读写/迁移及标签页持久化，只用内存态；`m1-controller.js` 对 `data-m3-standalone` 禁止读取 M1 公共配置缓存和自动联网，仅主动点击正式 primary 读取时连接。**独立静态部署建议目录 `xb-test/m3/`**：将同一 Feature HEAD 的 `m3/index.html` 和 `m1-controller.js` 放在**同一个目录**，页面脚本引用 `./m1-controller.js`；绝不覆盖 `xb-test/m1/` 的 M1-02 真实测试页面和脚本。M3 分页现在由 `cloudbase-legacy-history-reader.readAll()` 累加 SQL 024 的每页最多 50 条，核验 receipt 条数、跨页顺序、连续 ordinal、重复 ID 与跨页总数稳定；大于当前 SQL offset 上限可完整读取的 **10,050 条**必须报错并阻断显示，不伪装完整。正式 primary 只读模型不再使用单页数据。
+>
+> M2 新增 **`sync/legacy-migration-executor.js`**（尚未在任何真实页面加载）：在隔离 mock 中串联 021 收据预检 → 022 归档 → 023 原子提升 → 021 同源收据复核 + 024 全量历史/设置 + 010 六尺码库存 + 资料逐字段读回。**默认 `cloudWritesEnabled=false`**，还需显式操作人批准，且用户本轮没有授权；不存在自动调用。归档或提升 ACK 不明时停止，保留原 stageId、migrationId 和原始 SHA，不自动重试或清理，receipt 已存在时仅执行只读核对。只靠收据不宣布成功；历史采购不进入库存，检测价格精度、ID、顺序、未知字段及全部设置一致。**SQL 025、021–024 均未真实部署**，正式客户端部署和云端端到端测试仍是阻断项。
+>
+> 预览代码、分页和执行器的本轮合成定向测试与静态/VM 初始化隔离测试通过；尚未进行真实浏览器或真实数据库验收，不得借此启用正式迁移。
+
 > **2026-11-12 本轮实装进展（覆盖下文早期状态）**：新增 `sync/final-cutover-gate.js`，针对用户仍在日常使用 V1.1.2 的事实，支持多设备完整导出比对、按字段报告差异、必须确认全部旧设备和停止旧版写入时间、拒绝停止点之前的备份、迁移前重新核对最终原文件 SHA。该模块任何情况下 `canUpload=false`；它无法技术性锁住旧版 PWA，正式切换仍须全设备人工停写及授权后的最后确认。新增 `sync/primary-ui-projection.js`、`preview/v1.2.0/m3-primary-preview.js`，在原五页展示历史+云端新购、候选好价、参考价、成长和设置；新增独立静态体验页 [M3 五页只读预览](../../preview/v1.2.0/m3/index.html)，只需同目录上层既有 `m1-controller.js`，合成模式不联网不写旧本机数据。SQL 024 草案补强到两个函数都要求 active primary。本轮代码均**只在 Feature，不代表云端已部署、真实备份已迁移或正式 PWA 已切换**。M1-02 S140 测试宝宝和审计全部保留。
 
 ## M2 最终切换点：现在不冻结，正式发布窗口才执行
