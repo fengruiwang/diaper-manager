@@ -44,7 +44,14 @@ function fixture({build=false,approved=false,selected=true,stockChanges={},
   await new Promise(resolve=>setImmediate(resolve));
   return cancelled;
  }
- return {click,log,notifications,binding,doc};
+ async function submit(){
+  let prevented=false;
+  submitHandler?.({preventDefault(){prevented=true},
+   stopImmediatePropagation(){prevented=true}});
+  await new Promise(resolve=>setImmediate(resolve));
+  return prevented;
+ }
+ return {click,submit,log,notifications,binding,doc};
 }
 test('no formal selection allows original editor handlers to keep working in non-formal mode',async()=>{
  const f=fixture({selected:false});
@@ -106,12 +113,10 @@ test('quote purchase uses verified in-memory selected quote, never legacy localS
  assert.equal(f.log[0][1].price,7.5);
 });
 
-test('primary UI form submit cannot fall through to legacy reference local save',async()=>{
+test('primary UI form submit blocks original local reference price save',async()=>{
  const f=fixture({selected:true});
- let prevented=false;
- submitHandler?.({preventDefault(){prevented=true},stopImmediatePropagation(){prevented=true}});
- // Independent click tests already cover button interception; the submit
- // listener is additionally installed for Enter-key form submissions.
+ assert.equal(await f.submit(),true);
  assert.equal(f.log.length,0);
+ assert.equal(f.notifications.at(-1),'FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
  f.binding.detach();
 });
