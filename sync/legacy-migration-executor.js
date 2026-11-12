@@ -166,8 +166,8 @@
    const observedWeights=new Set();
    const normalizeTime=v=>{
     if(typeof v!=='string')return null;
-    if(/^\\d{2}:\\d{2}$/.test(v))return v+':00';
-    return /^\\d{2}:\\d{2}:\\d{2}$/.test(v)?v:null;
+    if(/^\d{2}:\d{2}$/.test(v))return v+':00';
+    return /^\d{2}:\d{2}:\d{2}$/.test(v)?v:null;
    };
    for(const w of nativeWeights){
     const original=w&&originalWeights.get(w.legacy_record_id);
