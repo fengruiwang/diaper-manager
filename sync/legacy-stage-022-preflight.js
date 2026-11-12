@@ -97,6 +97,14 @@
   for(const name of ['transactions','quotes','weightRecords']){
    if(!Array.isArray(d[name]))issues.push(problem(name,'SQL022_RECORD_COLLECTION_REQUIRED'));
   }
+  // Strict manifest checks quote identity is nonempty, but SQL 022 also
+  // requires each brand/series name to contain at most 120 characters.
+  if(Array.isArray(d.quotes))for(const quote of d.quotes){
+   if(!object(quote))continue; // Existing strict gate handles invalid rows.
+   if(['brand','series'].some(key=>typeof quote[key]==='string'&&
+      (!quote[key].trim()||Array.from(quote[key].trim()).length>120)))
+    issues.push(problem('quotes','SQL022_QUOTE_TEXT_LENGTH_INVALID'));
+  }
   return answer('SQL022_LOCAL_GAP_CHECK',issues);
  }
  const api=Object.freeze({review});

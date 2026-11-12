@@ -88,6 +88,19 @@ test('SQL022 duplicate-key scan blocks malformed original text that JSON.parse a
  assert.ok(r.issues.some(x=>x.code==='SQL022_DUPLICATE_JSON_KEY'));
  assert.equal(r.status,'LOCAL_COMPATIBILITY_REVIEW_REQUIRED');safe(r);
 });
+test('strict client PASS but SQL 022 rejects an overlong quote series',async()=>{
+ const d=fixture();d.quotes=[{id:'synthetic-quote',date:'2026-11-10',
+  brand:'合成品牌',series:'Q'.repeat(121),size:'NB',
+  per:2,packs:1,pieces:2,price:3.56,unit:1.78}];
+ const raw=pack(d);
+ const strict=await Strict.review(raw,{contract:Contract,manifest:Manifest,
+  purchaseAudit:Purchase,projection:Projection,growth:Growth,cryptoProvider:webcrypto});
+ assert.equal(strict.status,'MAPPING_PREFLIGHT_CLEAN_UPLOAD_DISABLED');
+ const r=await review(raw);
+ assert.equal(r.sql022Status,'SQL022_COMPATIBILITY_BLOCKED');
+ assert.ok(r.issues.some(x=>x.code==='SQL022_QUOTE_TEXT_LENGTH_INVALID'));
+ safe(r);
+});
 test('original records, ordering and thousandths are byte-identical through the vault',async()=>{
  const d=fixture();d.transactions.push({id:'synthetic-2',type:'use',date:'2026-11-09',
  size:'S',pieces:1,price:0});
