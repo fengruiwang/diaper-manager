@@ -1,3 +1,5 @@
+> **本文件为 2026-11-12 阶段 B 执行前的历史授权/操作计划，当前已经完成真实主链路验收。** A/B 已实际买入 S60/S80，云端库存 S140/revision=2，两端刷新一致。**绝不可按下文再次创建测试宝宝或重复采购**；阶段 B 授权不能用于第三笔采购。当前权威状态参见 [M1_02_REAL_CLOUDBASE_ACCEPTANCE.md](./M1_02_REAL_CLOUDBASE_ACCEPTANCE.md)，后续计划参见 [M2_M3_MINIMUM_EXECUTION_PLAN.md](./M2_M3_MINIMUM_EXECUTION_PLAN.md)。
+
 # 小宝管家 V1.2.0 — M1-02 阶段 B 真实联调执行单（候选构建，未授权、未部署）
 
 ## 当前验收状态（2026-11-12）
