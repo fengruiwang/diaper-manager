@@ -41,6 +41,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
  let documentSnapshot=null,documentScope='',documentAttempt='',documentPending='';
+ let documentEpoch=0;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
  function restoreOtpCooldown(){
   try{
@@ -122,6 +123,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   ui.clear();actor=null;family=null;primary=null;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentAttempt='';documentPending='';
+  documentEpoch++;
   if(attached){attached.detach();attached=null;}
   $('formalCurrentAccount').textContent='—';
   $('formalCurrentFamily').textContent='—';
@@ -141,7 +143,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   try{return await Promise.race([Promise.resolve().then(task),expire]);}
   finally{(host.clearTimeout||clearTimeout)(timer);}
  }
- function optionalRead(client,ctx,scopeKey,base,token){
+ function optionalRead(client,ctx,scopeKey,base,epoch){
   if(!client||typeof client.readAll!=='function'
     ||documentPending===scopeKey||documentAttempt===scopeKey)return;
   documentPending=scopeKey;documentAttempt=scopeKey;
@@ -150,7 +152,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   void bounded(()=>client.readAll({
    familyId:ctx.familyId,actorUid:ctx.actorUid
   }),12000).then(snapshot=>{
-   if(token!==revision||mode!=='ready'||actor!==ctx.actorUid
+   if(epoch!==documentEpoch||mode!=='ready'||actor!==ctx.actorUid
      ||family!==ctx.familyId||snapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ')
     return;
    const merged=documentsOverlay.apply(base,snapshot);
@@ -202,6 +204,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return mode;
    }
    const scopeKey=ctx.actorUid+'\\x00'+ctx.familyId;
+   const identityEpoch=documentEpoch;
    let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
    let documentsClient=null;
@@ -273,7 +276,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    // Enrich the account label only; cannot gate UI readiness or leak across
    // actor switches. SDK continues to own all session and refresh tokens.
    void bounded(()=>ctx.app.auth.getSession(),6000).then(session=>{
-    if(token!==revision||mode!=='ready'||actor!==ctx.actorUid
+    if(identityEpoch!==documentEpoch||mode!=='ready'||actor!==ctx.actorUid
        ||family!==ctx.familyId)return;
     const email=session?.data?.user?.email||
      session?.data?.session?.user?.email;
@@ -281,7 +284,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      $('formalCurrentAccount').textContent=email;
    }).catch(()=>{});
    if(!documentsVerified)
-    optionalRead(documentsClient,ctx,scopeKey,data,token);
+    optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
    return mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');

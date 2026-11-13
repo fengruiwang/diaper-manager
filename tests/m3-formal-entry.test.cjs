@@ -93,6 +93,9 @@ test('existing SDK session restores to primary five-tab UI without OTP',async()=
  assert.equal(f.app.mode,'ready');
  assert.equal(f.doc.body.dataset.formalState,'ready');
  assert.equal(f.trace.filter(x=>x==='ui.show').length,1);
+ assert.equal(f.element('formalCurrentAccount').textContent,'A');
+ // Email enrichment is deliberately optional and must not delay ready.
+ await new Promise(resolve=>setImmediate(resolve));
  assert.equal(f.element('formalCurrentAccount').textContent,'a@example.com');
  assert.equal(f.element('formalCurrentFamily').textContent,
   '29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5');
