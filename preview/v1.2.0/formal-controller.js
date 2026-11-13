@@ -359,7 +359,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if(next==='ready'){
      input.value='';$('formalLoginMessage').textContent='';
     }else if(next==='unverified'){
-     $('formalLoginMessage').textContent='登录可能已成功，但数据暂时无法核验，请重新检查。';
+     $('formalLoginMessage').textContent=''; // The visible gate explains unverified primary.
     }
     return next;
    }

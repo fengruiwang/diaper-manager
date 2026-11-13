@@ -87,7 +87,7 @@ test('actual M1 email OTP changes SDK state; formal gate recognizes authenticate
  const sdkController=formal.controller;
  assert.equal(await sdkController.requestOtp('a@example.com'),'OTP_REQUESTED');
  const result=await sdkController.confirmOtp('123456');
- assert.equal(result,'CLOUD_READ_ONLY_CONNECTED');
+ assert.equal(result,'FORMAL_FAMILY_VERIFIED'); // formal primary still independently verified
  assert.equal(f.signedIn,true);
  assert.equal(await formal.restore(),'unverified');
  assert.equal(f.shown,0);
