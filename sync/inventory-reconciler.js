@@ -49,12 +49,12 @@
   const qty={},revisions={};
   for(const row of response.rows){
    if(!row||!SIZES.includes(row.size)
-     ||Object.hasOwn(qty,row.size)||!number(row.quantity)||!safeRev(row.revision))
+     ||Object.prototype.hasOwnProperty.call(qty,row.size)||!number(row.quantity)||!safeRev(row.revision))
     fail('invalid_server_inventory');
    qty[row.size]=row.quantity;
    revisions[row.size]=row.revision;
   }
-  if(SIZES.some(s=>!Object.hasOwn(qty,s)))fail('partial_server_inventory');
+  if(SIZES.some(s=>!Object.prototype.hasOwnProperty.call(qty,s)))fail('partial_server_inventory');
   for(const size of SIZES){
    if(!safeRev(snapshot.serverRevisions?.[size])
       ||revisions[size]<snapshot.serverRevisions[size])

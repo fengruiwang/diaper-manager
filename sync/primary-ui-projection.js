@@ -31,7 +31,7 @@
   const allowed=['currentSize','sizeMode','autoSize','goalPrice','plannedBudget',
    'target','daily','preset','replenishPolicy','referenceOverrides'];
   for(const key of allowed){
-   if(Object.hasOwn(data,key))state[key]=clone(data[key]);
+   if(Object.prototype.hasOwnProperty.call(data,key))state[key]=clone(data[key]);
   }
   state.inventory=clone(view.inventory);
   state.dueDate=profile.dueDate;

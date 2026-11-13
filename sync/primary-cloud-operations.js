@@ -38,13 +38,13 @@
     throw Error('primary_operations:invalid_six_size_snapshot');
    const stock={},revisions={};
    for(const row of rows){
-    if(!row||!SIZES.includes(row.size)||Object.hasOwn(stock,row.size)
+    if(!row||!SIZES.includes(row.size)||Object.prototype.hasOwnProperty.call(stock,row.size)
        ||!Number.isSafeInteger(row.quantity)||row.quantity<0
        ||!Number.isSafeInteger(row.revision)||row.revision<0)
      throw Error('primary_operations:invalid_six_size_snapshot');
     stock[row.size]=row.quantity;revisions[row.size]=row.revision;
    }
-   if(SIZES.some(s=>!Object.hasOwn(stock,s)))
+   if(SIZES.some(s=>!Object.prototype.hasOwnProperty.call(stock,s)))
     throw Error('primary_operations:invalid_six_size_snapshot');
    return {stock,revisions};
   }

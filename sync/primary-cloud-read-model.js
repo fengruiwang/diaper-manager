@@ -20,13 +20,13 @@
   if(!Array.isArray(rows)||rows.length!==6)fail('incomplete_inventory');
   const inventory={},revisions={};
   for(const r of rows){
-   if(!r||!SIZES.includes(r.size)||Object.hasOwn(inventory,r.size)
+   if(!r||!SIZES.includes(r.size)||Object.prototype.hasOwnProperty.call(inventory,r.size)
       ||!Number.isSafeInteger(r.quantity)||r.quantity<0||r.quantity>100000
       ||!Number.isSafeInteger(r.revision)||r.revision<0)
     fail('invalid_inventory');
    inventory[r.size]=r.quantity;revisions[r.size]=r.revision;
   }
-  if(SIZES.some(s=>!Object.hasOwn(inventory,s)))fail('incomplete_inventory');
+  if(SIZES.some(s=>!Object.prototype.hasOwnProperty.call(inventory,s)))fail('incomplete_inventory');
   return {inventory,revisions};
  }
  function equalStock(a,b){

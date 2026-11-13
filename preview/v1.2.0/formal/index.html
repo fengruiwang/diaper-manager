@@ -2011,12 +2011,12 @@ restoreActiveTab();
   const qty={},revisions={};
   for(const row of response.rows){
    if(!row||!SIZES.includes(row.size)
-     ||Object.hasOwn(qty,row.size)||!number(row.quantity)||!safeRev(row.revision))
+     ||Object.prototype.hasOwnProperty.call(qty,row.size)||!number(row.quantity)||!safeRev(row.revision))
     fail('invalid_server_inventory');
    qty[row.size]=row.quantity;
    revisions[row.size]=row.revision;
   }
-  if(SIZES.some(s=>!Object.hasOwn(qty,s)))fail('partial_server_inventory');
+  if(SIZES.some(s=>!Object.prototype.hasOwnProperty.call(qty,s)))fail('partial_server_inventory');
   for(const size of SIZES){
    if(!safeRev(snapshot.serverRevisions?.[size])
       ||revisions[size]<snapshot.serverRevisions[size])
@@ -2806,13 +2806,13 @@ restoreActiveTab();
   if(!Array.isArray(rows)||rows.length!==6)fail('incomplete_inventory');
   const inventory={},revisions={};
   for(const r of rows){
-   if(!r||!SIZES.includes(r.size)||Object.hasOwn(inventory,r.size)
+   if(!r||!SIZES.includes(r.size)||Object.prototype.hasOwnProperty.call(inventory,r.size)
       ||!Number.isSafeInteger(r.quantity)||r.quantity<0||r.quantity>100000
       ||!Number.isSafeInteger(r.revision)||r.revision<0)
     fail('invalid_inventory');
    inventory[r.size]=r.quantity;revisions[r.size]=r.revision;
   }
-  if(SIZES.some(s=>!Object.hasOwn(inventory,s)))fail('incomplete_inventory');
+  if(SIZES.some(s=>!Object.prototype.hasOwnProperty.call(inventory,s)))fail('incomplete_inventory');
   return {inventory,revisions};
  }
  function equalStock(a,b){
@@ -2954,7 +2954,7 @@ restoreActiveTab();
   const allowed=['currentSize','sizeMode','autoSize','goalPrice','plannedBudget',
    'target','daily','preset','replenishPolicy','referenceOverrides'];
   for(const key of allowed){
-   if(Object.hasOwn(data,key))state[key]=clone(data[key]);
+   if(Object.prototype.hasOwnProperty.call(data,key))state[key]=clone(data[key]);
   }
   state.inventory=clone(view.inventory);
   state.dueDate=profile.dueDate;
@@ -3087,13 +3087,13 @@ restoreActiveTab();
     throw Error('primary_operations:invalid_six_size_snapshot');
    const stock={},revisions={};
    for(const row of rows){
-    if(!row||!SIZES.includes(row.size)||Object.hasOwn(stock,row.size)
+    if(!row||!SIZES.includes(row.size)||Object.prototype.hasOwnProperty.call(stock,row.size)
        ||!Number.isSafeInteger(row.quantity)||row.quantity<0
        ||!Number.isSafeInteger(row.revision)||row.revision<0)
      throw Error('primary_operations:invalid_six_size_snapshot');
     stock[row.size]=row.quantity;revisions[row.size]=row.revision;
    }
-   if(SIZES.some(s=>!Object.hasOwn(stock,s)))
+   if(SIZES.some(s=>!Object.prototype.hasOwnProperty.call(stock,s)))
     throw Error('primary_operations:invalid_six_size_snapshot');
    return {stock,revisions};
   }
@@ -3832,11 +3832,11 @@ function apply(original,snapshot){
  if(!object(settings.target)||!object(settings.daily)
    ||!object(profile.babyProfile))fail('invalid_profile_settings');
  for(const key of settingKeys){
-  if(Object.hasOwn(settings,key))state[key]=clone(settings[key]);
+  if(Object.prototype.hasOwnProperty.call(settings,key))state[key]=clone(settings[key]);
  }
  state.babyProfile=clone(profile.babyProfile);
  for(const key of ['dueDate','birthDate','babyWeight']){
-  if(Object.hasOwn(profile,key))state[key]=clone(profile[key]);
+  if(Object.prototype.hasOwnProperty.call(profile,key))state[key]=clone(profile[key]);
  }
  if(JSON.stringify(state.inventory)!==inventory
    ||JSON.stringify(state.transactions)!==transactions)

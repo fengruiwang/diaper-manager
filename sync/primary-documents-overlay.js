@@ -61,11 +61,11 @@ function apply(original,snapshot){
  if(!object(settings.target)||!object(settings.daily)
    ||!object(profile.babyProfile))fail('invalid_profile_settings');
  for(const key of settingKeys){
-  if(Object.hasOwn(settings,key))state[key]=clone(settings[key]);
+  if(Object.prototype.hasOwnProperty.call(settings,key))state[key]=clone(settings[key]);
  }
  state.babyProfile=clone(profile.babyProfile);
  for(const key of ['dueDate','birthDate','babyWeight']){
-  if(Object.hasOwn(profile,key))state[key]=clone(profile[key]);
+  if(Object.prototype.hasOwnProperty.call(profile,key))state[key]=clone(profile[key]);
  }
  if(JSON.stringify(state.inventory)!==inventory
    ||JSON.stringify(state.transactions)!==transactions)
