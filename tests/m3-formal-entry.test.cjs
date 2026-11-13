@@ -63,8 +63,8 @@ test('formal page preserves original five tabs but uses separate non-flashing lo
  assert.match(html,/id="formalLoginCard" hidden/);
  assert.match(html,/id="formalCurrentAccount"/);
  assert.match(html,/id="formalSignOut"/);
- assert.match(html,/src="\.\/m1-controller\.js"/);
- assert.match(html,/src="\.\/formal-controller\.js"/);
+ assert.match(html,/src="\.\.\/m1-controller\.js"/);
+ assert.match(html,/src="\.\.\/formal-controller\.js"/);
  for(const tab of ['overview','compare','history','growth','settings'])
   assert.match(html,new RegExp('data-tab="'+tab+'"'));
  assert.doesNotMatch(html,/id="m3Demo"|id="m102Create"|id="m1Email"/);
@@ -161,10 +161,17 @@ test('startup while offline does not attempt SDK initialization, does not clear 
  assert.equal(f.trace.includes('ui.show'),false);
 });
 
-test('formal static upload uses exactly two same-directory scripts and inline modules match Feature sources',()=>{
+test('formal static upload references two real parent-directory controllers and inline modules match Feature sources',()=>{
  const assets=[...html.matchAll(/<(?:script|link|img|source)\b[^>]*\b(?:src|href)="([^"]+)"/gi)]
   .map(m=>m[1]);
- assert.deepEqual(assets,['./m1-controller.js','./formal-controller.js']);
+ assert.deepEqual(assets,['../m1-controller.js','../formal-controller.js']);
+ // Resolve URL-relative imports from the actual HTML folder; missing assets
+ // must fail before a green CI can claim a deployable browser preview.
+ for(const asset of assets){
+  const resolved=path.resolve(__dirname,'../preview/v1.2.0/formal/',asset);
+  assert.ok(fs.existsSync(resolved),'missing deployed script '+asset);
+  assert.match(fs.readFileSync(resolved,'utf8'),/function|const/);
+ }
  for(const name of [
   'primary-cloud-operations','primary-business-commands',
   'primary-formal-ui-actions','primary-stocktake-batch-client',
