@@ -47,6 +47,10 @@ function fixture({primary=true,historyReady=true,changeStock=false,otherActor=fa
     return [{operationId:'79192488-bd70-4b88-8c66-3c5b5fb29ef5',
      size:'S',pieces:60,totalFen:6000}];
    },
+   async readUses(scope){
+    calls.push(['uses',scope.childId,scope.familyId]);
+    return [];
+   },
    applyOperation(){throw Error('writes_forbidden');}
   })},
   legacyHistoryReader:{create:()=>({

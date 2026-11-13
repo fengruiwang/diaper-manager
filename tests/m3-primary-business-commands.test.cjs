@@ -5,7 +5,7 @@ const CHILD='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
 const UUID='04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2';
 const OLD='3984f752-5b02-4f81-bd15-5eb9e4b126b7';
 const fresh={status:'PRIMARY_CLOUD_READ_VERIFIED',
- inventory:{NB:0,S:140,M:0,L:0,XL:0,XXL:0},
+ inventory:{NB:10,S:140,M:0,L:0,XL:0,XXL:0},
  revisions:{NB:1,S:2,M:1,L:1,XL:1,XXL:1}};
 function fixture({enabled=false,selected=true,verified=true,queued=true}={}){
  const log=[];let created=0;

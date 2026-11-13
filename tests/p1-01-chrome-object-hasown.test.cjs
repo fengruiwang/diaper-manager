@@ -40,7 +40,7 @@ test('Chrome compatibility: formal primary read and six-size validation work wit
    familyId:F,childId:P,readyForMigration:false})})},
   inventoryClient:{create:()=>({
    readReconciliation:async()=>({complete:true,familyId:F,childId:P,
-    actorUid:'dad',rows:rows()}),readPurchases:async()=>[]})},
+    actorUid:'dad',rows:rows()}),readPurchases:async()=>[],readUses:async()=>[]})},
   legacyHistoryReader:{create:()=>({
    readSettings:async()=>({complete:true,canEdit:false,canUpload:false,
     settings:primary().settings,revision:0}),
