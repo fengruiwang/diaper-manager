@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="xiaobao-p1-source-sha" content="92c7923676b5fd1dd6b8cd2b4de111c21af14d2a" />
+<meta name="xiaobao-p1-source-sha" content="0f7e50b365ab6f7b23e699f5ee78c00981d627f3" />
 <meta name="theme-color" content="#f6f7fb" />
 <meta name="description" content="纸尿裤备货计划、库存管理、采购记录、参考好价提醒和单片比价。" />
 <title>M3 独立预览 · 小宝管家 V1.2.0 · 独立联网测试版 M1-01</title>
@@ -2012,12 +2012,12 @@ restoreActiveTab();
   const qty={},revisions={};
   for(const row of response.rows){
    if(!row||!SIZES.includes(row.size)
-     ||Object.hasOwn(qty,row.size)||!number(row.quantity)||!safeRev(row.revision))
+     ||Object.prototype.hasOwnProperty.call(qty,row.size)||!number(row.quantity)||!safeRev(row.revision))
     fail('invalid_server_inventory');
    qty[row.size]=row.quantity;
    revisions[row.size]=row.revision;
   }
-  if(SIZES.some(s=>!Object.hasOwn(qty,s)))fail('partial_server_inventory');
+  if(SIZES.some(s=>!Object.prototype.hasOwnProperty.call(qty,s)))fail('partial_server_inventory');
   for(const size of SIZES){
    if(!safeRev(snapshot.serverRevisions?.[size])
       ||revisions[size]<snapshot.serverRevisions[size])
@@ -2807,13 +2807,13 @@ restoreActiveTab();
   if(!Array.isArray(rows)||rows.length!==6)fail('incomplete_inventory');
   const inventory={},revisions={};
   for(const r of rows){
-   if(!r||!SIZES.includes(r.size)||Object.hasOwn(inventory,r.size)
+   if(!r||!SIZES.includes(r.size)||Object.prototype.hasOwnProperty.call(inventory,r.size)
       ||!Number.isSafeInteger(r.quantity)||r.quantity<0||r.quantity>100000
       ||!Number.isSafeInteger(r.revision)||r.revision<0)
     fail('invalid_inventory');
    inventory[r.size]=r.quantity;revisions[r.size]=r.revision;
   }
-  if(SIZES.some(s=>!Object.hasOwn(inventory,s)))fail('incomplete_inventory');
+  if(SIZES.some(s=>!Object.prototype.hasOwnProperty.call(inventory,s)))fail('incomplete_inventory');
   return {inventory,revisions};
  }
  function equalStock(a,b){
@@ -2955,7 +2955,7 @@ restoreActiveTab();
   const allowed=['currentSize','sizeMode','autoSize','goalPrice','plannedBudget',
    'target','daily','preset','replenishPolicy','referenceOverrides'];
   for(const key of allowed){
-   if(Object.hasOwn(data,key))state[key]=clone(data[key]);
+   if(Object.prototype.hasOwnProperty.call(data,key))state[key]=clone(data[key]);
   }
   state.inventory=clone(view.inventory);
   state.dueDate=profile.dueDate;
@@ -3047,7 +3047,7 @@ restoreActiveTab();
 })(typeof window!=='undefined'?window:null);
 
 </script>
-<script src="./m1-controller.js?v=92c7923" defer></script>
+<script src="./m1-controller.js?v=0f7e50b" defer></script>
 <script>/* M3 formal PRIMARY inventory/transaction bridge, using P2/P3 modules.
  * NOT imported by M1-02, M3 synthetic preview, V1.1.2 or live PWA.
  * No auto network calls on import/create. This is NOT an authorization.
@@ -3088,13 +3088,13 @@ restoreActiveTab();
     throw Error('primary_operations:invalid_six_size_snapshot');
    const stock={},revisions={};
    for(const row of rows){
-    if(!row||!SIZES.includes(row.size)||Object.hasOwn(stock,row.size)
+    if(!row||!SIZES.includes(row.size)||Object.prototype.hasOwnProperty.call(stock,row.size)
        ||!Number.isSafeInteger(row.quantity)||row.quantity<0
        ||!Number.isSafeInteger(row.revision)||row.revision<0)
      throw Error('primary_operations:invalid_six_size_snapshot');
     stock[row.size]=row.quantity;revisions[row.size]=row.revision;
    }
-   if(SIZES.some(s=>!Object.hasOwn(stock,s)))
+   if(SIZES.some(s=>!Object.prototype.hasOwnProperty.call(stock,s)))
     throw Error('primary_operations:invalid_six_size_snapshot');
    return {stock,revisions};
   }
@@ -3833,11 +3833,11 @@ function apply(original,snapshot){
  if(!object(settings.target)||!object(settings.daily)
    ||!object(profile.babyProfile))fail('invalid_profile_settings');
  for(const key of settingKeys){
-  if(Object.hasOwn(settings,key))state[key]=clone(settings[key]);
+  if(Object.prototype.hasOwnProperty.call(settings,key))state[key]=clone(settings[key]);
  }
  state.babyProfile=clone(profile.babyProfile);
  for(const key of ['dueDate','birthDate','babyWeight']){
-  if(Object.hasOwn(profile,key))state[key]=clone(profile[key]);
+  if(Object.prototype.hasOwnProperty.call(profile,key))state[key]=clone(profile[key]);
  }
  if(JSON.stringify(state.inventory)!==inventory
    ||JSON.stringify(state.transactions)!==transactions)
@@ -4275,7 +4275,7 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
-<script src="./formal-controller.js?v=92c7923" defer></script>
+<script src="./formal-controller.js?v=0f7e50b" defer></script>
 
 </body>
 </html>

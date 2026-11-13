@@ -1,4 +1,4 @@
-name: XiaoBao P1-01 CloudBase upload package
+name: XiaoBao P1-01 Chrome CloudBase package
 on:
   push:
     branches:
@@ -13,27 +13,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify strict P1-01 deployment source and no writes
+      - name: Verify source parity and Chrome compatible formal data chain
         run: |
           python3 - <<'PY'
           from pathlib import Path
           base=Path('deploy/xb-test/formal')
           html=(base/'index.html').read_text('utf-8')
-          assert 'src="./m1-controller.js?v=92c7923"' in html
-          assert 'src="./formal-controller.js?v=92c7923"' in html
-          assert 'name="xiaobao-p1-source-sha" content="92c7923676b5fd1dd6b8cd2b4de111c21af14d2a"' in html
+          assert 'src="./m1-controller.js?v=0f7e50b"' in html
+          assert 'src="./formal-controller.js?v=0f7e50b"' in html
+          assert 'name="xiaobao-p1-source-sha" content="0f7e50b365ab6f7b23e699f5ee78c00981d627f3"' in html
+          assert 'Object.hasOwn(' not in html
           assert (base/'m1-controller.js').read_bytes()==Path('preview/v1.2.0/m1-controller.js').read_bytes()
           assert (base/'formal-controller.js').read_bytes()==Path('preview/v1.2.0/formal-controller.js').read_bytes()
-          for p in ['primary-ui-projection','primary-documents-overlay']:
-           src=Path('sync/'+p+'.js').read_text('utf-8').strip()
-           assert src in html, 'inline module mismatch '+p
+          for name in ['inventory-reconciler','primary-cloud-read-model',
+                       'primary-ui-projection','primary-cloud-operations',
+                       'primary-documents-overlay']:
+            source=Path('sync/'+name+'.js').read_text('utf-8').strip()
+            assert source in html, name+' inline version mismatch'
+            assert 'Object.hasOwn(' not in source
           assert 'const FORMAL_WRITE_ENABLED=false' in (base/'formal-controller.js').read_text('utf-8')
           assert "const ENV_ID='f495637659-d2gnuzz2jf5657da8'" in (base/'m1-controller.js').read_text('utf-8')
-          print('P1_01_CLOUDBASE_PACKAGE_PASS')
+          print('P1_01_CHROME_COMPAT_PACKAGE_PASS')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoBao-P1-01-CloudBase-92c7923
+          name: XiaoBao-P1-01-Chrome-0f7e50b
           path: |
             deploy/xb-test/formal/index.html
             deploy/xb-test/formal/m1-controller.js
