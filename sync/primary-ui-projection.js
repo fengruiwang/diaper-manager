@@ -70,6 +70,9 @@
   }
   return Object.freeze({
    status:view.status,source:view.source||'unverified',canWrite:false,
+   familyId:view.status==='PRIMARY_READ_ONLY_READY'?view.familyId:null,
+   childId:view.status==='PRIMARY_READ_ONLY_READY'?view.childId:null,
+   actorUid:view.status==='PRIMARY_READ_ONLY_READY'?view.actorUid:null,
    state:Object.freeze(state),revisions:Object.freeze(clone(view.revisions)),
    historyCount:state.transactions.length,
    quoteCount:state.quotes.length,weightCount:state.weightRecords.length,

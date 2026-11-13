@@ -280,7 +280,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    screen('ready');
    $('formalSyncState').textContent=documentsVerified?
     '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。':
-    '已验证正式宝宝与历史；非库存文档尚未验证，正式写入关闭。';
+    '已验证正式宝宝、历史记录和六尺码库存。候选价、参考价、成长、资料及设置来自历史迁移快照（参考价目录为软件内置）；五类共享文档尚未全部核验，不能视为实时双端同步；正式写入关闭。';
    // Enrich the account label only; cannot gate UI readiness or leak across
    // actor switches. SDK continues to own all session and refresh tokens.
    void bounded(()=>ctx.app.auth.getSession(),6000).then(session=>{

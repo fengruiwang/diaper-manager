@@ -36,6 +36,13 @@ function apply(original,snapshot){
    fail('mixed_family_documents');
   family=d.familyId;child=d.childId;versions[kind]=d.revision;
  }
+ // Five documents could be mutually consistent but belong to a different
+ // child. Compare with the already receipt-verified primary before overlay.
+ if(original.status!=='PRIMARY_READ_ONLY_READY'
+    ||original.source!=='cloudbase-primary-receipt-verified'
+    ||original.familyId!==family||original.childId!==child
+    ||typeof original.actorUid!=='string'||!original.actorUid)
+  fail('document_primary_scope_mismatch');
  const state=clone(original.state);
  const inventory=JSON.stringify(state.inventory);
  const transactions=JSON.stringify(state.transactions);

@@ -2987,11 +2987,15 @@ restoreActiveTab();
    state.transactions.push({
     id,type:'buy',date:row.purchaseDate,brand:row.brand,
     series:row.series,size:row.size,pieces:row.pieces,
-    price:row.totalFen/100,origin:'cloud_post_migration'
+    price:row.totalFen/100,operationId:row.operationId,
+    reversed:row.reversed===true,origin:'cloud_post_migration'
    });
   }
   return Object.freeze({
    status:view.status,source:view.source||'unverified',canWrite:false,
+   familyId:view.status==='PRIMARY_READ_ONLY_READY'?view.familyId:null,
+   childId:view.status==='PRIMARY_READ_ONLY_READY'?view.childId:null,
+   actorUid:view.status==='PRIMARY_READ_ONLY_READY'?view.actorUid:null,
    state:Object.freeze(state),revisions:Object.freeze(clone(view.revisions)),
    historyCount:state.transactions.length,
    quoteCount:state.quotes.length,weightCount:state.weightRecords.length,
@@ -3803,6 +3807,13 @@ function apply(original,snapshot){
    fail('mixed_family_documents');
   family=d.familyId;child=d.childId;versions[kind]=d.revision;
  }
+ // Five documents could be mutually consistent but belong to a different
+ // child. Compare with the already receipt-verified primary before overlay.
+ if(original.status!=='PRIMARY_READ_ONLY_READY'
+    ||original.source!=='cloudbase-primary-receipt-verified'
+    ||original.familyId!==family||original.childId!==child
+    ||typeof original.actorUid!=='string'||!original.actorUid)
+  fail('document_primary_scope_mismatch');
  const state=clone(original.state);
  const inventory=JSON.stringify(state.inventory);
  const transactions=JSON.stringify(state.transactions);
