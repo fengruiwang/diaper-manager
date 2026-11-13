@@ -85,7 +85,7 @@
     return emit('OFFLINE_LOCAL_ONLY');
    }
    try{
-    const recovered=await sessionRecovery.restore({online:true});
+    const recovered=await sessionRecovery.restore({online:true,withActorUid:deferChildReadToFormal});
     if(recovered.status==='auth-required'){
      familyId=null;actorUid=null;activeChildId=null;verifiedFamily=false;
      view.identity(false);view.cloudStock(null);
@@ -95,8 +95,7 @@
      view.cloudStock(null);
      return emit('SESSION_UNVERIFIED');
     }
-    const s=await app.auth.getSession();
-    actorUid=sessionUid(s);
+    actorUid=recovered.actorUid||sessionUid(await app.auth.getSession());
     if(!actorUid){
      view.identity(false);view.cloudStock(null);
      return emit('IDENTITY_UNVERIFIED');

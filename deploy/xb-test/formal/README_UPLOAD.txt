@@ -1,34 +1,37 @@
-小宝管家 V1.2.0 | P0 登录交互与恢复体验 | 腾讯云 CloudBase 静态托管包
-源代码 Feature SHA: 4117f41051371b2296c61e0d7f7f571fa2a99960
-本包使用原腾讯云环境和原已成功的公开前端登录配置，不更换 CloudBase。
-上传目标：原测试网站的 /xb-test/formal/
-请从 ZIP 中直接选择以下三个文件，覆盖目标目录内同名文件：
-1. index.html
-2. m1-controller.js
-3. formal-controller.js
-README_UPLOAD.txt 仅供本地阅读，无需上传。
+小宝管家 V1.2.0｜P0 启动耗时定向优化（只读腾讯云测试部署包）
+功能源代码 SHA: da93ab12bce17f735a16d5dbc5ef32b24ef3c070
+版本号: da93ab1
 
-要求目标目录的结构：
-/xb-test/formal/index.html
-/xb-test/formal/m1-controller.js
-/xb-test/formal/formal-controller.js
+仅在原有 CloudBase 静态托管环境的 /xb-test/formal/ 上传：
+  index.html
+  m1-controller.js
+  formal-controller.js
+三个文件必须在 /xb-test/formal/ 同一个目录内，全部覆盖原文件。
+README_UPLOAD.txt 不上传到网站；文件管理操作不涉及 SQL 或数据库。
 
-上传后在原腾讯云测试域名访问：
-https://<原腾讯云静态托管域名>/xb-test/formal/?p0=4117f41
-不要使用 Cloudflare 或其他新的域名。
+保留原有腾讯云环境 ID、公开匿名前端密钥与邮箱登录体系。
+不使用 Cloudflare 测试，不修改 GitHub Pages 正式版本。
+FORMAL_WRITE_ENABLED=false，不执行任何真实云端业务写入。
 
-F12 Console 运行（不发送网络写入）：
-console.log(document.querySelector('meta[name="xiaobao-p0-source-sha"]')?.content);
-console.table([...document.scripts].filter(s=>s.src).map(s=>({url:s.src})));
-预期 meta SHA 为 4117f41051371b2296c61e0d7f7f571fa2a99960。
-预期两个脚本路径：
-/xb-test/formal/m1-controller.js?v=4117f41
-/xb-test/formal/formal-controller.js?v=4117f41
+打开原有腾讯云静态托管域名：
+  https://<原腾讯云域名>/xb-test/formal/?p0=da93ab1
+在 DevTools > Network 勾选 Disable cache，使用 Ctrl+Shift+R。
+两个脚本应 HTTP 200：
+  /xb-test/formal/m1-controller.js?v=da93ab1
+  /xb-test/formal/formal-controller.js?v=da93ab1
+浏览器 Console 校验：
+  console.log(document.querySelector('meta[name="xiaobao-p0-source-sha"]')?.content)
+预期结果：da93ab12bce17f735a16d5dbc5ef32b24ef3c070
+  console.log(window.XBFormalApp?.mode, window.XBFormalAppModule?.FORMAL_WRITE_ENABLED)
+已登录应该是 ready, false；无登录时应该是 login, false。
 
-Network > Disable cache, Ctrl+Shift+R, 核验这两个脚本都为 HTTP 200。
-不要清空站点本地数据/IndexedDB，也不要恢复 V1.1.2 写入。
-P0 的真实验收：错误验证码保留输入与按钮恢复；正确验证码进入五页面；
-主动退出后刷新显示登录；已有会话刷新/标签切换不会长期 boot；
-夫妻分别登录只能看到同一正式 primary、没有 S140 测试宝宝数据。
-真实浏览器操作未在本包创建过程中执行，只有你验收后才能判定 PASS。
-FORMAL_WRITE_ENABLED=false，禁止采购/库存真实写入。
+真实验收（由用户手动执行）：
+1) 未登录打开，用浏览器现有 Performance/Network 工具记录至 login 的耗时；
+2) 已登录 F5 刷新，记录至 ready 的耗时，建议连续 3 次；
+3) 正确 OTP 登录、退出重新打开、切换标签页、两个账号分别验证；
+4) 核对正式宝宝、10 笔历史采购、6 尺码库存；不展示 S140；
+5) 失败时保留验证码；网络/数据库权限不要修改。
+
+说明：历史用户实测（优化前）未登录约 4–5 秒，已登录刷新约 7–8 秒。
+这些是对照基线，不是本包实际测速；绝不能仅凭 CI 宣告真实 P0 性能通过。
+后续 CloudBase 故障时的离线可用性是必要待办，不在本包实现。
