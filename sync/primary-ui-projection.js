@@ -57,7 +57,7 @@
    if(!row||typeof row.operationId!=='string'||!row.operationId
      ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
      ||row.pieces<1||!Number.isSafeInteger(row.totalFen)
-     ||row.totalFen<1||row.reversed===true)
+     ||row.totalFen<1)
     fail('invalid_post_migration_purchase');
    const id='cloud:'+row.operationId;
    if(seen.has('transaction:'+id))fail('duplicate_history');
@@ -66,7 +66,9 @@
     id,type:'buy',date:row.purchaseDate,brand:row.brand,
     series:row.series,size:row.size,pieces:row.pieces,
     price:row.totalFen/100,operationId:row.operationId,
-    reversed:row.reversed===true,origin:'cloud_post_migration'
+    reversed:row.reversed===true,
+    reversedByOperationId:row.reversedByOperationId||null,
+    origin:'cloud_post_migration'
    });
   }
   // Current cloud consumption events are display-only; stock is the separately
@@ -84,6 +86,8 @@
    state.transactions.push({
     id,type:'use',date:row.occurredAt.slice(0,10),size:row.size,
     pieces:row.pieces,price:0,operationId:row.operationId,
+    reversed:row.reversed===true,
+    reversedByOperationId:row.reversedByOperationId||null,
     origin:'cloud_post_migration'
    });
   }

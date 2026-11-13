@@ -588,7 +588,7 @@ function dateInfo(){
 }
 function stageStock(size){if(m3ReadOnly)return Math.max(0,Math.round(num(state.inventory[size])));const cloud=window.XBM102?.stock(size);return cloud===null||cloud===undefined?Math.max(0,Math.round(num(state.inventory[size]))):cloud}
 function stockDays(size){const days=clamp(num(state.daily[size],1),1,30);return stageStock(size)/days}
-function spend(){if(m3ReadOnly)return state.transactions.filter(t=>t.type==='buy').reduce((n,t)=>n+num(t.price),0);const cloud=window.XBM102?.spend();return cloud===null||cloud===undefined?state.transactions.filter(t=>t.type==='buy').reduce((s,t)=>s+num(t.price),0):cloud}
+function spend(){if(m3ReadOnly)return state.transactions.filter(t=>t.type==='buy'&&t.reversed!==true).reduce((n,t)=>n+num(t.price),0);const cloud=window.XBM102?.spend();return cloud===null||cloud===undefined?state.transactions.filter(t=>t.type==='buy').reduce((s,t)=>s+num(t.price),0):cloud}
 function firstTarget(){return state.target.NB+state.target.S}
 function firstStock(){return Math.min(stageStock('NB'),state.target.NB)+Math.min(stageStock('S'),state.target.S)}
 function renderKpisLegacy(){const neededNB=Math.max(0,state.target.NB-stageStock('NB'));const neededS=Math.max(0,state.target.S-stageStock('S'));const current=state.currentSize||'NB';const days=stockDays(current);const pct=firstTarget()>0?Math.round(100*firstStock()/firstTarget()):100;
@@ -782,8 +782,8 @@ function renderM102History(){
   '<div class="empty">暂无云端确认的采购记录；本机演练流水不会出现在这里。</div>');
  renderStockEditor();
 }
-function renderHistory(){if(!m3ReadOnly&&window.XBM102?.isActive()){renderM102History();return;}const buys=state.transactions.filter(t=>t.type==='buy'),used=state.transactions.filter(t=>t.type==='use'),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
-const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}${m3ReadOnly?'<div class="fine">'+(t.origin==='cloud_post_migration'?(t.type==='use'?'迁移后云端消耗':'迁移后云端采购'):'旧版迁移历史')+'</div>':''}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td><button class="btn ghost sm" data-action="deletetx" data-id="${esc(t.id)}">撤销</button></td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
+function renderHistory(){if(!m3ReadOnly&&window.XBM102?.isActive()){renderM102History();return;}const buys=state.transactions.filter(t=>t.type==='buy'&&t.reversed!==true),used=state.transactions.filter(t=>t.type==='use'&&t.reversed!==true),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
+const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}${m3ReadOnly?'<div class="fine">'+(t.origin==='cloud_post_migration'?(t.type==='use'?'迁移后云端消耗':'迁移后云端采购'):'旧版迁移历史')+'</div>':''}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td>${t.reversed===true?'<span class="fine">已撤销</span>':m3ReadOnly&&t.origin!=='cloud_post_migration'?'<span class="fine">迁移历史不可撤销</span>':'<button class="btn ghost sm" data-action="deletetx" data-id="'+esc(t.id)+'">撤销</button>'}</td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
 renderStockEditor()}
 function updateSizeModePreview(){
  const mode=$('sizeMode').value,manual=$('currentSize').value;
@@ -1741,7 +1741,9 @@ restoreActiveTab();
      operationId:row.operation_id,brand:row.brand,series:row.series,
      size:row.size,pieces:row.pieces,totalFen:row.total_fen,
      purchaseDate:row.purchase_date,
-     reversed:row.reversed_by_operation_id!=null,actorUid:row.created_by
+     reversed:row.reversed_by_operation_id!=null,
+     reversedByOperationId:row.reversed_by_operation_id||null,
+     actorUid:row.created_by
     };
    });
   }
@@ -1750,24 +1752,47 @@ restoreActiveTab();
   async function readUses({familyId,childId}={}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
    await checkSession();
-   const response=await db.from('xb_inventory_operations')
-    .select('operation_id,kind,size,delta,occurred_at,actor_uid')
-    .eq('family_id',family).eq('child_id',child).eq('kind','use');
-   if(response?.error)safeRpcError(response.error);
-   if(!Array.isArray(response?.data))fail('invalid_use_rows');
+   // Both reads use the same existing family RLS and primary child scope.
+   // The reverse rows are read-only audit receipts, not a second stock delta.
+   const query=kind=>db.from('xb_inventory_operations')
+    .select('operation_id,kind,size,delta,occurred_at,actor_uid,reverses_operation_id')
+    .eq('family_id',family).eq('child_id',child).eq('kind',kind);
+   const [uses,reversals]=await Promise.all([query('use'),query('reverse')]);
+   if(uses?.error)safeRpcError(uses.error);
+   if(reversals?.error)safeRpcError(reversals.error);
+   if(!Array.isArray(uses?.data)||!Array.isArray(reversals?.data))
+    fail('invalid_use_rows');
+   const reverseByOriginal=new Map(),reverseIds=new Set();
+   for(const row of reversals.data){
+    if(!row||row.kind!=='reverse'||!UUID.test(String(row.operation_id))
+      ||!UUID.test(String(row.reverses_operation_id))
+      ||reverseIds.has(row.operation_id)||!SIZES.has(row.size)
+      ||!Number.isSafeInteger(row.delta))
+     fail('invalid_reverse_rows');
+    reverseIds.add(row.operation_id);
+    // Reverse of a purchase is valid but not part of the consumption tally.
+    if(reverseByOriginal.has(row.reverses_operation_id))
+     fail('duplicate_reverse');
+    reverseByOriginal.set(row.reverses_operation_id,row);
+   }
    const seen=new Set();
-   return response.data.map(row=>{
+   return uses.data.map(row=>{
     if(!row||!UUID.test(String(row.operation_id))
       ||seen.has(row.operation_id)||row.kind!=='use'||!SIZES.has(row.size)
       ||!Number.isSafeInteger(row.delta)||row.delta>=0
-      ||row.delta< -100000
+      ||row.delta< -100000||row.reverses_operation_id!=null
       ||typeof row.occurred_at!=='string'
       ||!Number.isFinite(Date.parse(row.occurred_at))
       ||typeof row.actor_uid!=='string'||!row.actor_uid)
      fail('invalid_use_rows');
     seen.add(row.operation_id);
+    const reversed=reverseByOriginal.get(row.operation_id)||null;
+    if(reversed&&(reversed.size!==row.size||reversed.delta!==-row.delta))
+     fail('invalid_reverse_rows');
     return Object.freeze({operationId:row.operation_id,size:row.size,
-     pieces:-row.delta,occurredAt:row.occurred_at,actorUid:row.actor_uid});
+     pieces:-row.delta,occurredAt:row.occurred_at,actorUid:row.actor_uid,
+     reversed:reversed!==null,
+     reversedByOperationId:reversed?.operation_id||null});
    });
   }
   async function readInventory({familyId,childId}){
@@ -3014,7 +3039,7 @@ restoreActiveTab();
    if(!row||typeof row.operationId!=='string'||!row.operationId
      ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
      ||row.pieces<1||!Number.isSafeInteger(row.totalFen)
-     ||row.totalFen<1||row.reversed===true)
+     ||row.totalFen<1)
     fail('invalid_post_migration_purchase');
    const id='cloud:'+row.operationId;
    if(seen.has('transaction:'+id))fail('duplicate_history');
@@ -3023,7 +3048,9 @@ restoreActiveTab();
     id,type:'buy',date:row.purchaseDate,brand:row.brand,
     series:row.series,size:row.size,pieces:row.pieces,
     price:row.totalFen/100,operationId:row.operationId,
-    reversed:row.reversed===true,origin:'cloud_post_migration'
+    reversed:row.reversed===true,
+    reversedByOperationId:row.reversedByOperationId||null,
+    origin:'cloud_post_migration'
    });
   }
   // Current cloud consumption events are display-only; stock is the separately
@@ -3041,6 +3068,8 @@ restoreActiveTab();
    state.transactions.push({
     id,type:'use',date:row.occurredAt.slice(0,10),size:row.size,
     pieces:row.pieces,price:0,operationId:row.operationId,
+    reversed:row.reversed===true,
+    reversedByOperationId:row.reversedByOperationId||null,
     origin:'cloud_post_migration'
    });
   }

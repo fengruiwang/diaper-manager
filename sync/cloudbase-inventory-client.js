@@ -163,7 +163,9 @@
      operationId:row.operation_id,brand:row.brand,series:row.series,
      size:row.size,pieces:row.pieces,totalFen:row.total_fen,
      purchaseDate:row.purchase_date,
-     reversed:row.reversed_by_operation_id!=null,actorUid:row.created_by
+     reversed:row.reversed_by_operation_id!=null,
+     reversedByOperationId:row.reversed_by_operation_id||null,
+     actorUid:row.created_by
     };
    });
   }
@@ -172,24 +174,47 @@
   async function readUses({familyId,childId}={}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
    await checkSession();
-   const response=await db.from('xb_inventory_operations')
-    .select('operation_id,kind,size,delta,occurred_at,actor_uid')
-    .eq('family_id',family).eq('child_id',child).eq('kind','use');
-   if(response?.error)safeRpcError(response.error);
-   if(!Array.isArray(response?.data))fail('invalid_use_rows');
+   // Both reads use the same existing family RLS and primary child scope.
+   // The reverse rows are read-only audit receipts, not a second stock delta.
+   const query=kind=>db.from('xb_inventory_operations')
+    .select('operation_id,kind,size,delta,occurred_at,actor_uid,reverses_operation_id')
+    .eq('family_id',family).eq('child_id',child).eq('kind',kind);
+   const [uses,reversals]=await Promise.all([query('use'),query('reverse')]);
+   if(uses?.error)safeRpcError(uses.error);
+   if(reversals?.error)safeRpcError(reversals.error);
+   if(!Array.isArray(uses?.data)||!Array.isArray(reversals?.data))
+    fail('invalid_use_rows');
+   const reverseByOriginal=new Map(),reverseIds=new Set();
+   for(const row of reversals.data){
+    if(!row||row.kind!=='reverse'||!UUID.test(String(row.operation_id))
+      ||!UUID.test(String(row.reverses_operation_id))
+      ||reverseIds.has(row.operation_id)||!SIZES.has(row.size)
+      ||!Number.isSafeInteger(row.delta))
+     fail('invalid_reverse_rows');
+    reverseIds.add(row.operation_id);
+    // Reverse of a purchase is valid but not part of the consumption tally.
+    if(reverseByOriginal.has(row.reverses_operation_id))
+     fail('duplicate_reverse');
+    reverseByOriginal.set(row.reverses_operation_id,row);
+   }
    const seen=new Set();
-   return response.data.map(row=>{
+   return uses.data.map(row=>{
     if(!row||!UUID.test(String(row.operation_id))
       ||seen.has(row.operation_id)||row.kind!=='use'||!SIZES.has(row.size)
       ||!Number.isSafeInteger(row.delta)||row.delta>=0
-      ||row.delta< -100000
+      ||row.delta< -100000||row.reverses_operation_id!=null
       ||typeof row.occurred_at!=='string'
       ||!Number.isFinite(Date.parse(row.occurred_at))
       ||typeof row.actor_uid!=='string'||!row.actor_uid)
      fail('invalid_use_rows');
     seen.add(row.operation_id);
+    const reversed=reverseByOriginal.get(row.operation_id)||null;
+    if(reversed&&(reversed.size!==row.size||reversed.delta!==-row.delta))
+     fail('invalid_reverse_rows');
     return Object.freeze({operationId:row.operation_id,size:row.size,
-     pieces:-row.delta,occurredAt:row.occurred_at,actorUid:row.actor_uid});
+     pieces:-row.delta,occurredAt:row.occurred_at,actorUid:row.actor_uid,
+     reversed:reversed!==null,
+     reversedByOperationId:reversed?.operation_id||null});
    });
   }
   async function readInventory({familyId,childId}){
