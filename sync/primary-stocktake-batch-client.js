@@ -90,7 +90,16 @@ function create({controller,host,primary,outboxFactory,contract,
   }catch(_){return answer('BATCH_QUEUE_UNVERIFIED_KEEP_ID',{batchId});}
   finally{busy=false;}
  }
- async function receipt(id,batchId){
+ function receiptMatches(result,items){
+  const changes=result?.changes;
+  return Number.isSafeInteger(result?.changed_sizes)
+   &&result.changed_sizes===items.length
+   &&Array.isArray(changes)&&changes.length===items.length
+   &&items.every(item=>changes.some(change=>
+    change.size===item.size&&change.new_quantity===item.count
+    &&change.revision===item.expectedRevision+1));
+ }
+ async function receipt(id,batchId,items){
   const app=controller.verifiedContext()?.app;
   if(!app?.rdb)return null;
   try{
@@ -103,7 +112,8 @@ function create({controller,host,primary,outboxFactory,contract,
    const d=Array.isArray(response?.data)?response.data[0]:response?.data;
    if(d?.status!=='COMMITTED'||d.family_id!==id.familyId
      ||d.child_id!==id.childId||d.batch_id!==batchId
-     ||d.result?.status!=='APPLIED')return null;
+     ||d.result?.status!=='APPLIED'
+     ||!receiptMatches(d.result,items))return null;
    return d;
   }catch(_){return null;}
  }
@@ -122,10 +132,10 @@ function create({controller,host,primary,outboxFactory,contract,
      ||op.actorUid!==id.actorUid||op.payload?.childId!==id.childId
      ||!Array.isArray(items))return answer('BATCH_IMMUTABLE_SCOPE_INVALID');
    // Before trying once, check whether an earlier ACK was lost.
-   const already=await receipt(id,op.id);
+   const already=await receipt(id,op.id,items);
    if(already){
     await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
-    return answer('BATCH_ACK_RECOVERED',{batchId:op.id});
+    return answer('BATCH_ACK_RECOVERED',{batchId:op.id,items});
    }
    const app=controller.verifiedContext()?.app;
    let response;
@@ -136,15 +146,15 @@ function create({controller,host,primary,outboxFactory,contract,
     });
    }catch(_){
     // Do not replace batch ID or retry after an ambiguous network error.
-    const found=await receipt(id,op.id);
+    const found=await receipt(id,op.id,items);
     if(!found)return answer('BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',
      {batchId:op.id});
     await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
-    return answer('BATCH_ACK_RECOVERED',{batchId:op.id});
+    return answer('BATCH_ACK_RECOVERED',{batchId:op.id,items});
    }
    if(response?.error){
     const code=String(response.error.code||response.error.errorCode||'');
-    if(code==='40001'){
+    if(code==='40001'||code==='DATABASE_40001'){
      await store.recordResult(id,op.id,{kind:'conflict'});
      return answer('BATCH_REVISION_CONFLICT_MANUAL_REVIEW',
       {batchId:op.id});
@@ -154,12 +164,17 @@ function create({controller,host,primary,outboxFactory,contract,
    const d=Array.isArray(response?.data)?response.data[0]:response?.data;
    if(d?.saved!==true||d.batch_id!==op.id
       ||d.family_id!==id.familyId||d.child_id!==id.childId
-      ||d.result?.status!=='APPLIED'){
+      ||d.result?.status!=='APPLIED'
+      ||!receiptMatches(d.result,items)){
     return answer('BATCH_ACK_UNVERIFIED_KEEP_ID',{batchId:op.id});
    }
+   // A returned write ACK is not sufficient: verify the receipt
+   // through the existing read-only batch receipt RPC before local ACK.
+   if(!await receipt(id,op.id,items))
+    return answer('BATCH_RECEIPT_READBACK_REQUIRED_KEEP_ID',{batchId:op.id});
    await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
    return answer('BATCH_ATOMIC_COMMIT_ACKED',{batchId:op.id,
-    changedSizes:d.result.changed_sizes});
+    items,changedSizes:d.result.changed_sizes});
   }catch(_){return answer('BATCH_SYNC_UNVERIFIED_KEEP_QUEUE');}
   finally{busy=false;}
  }

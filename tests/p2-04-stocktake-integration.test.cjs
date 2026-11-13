@@ -172,7 +172,7 @@ test('P2-04 both family accounts read one authoritative six-size stock and revis
  assert.deepEqual(left,right);
  assert.equal(right.find(x=>x.size==='S').quantity,135);
 });
-test('P2-04 editing two sizes is rejected entirely; 027 draft is not invoked',async()=>{
+test('P2-04 rejects multiple edited sizes when batch sending is unavailable',async()=>{
  const s=createServer();let batchCalls=0;
  const f=setup(s,{batch:{queue:async()=>{batchCalls++;return{status:'BATCH_QUEUED'};}}});
  const r=await f.actions.handle({id:'saveStocks',dataset:{}},
@@ -220,5 +220,5 @@ test('P2-04 leaves production and formal write gates off; bundled sources stay i
  const controller=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8');
  assert.match(controller,/allowStocktake:true/);
- assert.match(controller,/batchStocktake:null/);
+ assert.match(controller,/batchStocktake:batchGuard/);
 });

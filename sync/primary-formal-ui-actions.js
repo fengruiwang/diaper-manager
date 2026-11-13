@@ -19,7 +19,7 @@
   notify,formalModeSelected,buildAllowsWrites=false,
   operatorApproved=()=>false,documentCommands=null,
   readDocumentInput=null,prepareQuoteEdit=null,
-  batchStocktake=null,createBatchId=null,
+  batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
   allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
@@ -27,7 +27,7 @@
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
     ||typeof operatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
-  let busy=false, attached=null;
+  let busy=false,stocktakeBusy=false,attached=null;
   async function invoke(action,value){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -75,48 +75,85 @@
    finally{busy=false;}
   }
   async function readStocktakeInputs(doc){
-   const displayed=typeof readStocktakeBaseline==='function'
-    ?readStocktakeBaseline():null;
-   if(allowStocktake===true&&(!displayed?.inventory||!displayed?.revisions))
-    return result('PRIMARY_STOCK_BASELINE_UNVERIFIED');
-   const read=await primary.read();
-   if(read?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
-     ||!read.inventory||!read.revisions)
-    return result('PRIMARY_STOCK_UNVERIFIED');
-   const baseline=displayed||read,changed=[];
-   for(const size of SIZES){
-    const field=doc.getElementById('inv_'+size);
-    if(!field||typeof field.value!=='string'||field.value.trim()==='')
-     return result('STOCK_FORM_INCOMPLETE');
-    const n=Number(field.value);
-    if(!Number.isSafeInteger(n)||n<0||n>100000)
-     return result('STOCK_FORM_INVALID');
-    if(!Number.isSafeInteger(read.inventory[size])
-      ||!Number.isSafeInteger(read.revisions[size])
-      ||!Number.isSafeInteger(baseline.inventory[size])
-      ||!Number.isSafeInteger(baseline.revisions[size]))
+   if(stocktakeBusy)return result('BUSY');
+   stocktakeBusy=true;
+   try{
+    // The baseline belongs to the rendered editor, not a newly fetched
+    // revision: a stale editor must never overwrite another member's work.
+    const displayed=typeof readStocktakeBaseline==='function'
+     ?readStocktakeBaseline():null;
+    if(allowStocktake===true&&(!displayed?.inventory||!displayed?.revisions))
+     return result('PRIMARY_STOCK_BASELINE_UNVERIFIED');
+    const read=await primary.read();
+    if(read?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
+      ||!read.inventory||!read.revisions)
      return result('PRIMARY_STOCK_UNVERIFIED');
-    if(n!==baseline.inventory[size])changed.push({size,count:n});
-   }
-   if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
-   // Six-size editor remains all-or-none. P2-04 permits only one changed
-   // size; optional 027 batch support is reserved for a later release.
-   if(changed.length>1){
-    if(allowStocktake===true||!batchStocktake?.queue
-      ||typeof createBatchId!=='function')
+    const baseline=displayed||read,changed=[];
+    for(const size of SIZES){
+     const field=doc.getElementById('inv_'+size);
+     if(!field||typeof field.value!=='string'||field.value.trim()==='')
+      return result('STOCK_FORM_INCOMPLETE');
+     const n=Number(field.value);
+     if(!Number.isSafeInteger(n)||n<0||n>100000)
+      return result('STOCK_FORM_INVALID');
+     if(!Number.isSafeInteger(read.inventory[size])
+       ||!Number.isSafeInteger(read.revisions[size])
+       ||!Number.isSafeInteger(baseline.inventory[size])
+       ||!Number.isSafeInteger(baseline.revisions[size]))
+      return result('PRIMARY_STOCK_UNVERIFIED');
+     if(n!==baseline.inventory[size])changed.push({size,count:n});
+    }
+    if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
+    if(changed.some(x=>read.revisions[x.size]!==baseline.revisions[x.size]
+      ||read.inventory[x.size]!==baseline.inventory[x.size]))
+     return result('PRIMARY_STOCK_REVISION_CONFLICT');
+    if(changed.length===1){
+     const item=changed[0];
+     return invoke('stocktake',displayed?
+      {...item,expectedRevision:baseline.revisions[item.size]}:item);
+    }
+    // Never split one original six-size Save into multiple single-size RPCs.
+    if(!batchStocktake?.queue||typeof createBatchId!=='function')
      return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
     const items=changed.map(x=>({...x,
-     expectedRevision:read.revisions[x.size]}));
-    return batchStocktake.queue({
-     items,batchId:createBatchId(),operatorApproved:true
+     expectedRevision:baseline.revisions[x.size]}));
+    // Preserve the existing pre-release batch queue contract for isolated
+    // callers; the formal P2-05 path explicitly opts into durable send/read.
+    if(allowStocktake!==true)
+     return batchStocktake.queue({
+      items,batchId:createBatchId(),operatorApproved:true
+     });
+    if(typeof batchStocktake.send!=='function')
+     return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
+    const batchId=createBatchId();
+    const queued=await batchStocktake.queue({
+     items,batchId,operatorApproved:true
     });
-   }
-   const item=changed[0];
-   if(read.revisions[item.size]!==baseline.revisions[item.size]
-      ||read.inventory[item.size]!==baseline.inventory[item.size])
-    return result('PRIMARY_STOCK_REVISION_CONFLICT');
-   return invoke('stocktake',displayed?
-    {...item,expectedRevision:baseline.revisions[item.size]}:item);
+    if(!['BATCH_DURABLY_QUEUED','BATCH_ALREADY_QUEUED']
+      .includes(queued?.status))return queued;
+    // The batch ID is stored in IndexedDB before any network write.
+    // A missing/ambiguous ACK never causes a fresh batch to be created.
+    let sent;
+    try{sent=await batchStocktake.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
+    });}
+    if(!['BATCH_ATOMIC_COMMIT_ACKED','BATCH_ACK_RECOVERED']
+      .includes(sent?.status))return sent||Object.freeze({
+       status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
+      });
+    try{
+     const visible=typeof onBatchReadback==='function'
+      ?await onBatchReadback({batchId,items}):null;
+     if(visible==='ready')return Object.freeze({
+      status:'BATCH_CLOUD_READBACK_VERIFIED',batchId,
+      changedSizes:items.length,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'BATCH_COMMITTED_READBACK_REQUIRED',
+     batchId,cloudWriteCommitted:true});
+   }catch(_){return result('PRIMARY_STOCKTAKE_REVIEW_REQUIRED');}
+   finally{stocktakeBusy=false;}
   }
   async function handle(el,doc){
    if(buildAllowsWrites!==true||operatorApproved()!==true)

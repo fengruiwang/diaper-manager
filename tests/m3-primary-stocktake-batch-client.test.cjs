@@ -10,12 +10,16 @@ function fixture({enabled=false,offline=false,ackLost=false,conflict=false,
  const calls=[],rows=new Map();
  const scope={familyId:F,actorUid:'A',childId:CHILD};
  let receipt=alreadyCommitted;
+ const applied={status:'APPLIED',changed_sizes:2,changes:[
+  {size:'NB',new_quantity:10,revision:2},
+  {size:'S',new_quantity:150,revision:3}
+ ]};
  const client={
   rdb:()=>({rpc:async(name,params)=>{
    calls.push(['rpc',name,params]);
    if(name==='xb_read_primary_stocktake_batch_receipt_draft'){
     return {data:receipt?{status:'COMMITTED',family_id:F,child_id:CHILD,
-     batch_id:ID,result:{status:'APPLIED',changed_sizes:2}}:
+     batch_id:ID,result:applied}:
      {status:'NO_RECEIPT',family_id:F,child_id:CHILD,batch_id:ID}};
    }
    if(name!=='xb_primary_stocktake_batch_draft')throw Error('other RPC');
@@ -23,7 +27,7 @@ function fixture({enabled=false,offline=false,ackLost=false,conflict=false,
    receipt=true;
    if(ackLost)throw Error('synthetic lost reply after PG commit');
    return {data:{saved:true,batch_id:ID,family_id:F,child_id:CHILD,
-    result:{status:'APPLIED',changed_sizes:2}}};
+    result:applied}};
   }})
  };
  const store={

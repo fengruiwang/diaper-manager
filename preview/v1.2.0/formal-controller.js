@@ -180,8 +180,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   });
  }
  async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null,
-  expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null}={}){
-  if(busy)return mode;
+  expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null,
+  expectedBatch=null}={}){
+  if(busy)return expectedBatch!==null?'BATCH_READBACK_PENDING':mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
   // A real identity, permission or primary failure still clears it below.
@@ -233,6 +234,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        &&verified?.inventory?.[expectedStocktake.size]===expectedStocktake.count
        &&Number.isSafeInteger(verified?.revisions?.[expectedStocktake.size])
        &&verified.revisions[expectedStocktake.size]>expectedStocktake.expectedRevision);
+    const batchAppears=expectedBatch===null
+     ||(Array.isArray(expectedBatch)&&expectedBatch.length>=2
+       &&expectedBatch.every(item=>SIZES.includes(item.size)
+        &&verified?.inventory?.[item.size]===item.count
+        &&Number.isSafeInteger(verified?.revisions?.[item.size])
+        &&verified.revisions[item.size]>item.expectedRevision));
     if(token!==revision)return mode;
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
@@ -288,8 +295,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      }
      attached=actionsFactory.create({
       primary:p,commands,documentCommands,
-      // Draft batch RPC is not enabled for P2-04.
-      batchStocktake:null,
+      batchStocktake:batchGuard,
+      createBatchId:()=>host.crypto.randomUUID(),
+      onBatchReadback:({items})=>restore({expectedBatch:items}),
       readDocumentInput:el=>root.XBFormalUIData.documentAction(el),
       prepareQuoteEdit:id=>root.XBFormalUIData.prepareQuoteEdit(id),
       buildAllowsWrites:purchaseReleaseEnabled===true,
@@ -313,8 +321,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        $('formalSyncState').textContent=
         answer?.status==='PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'
          ?'单尺码盘点已保存，六尺码云端库存已重新读取。'
+          :answer?.status==='BATCH_CLOUD_READBACK_VERIFIED'
+         ?'多尺码盘点已一次性保存，云端六尺码库存已重新读取。'
+         :answer?.status==='BATCH_COMMITTED_READBACK_REQUIRED'
+         ?'批量操作回执已确认，库存页面仍需刷新核验；请勿重复创建批次。'
          :answer?.status==='MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED'
-         ?'本阶段一次只能保存一个尺码，请只修改一个尺码后重试；未保存任何修改。'
+         ?'多尺码盘点暂不可用，未保存任何库存修改。'
          :answer?.status==='PRIMARY_STOCK_REVISION_CONFLICT'
          ?'库存版本已更新，请刷新后重新盘点；未覆盖另一设备的库存。'
          :['PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
@@ -356,7 +368,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    return !purchaseAppears?'PRIMARY_PURCHASE_READBACK_PENDING':
     !useAppears?'PRIMARY_USE_READBACK_PENDING':
     !reversedAppears?'PRIMARY_REVERSE_READBACK_PENDING':
-    !stocktakeAppears?'PRIMARY_STOCKTAKE_READBACK_PENDING':mode;
+    !stocktakeAppears?'PRIMARY_STOCKTAKE_READBACK_PENDING':
+    !batchAppears?'BATCH_READBACK_PENDING':mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
@@ -451,7 +464,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   on('formalRefresh',restore);
-  // Inventory-ledger retry only (buy/use/reverse/one-size stocktake).
+  // Retry original inventory and batch UUIDs; never generate a replacement.
   if(purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true){
    $('formalSyncNow').disabled=false;
    $('formalSyncNow').textContent='重新提交待确认库存操作';
@@ -462,6 +475,22 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return;
    }
    if(!primary)return;
+   if(batchGuard){
+    const pending=await batchGuard.pending();
+    if(pending?.status==='BATCH_QUEUE_VERIFIED'&&pending.outstanding>0){
+     const batchSent=await batchGuard.send({operatorApproved:true});
+     if(['BATCH_ATOMIC_COMMIT_ACKED','BATCH_ACK_RECOVERED']
+       .includes(batchSent?.status)){
+      const next=await restore({expectedBatch:batchSent.items});
+      $('formalSyncState').textContent=next==='ready'
+       ?'原批次已确认，六尺码库存已从云端刷新。'
+       :'批次回执已确认，云端库存仍需重新读取。';
+     }else $('formalSyncState').textContent=
+      '批次待核实：'+String(batchSent?.status||'UNVERIFIED')
+       +'；已保留原批次 ID，请勿重复新建。';
+     return;
+    }
+   }
    const sent=await primary.flush({operatorApproved:true});
    if(sent.status==='PRIMARY_CLOUD_SYNCED_VERIFIED'){
     const next=await restore();
@@ -528,7 +557,7 @@ function browserStart(){
     controller,host,primary,
     outboxFactory:root.XBDurableOutbox,
     contract:root.XBOutboxContract,
-    cloudWritesEnabled:FORMAL_WRITE_ENABLED
+    cloudWritesEnabled:primary.cloudWritesEnabled===true
    }),
   readModelFactory:cloud=>root.XBPrimaryCloudReadModel.create({
    app:cloud,childReader:root.XBCloudbaseChildReader,
