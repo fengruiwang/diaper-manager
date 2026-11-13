@@ -177,7 +177,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(documentPending===scopeKey)documentPending='';
   });
  }
- async function restore({verifiedStatus=null,expectedPurchaseId=null}={}){
+ async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null}={}){
   if(busy)return mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
@@ -214,6 +214,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     ||(Array.isArray(verified?.livePurchases)
       &&verified.livePurchases.some(row=>row.operationId===expectedPurchaseId
        &&row.reversed!==true));
+   const useAppears=expectedUseId===null
+    ||(Array.isArray(verified?.liveUses)
+      &&verified.liveUses.some(row=>row.operationId===expectedUseId));
    if(token!==revision)return mode;
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
@@ -276,16 +279,20 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       buildAllowsWrites:purchaseReleaseEnabled===true,
       operatorApproved:()=>purchaseReleaseEnabled===true
        &&purchaseOperatorApproved()===true,
-      purchaseOnly:true,
-      onPurchaseReadback:({operationId})=>restore({expectedPurchaseId:operationId}),
+      purchaseOnly:true,allowConsume:true,
+      onPurchaseReadback:({operationId,kind})=>restore({
+       expectedPurchaseId:kind==='use'?null:operationId,
+       expectedUseId:kind==='use'?operationId:null
+      }),
       formalModeSelected:()=>mode==='ready',
       readPurchase:()=>root.XBFormalUIData.purchase(),
       readQuote:id=>root.XBFormalUIData.quote(id),
       readTransaction:id=>root.XBFormalUIData.transaction(id),
       notify:answer=>{
        $('formalSyncState').textContent=
-        answer?.status==='PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED'
-         ?'云端采购已确认，正式库存及记录已重新读取。'
+        ['PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+          'PRIMARY_USE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+         ?'云端采购或消耗已确认，正式库存及记录已重新读取。'
          :'采购操作状态：'+String(answer?.status||'UNVERIFIED')
           +(purchaseReleaseEnabled===true?'；请核查原操作 ID。':
            '；正式写入尚未授权。');
@@ -314,7 +321,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }).catch(()=>{});
    if(!documentsVerified)
     optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
-   return purchaseAppears?mode:'PRIMARY_PURCHASE_READBACK_PENDING';
+   return !purchaseAppears?'PRIMARY_PURCHASE_READBACK_PENDING':
+    !useAppears?'PRIMARY_USE_READBACK_PENDING':mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
@@ -412,7 +420,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   // Purchase-only retry; never send consume, stocktake or document actions.
   if(purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true){
    $('formalSyncNow').disabled=false;
-   $('formalSyncNow').textContent='重新提交待确认采购';
+   $('formalSyncNow').textContent='重新提交待确认采购/消耗';
   }
   on('formalSyncNow',async()=>{
    if(purchaseReleaseEnabled!==true||purchaseOperatorApproved()!==true){
@@ -427,7 +435,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      ?'云端已核验，采购与库存已刷新。'
      :'云端操作已确认，页面读取仍需重试。';
    }else $('formalSyncState').textContent=
-    '待确认采购：'+String(sent.status)+'；保留原操作 ID，不要新建重复采购。';
+    '待确认操作：'+String(sent.status)+'；保留原操作 ID，不要重复提交。';
   });
   on('formalSignOut',signOut);
   on('formalGateSignOut',signOut);
@@ -509,7 +517,7 @@ function browserStart(){
    runnerFactory:root.XBInventoryOutboxRunner,
    syncFactory:root.XBInventorySyncReader,
    cloudWritesEnabled:cloudWritesEnabled===true,
-   purchaseOnly:true
+   purchaseOnly:true,allowConsume:true
   }),
   commandsFactory:root.XBPrimaryBusinessCommands,
   actionsFactory:root.XBPrimaryFormalUIActions

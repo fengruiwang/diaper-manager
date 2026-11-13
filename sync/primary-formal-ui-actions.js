@@ -20,7 +20,7 @@
   operatorApproved=()=>false,documentCommands=null,
   readDocumentInput=null,prepareQuoteEdit=null,
   batchStocktake=null,createBatchId=null,
-  purchaseOnly=false,onPurchaseReadback=null}={}){
+  purchaseOnly=false,allowConsume=false,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -34,7 +34,10 @@
    busy=true;
    try{
     const queued=await commands.submit(action,value,{operatorApproved:true});
-    if(action!=='purchase'||purchaseOnly!==true)return queued;
+    if(purchaseOnly!==true
+      ||(action!=='purchase'&&!(allowConsume===true&&action==='consume')))
+     return queued;
+    const isUse=action==='consume';
     if(!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued?.status))
      return queued;
@@ -42,20 +45,20 @@
     let synced;
     try{synced=await primary.flush({operatorApproved:true});}
     catch(_){
-     return Object.freeze({status:'PRIMARY_PURCHASE_PENDING_REVIEW',
+     return Object.freeze({status:isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     }
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
-     return Object.freeze({status:'PRIMARY_PURCHASE_PENDING_REVIEW',
+     return Object.freeze({status:isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
      const visible=typeof onPurchaseReadback==='function'
-      ?await onPurchaseReadback({operationId:queued.operationId}):null;
+      ?await onPurchaseReadback({operationId:queued.operationId,kind:isUse?'use':'buy'}):null;
      if(visible==='ready')
-      return Object.freeze({status:'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+      return Object.freeze({status:isUse?'PRIMARY_USE_CLOUD_READBACK_VERIFIED':'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
        operationId:queued.operationId,cloudWriteCommitted:true});
     }catch(_){}
-    return Object.freeze({status:'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
+    return Object.freeze({status:isUse?'PRIMARY_USE_COMMITTED_READBACK_REQUIRED':'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
      operationId:queued.operationId,cloudWriteCommitted:true});
    }catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
@@ -97,7 +100,8 @@
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
-   if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote')
+   if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
+     &&!(allowConsume===true&&action==='consume'))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());

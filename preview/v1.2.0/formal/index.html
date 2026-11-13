@@ -2520,7 +2520,7 @@ restoreActiveTab();
    if(p.kind!=='buy'&&p.kind!=='use')throw Error('replay:invalid_inventory_delta');
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
-  async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false}={}){
+  async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -2545,7 +2545,8 @@ restoreActiveTab();
    const queued=await outbox.ready(scope);
    // A purchase-only release must not dispatch pre-existing non-buy operations.
    if(purchaseOnly===true&&queued.some(op=>op?.type!=='inventory.delta'
-     ||op?.payload?.kind!=='buy'))
+     ||(op?.payload?.kind!=='buy'
+      &&!(allowConsume===true&&op?.payload?.kind==='use'))))
     return {status:'unsupported-pending-type',attempted:0,accepted:0,
      remaining:queued.length};
    let accepted=0,attempted=0,status='awaiting-reconciliation';
@@ -3118,7 +3119,7 @@ restoreActiveTab();
  function create({controller,host,accessPreflight,childReader,scopeGuard,
   legacyHistoryReader,inventoryClient,outboxFactory,outboxContract,
   inventoryProjection,inventoryReconciler,runnerFactory,syncFactory,
-  cloudWritesEnabled=false,purchaseOnly=false}={}){
+  cloudWritesEnabled=false,purchaseOnly=false,allowConsume=false}={}){
   if(!controller?.verifiedContext||!accessPreflight?.create
     ||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget
     ||!legacyHistoryReader?.create||!inventoryClient?.create
@@ -3295,7 +3296,8 @@ restoreActiveTab();
    try{
     const scope=await current();
     if(purchaseOnly===true&&(op?.type!=='inventory.delta'
-      ||op?.payload?.kind!=='buy'))
+      ||(op?.payload?.kind!=='buy'
+       &&!(allowConsume===true&&op?.payload?.kind==='use'))))
      return result('FORMAL_PURCHASE_ONLY');
     if(!op||!TYPES.has(op.type)||!UUID.test(op.id)
       ||op.familyId!==scope.familyId||op.actorUid!==scope.actorUid
@@ -3339,7 +3341,7 @@ restoreActiveTab();
     const remote=inventoryClient.create(scope.app);
     const runner=runnerFactory.create({outbox,remote,verifyAccess:authInitialized});
     const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20,
-     purchaseOnly:purchaseOnly===true});
+     purchaseOnly:purchaseOnly===true,allowConsume:allowConsume===true});
     if(!sent||['manual-review-required','permission-denied','auth-required',
       'network-or-server-failure','unsupported-pending-type']
       .includes(sent.status))
@@ -3528,7 +3530,7 @@ restoreActiveTab();
   operatorApproved=()=>false,documentCommands=null,
   readDocumentInput=null,prepareQuoteEdit=null,
   batchStocktake=null,createBatchId=null,
-  purchaseOnly=false,onPurchaseReadback=null}={}){
+  purchaseOnly=false,allowConsume=false,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -3542,7 +3544,10 @@ restoreActiveTab();
    busy=true;
    try{
     const queued=await commands.submit(action,value,{operatorApproved:true});
-    if(action!=='purchase'||purchaseOnly!==true)return queued;
+    if(purchaseOnly!==true
+      ||(action!=='purchase'&&!(allowConsume===true&&action==='consume')))
+     return queued;
+    const isUse=action==='consume';
     if(!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued?.status))
      return queued;
@@ -3550,20 +3555,20 @@ restoreActiveTab();
     let synced;
     try{synced=await primary.flush({operatorApproved:true});}
     catch(_){
-     return Object.freeze({status:'PRIMARY_PURCHASE_PENDING_REVIEW',
+     return Object.freeze({status:isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     }
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
-     return Object.freeze({status:'PRIMARY_PURCHASE_PENDING_REVIEW',
+     return Object.freeze({status:isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
      const visible=typeof onPurchaseReadback==='function'
-      ?await onPurchaseReadback({operationId:queued.operationId}):null;
+      ?await onPurchaseReadback({operationId:queued.operationId,kind:isUse?'use':'buy'}):null;
      if(visible==='ready')
-      return Object.freeze({status:'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+      return Object.freeze({status:isUse?'PRIMARY_USE_CLOUD_READBACK_VERIFIED':'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
        operationId:queued.operationId,cloudWriteCommitted:true});
     }catch(_){}
-    return Object.freeze({status:'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
+    return Object.freeze({status:isUse?'PRIMARY_USE_COMMITTED_READBACK_REQUIRED':'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
      operationId:queued.operationId,cloudWriteCommitted:true});
    }catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
@@ -3605,7 +3610,8 @@ restoreActiveTab();
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
-   if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote')
+   if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
+     &&!(allowConsume===true&&action==='consume'))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
