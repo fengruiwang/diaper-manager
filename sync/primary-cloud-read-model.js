@@ -85,13 +85,15 @@
    if(before.complete!==true||before.actorUid!==actorUid
       ||before.familyId!==familyId||before.childId!==childId)
     fail('server_scope_unverified');
-   const [currentPurchases,profileQuery]=await Promise.all([
+   const [currentPurchases,currentUses,profileQuery]=await Promise.all([
     inventory.readPurchases(scope),
+    inventory.readUses(scope),
     app.rdb().from('xb_baby_profiles')
      .select('family_id,child_id,profile_data')
      .eq('family_id',familyId).eq('child_id',childId).limit(2)
    ]);
    if(!Array.isArray(currentPurchases))fail('current_purchases_unverified');
+   if(!Array.isArray(currentUses))fail('current_uses_unverified');
    const after=await inventory.readReconciliation({...scope,operationIds:[]});
    if(after.complete!==true||after.actorUid!==actorUid
      ||after.familyId!==familyId||after.childId!==childId
@@ -123,6 +125,7 @@
       hasMore:history.hasMore,complete:history.complete
     }),
     livePurchases:Object.freeze(currentPurchases.slice()),
+    liveUses:Object.freeze(currentUses.slice()),
     legacyPurchasesAppliedToInventory:false
    });
   }

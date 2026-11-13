@@ -90,6 +90,12 @@
     if(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
       ||!fresh.inventory||!fresh.revisions)
      return ret('PRIMARY_FRESH_STOCK_UNVERIFIED');
+    if(action==='consume'
+      &&(!SIZES.includes(value?.size)
+       ||!Number.isSafeInteger(value?.count)||value.count<1
+       ||!Number.isSafeInteger(fresh.inventory[value.size])
+       ||fresh.inventory[value.size]<value.count))
+     return ret('PRIMARY_INSUFFICIENT_STOCK');
     if(action==='stocktake'&&fresh.inventory[value?.size]===value?.count)
      return ret('PRIMARY_STOCK_UNCHANGED');
     const operation=input(action,value,scope,fresh.revisions);

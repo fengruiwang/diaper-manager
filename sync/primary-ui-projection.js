@@ -15,7 +15,8 @@
     ||!object(view.settings)||!object(view.profileData)
     ||!object(view.profileData.babyProfile)
     ||!object(view.legacyHistory)||!Array.isArray(view.legacyHistory.rows)
-    ||!Array.isArray(view.livePurchases))
+    ||!Array.isArray(view.livePurchases)
+    ||(view.liveUses!==undefined&&!Array.isArray(view.liveUses)))
    fail('unverified_read_model');
   if(view.legacyHistory.hasMore===true
     ||view.legacyHistory.rows.length!==view.legacyHistory.total)
@@ -66,6 +67,24 @@
     series:row.series,size:row.size,pieces:row.pieces,
     price:row.totalFen/100,operationId:row.operationId,
     reversed:row.reversed===true,origin:'cloud_post_migration'
+   });
+  }
+  // Current cloud consumption events are display-only; stock is the separately
+  // verified authoritative six-size snapshot, not a sum of transactions.
+  for(const row of view.liveUses||[]){
+   if(!row||typeof row.operationId!=='string'||!row.operationId
+     ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
+     ||row.pieces<1||row.pieces>100000
+     ||typeof row.occurredAt!=='string'
+     ||!Number.isFinite(Date.parse(row.occurredAt)))
+    fail('invalid_post_migration_use');
+   const id='cloud:'+row.operationId;
+   if(seen.has('transaction:'+id))fail('duplicate_history');
+   seen.add('transaction:'+id);
+   state.transactions.push({
+    id,type:'use',date:row.occurredAt.slice(0,10),size:row.size,
+    pieces:row.pieces,price:0,operationId:row.operationId,
+    origin:'cloud_post_migration'
    });
   }
   return Object.freeze({

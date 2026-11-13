@@ -1745,6 +1745,31 @@ restoreActiveTab();
     };
    });
   }
+  // The existing family RLS policy grants SELECT on operation receipts.
+  // Only 'use' rows are projected; migration baselines are never replayed.
+  async function readUses({familyId,childId}={}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   await checkSession();
+   const response=await db.from('xb_inventory_operations')
+    .select('operation_id,kind,size,delta,occurred_at,actor_uid')
+    .eq('family_id',family).eq('child_id',child).eq('kind','use');
+   if(response?.error)safeRpcError(response.error);
+   if(!Array.isArray(response?.data))fail('invalid_use_rows');
+   const seen=new Set();
+   return response.data.map(row=>{
+    if(!row||!UUID.test(String(row.operation_id))
+      ||seen.has(row.operation_id)||row.kind!=='use'||!SIZES.has(row.size)
+      ||!Number.isSafeInteger(row.delta)||row.delta>=0
+      ||row.delta< -100000
+      ||typeof row.occurred_at!=='string'
+      ||!Number.isFinite(Date.parse(row.occurred_at))
+      ||typeof row.actor_uid!=='string'||!row.actor_uid)
+     fail('invalid_use_rows');
+    seen.add(row.operation_id);
+    return Object.freeze({operationId:row.operation_id,size:row.size,
+     pieces:-row.delta,occurredAt:row.occurred_at,actorUid:row.actor_uid});
+   });
+  }
   async function readInventory({familyId,childId}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
    await checkSession();
@@ -1761,7 +1786,7 @@ restoreActiveTab();
      updatedAt:row.updated_at};
    });
   }
-  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases,readReconciliation});
+  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases,readUses,readReconciliation});
  }
  const api=Object.freeze({create});
  if(root)root.XBInventoryClient=api;
@@ -2876,13 +2901,15 @@ restoreActiveTab();
    if(before.complete!==true||before.actorUid!==actorUid
       ||before.familyId!==familyId||before.childId!==childId)
     fail('server_scope_unverified');
-   const [currentPurchases,profileQuery]=await Promise.all([
+   const [currentPurchases,currentUses,profileQuery]=await Promise.all([
     inventory.readPurchases(scope),
+    inventory.readUses(scope),
     app.rdb().from('xb_baby_profiles')
      .select('family_id,child_id,profile_data')
      .eq('family_id',familyId).eq('child_id',childId).limit(2)
    ]);
    if(!Array.isArray(currentPurchases))fail('current_purchases_unverified');
+   if(!Array.isArray(currentUses))fail('current_uses_unverified');
    const after=await inventory.readReconciliation({...scope,operationIds:[]});
    if(after.complete!==true||after.actorUid!==actorUid
      ||after.familyId!==familyId||after.childId!==childId
@@ -2914,6 +2941,7 @@ restoreActiveTab();
       hasMore:history.hasMore,complete:history.complete
     }),
     livePurchases:Object.freeze(currentPurchases.slice()),
+    liveUses:Object.freeze(currentUses.slice()),
     legacyPurchasesAppliedToInventory:false
    });
   }
@@ -2943,7 +2971,8 @@ restoreActiveTab();
     ||!object(view.settings)||!object(view.profileData)
     ||!object(view.profileData.babyProfile)
     ||!object(view.legacyHistory)||!Array.isArray(view.legacyHistory.rows)
-    ||!Array.isArray(view.livePurchases))
+    ||!Array.isArray(view.livePurchases)
+    ||(view.liveUses!==undefined&&!Array.isArray(view.liveUses)))
    fail('unverified_read_model');
   if(view.legacyHistory.hasMore===true
     ||view.legacyHistory.rows.length!==view.legacyHistory.total)
@@ -2994,6 +3023,24 @@ restoreActiveTab();
     series:row.series,size:row.size,pieces:row.pieces,
     price:row.totalFen/100,operationId:row.operationId,
     reversed:row.reversed===true,origin:'cloud_post_migration'
+   });
+  }
+  // Current cloud consumption events are display-only; stock is the separately
+  // verified authoritative six-size snapshot, not a sum of transactions.
+  for(const row of view.liveUses||[]){
+   if(!row||typeof row.operationId!=='string'||!row.operationId
+     ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
+     ||row.pieces<1||row.pieces>100000
+     ||typeof row.occurredAt!=='string'
+     ||!Number.isFinite(Date.parse(row.occurredAt)))
+    fail('invalid_post_migration_use');
+   const id='cloud:'+row.operationId;
+   if(seen.has('transaction:'+id))fail('duplicate_history');
+   seen.add('transaction:'+id);
+   state.transactions.push({
+    id,type:'use',date:row.occurredAt.slice(0,10),size:row.size,
+    pieces:row.pieces,price:0,operationId:row.operationId,
+    origin:'cloud_post_migration'
    });
   }
   return Object.freeze({
@@ -3430,6 +3477,12 @@ restoreActiveTab();
     if(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
       ||!fresh.inventory||!fresh.revisions)
      return ret('PRIMARY_FRESH_STOCK_UNVERIFIED');
+    if(action==='consume'
+      &&(!SIZES.includes(value?.size)
+       ||!Number.isSafeInteger(value?.count)||value.count<1
+       ||!Number.isSafeInteger(fresh.inventory[value.size])
+       ||fresh.inventory[value.size]<value.count))
+     return ret('PRIMARY_INSUFFICIENT_STOCK');
     if(action==='stocktake'&&fresh.inventory[value?.size]===value?.count)
      return ret('PRIMARY_STOCK_UNCHANGED');
     const operation=input(action,value,scope,fresh.revisions);

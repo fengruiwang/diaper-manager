@@ -167,6 +167,31 @@
     };
    });
   }
+  // The existing family RLS policy grants SELECT on operation receipts.
+  // Only 'use' rows are projected; migration baselines are never replayed.
+  async function readUses({familyId,childId}={}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   await checkSession();
+   const response=await db.from('xb_inventory_operations')
+    .select('operation_id,kind,size,delta,occurred_at,actor_uid')
+    .eq('family_id',family).eq('child_id',child).eq('kind','use');
+   if(response?.error)safeRpcError(response.error);
+   if(!Array.isArray(response?.data))fail('invalid_use_rows');
+   const seen=new Set();
+   return response.data.map(row=>{
+    if(!row||!UUID.test(String(row.operation_id))
+      ||seen.has(row.operation_id)||row.kind!=='use'||!SIZES.has(row.size)
+      ||!Number.isSafeInteger(row.delta)||row.delta>=0
+      ||row.delta< -100000
+      ||typeof row.occurred_at!=='string'
+      ||!Number.isFinite(Date.parse(row.occurred_at))
+      ||typeof row.actor_uid!=='string'||!row.actor_uid)
+     fail('invalid_use_rows');
+    seen.add(row.operation_id);
+    return Object.freeze({operationId:row.operation_id,size:row.size,
+     pieces:-row.delta,occurredAt:row.occurred_at,actorUid:row.actor_uid});
+   });
+  }
   async function readInventory({familyId,childId}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
    await checkSession();
@@ -183,7 +208,7 @@
      updatedAt:row.updated_at};
    });
   }
-  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases,readReconciliation});
+  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases,readUses,readReconciliation});
  }
  const api=Object.freeze({create});
  if(root)root.XBInventoryClient=api;
