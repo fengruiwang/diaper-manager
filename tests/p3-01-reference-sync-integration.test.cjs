@@ -154,6 +154,8 @@ function fixture({enabled=true,loseAck=false,hideReceipt=0}={}){
 }
 test('P3-01 original editor set -> durable request UUID -> 026 CAS -> receipt -> authoritative two-account read',async()=>{
  const f=fixture();
+ const direct=await f.readAs('dad');
+ assert.equal(direct.status,'PRIMARY_DOCUMENT_READ_VERIFIED',JSON.stringify({direct,calls:f.calls}));
  const r=await f.invoke();
  assert.equal(r.status,'REFERENCE_CLOUD_READBACK_VERIFIED');
  assert.equal(r.requestId,ID1);assert.equal(f.uuidCalls,1);
