@@ -8,6 +8,7 @@
 const FORMAL_WRITE_ENABLED=false;
 // Purchase release is prepared but OFF until separate operator authorization.
 const FORMAL_PURCHASE_ENABLED=false;
+const SIZES=['NB','S','M','L','XL','XXL'];
 const OTP_COOLDOWN_MS=60000;
 const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
 const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED','FORMAL_FAMILY_VERIFIED']);
@@ -41,6 +42,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let controller=null,primary=null,attached=null,pendingGuard=null,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
+ let shownStock=null;
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
@@ -129,7 +131,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   $('formalAccountState').textContent=next;
  }
  function clear(){
-  ui.clear();actor=null;family=null;primary=null;
+  ui.clear();actor=null;family=null;primary=null;shownStock=null;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentAttempt='';documentPending='';
   documentEpoch++;
@@ -178,7 +180,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   });
  }
  async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null,
-  expectedReverseId=null,expectedOriginalId=null}={}){
+  expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null}={}){
   if(busy)return mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
@@ -226,7 +228,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        .some(row=>row.operationId===expectedOriginalId
         &&row.reversed===true
         &&row.reversedByOperationId===expectedReverseId));
-   if(token!==revision)return mode;
+   const stocktakeAppears=expectedStocktake===null
+     ||(expectedStocktake&&SIZES.includes(expectedStocktake.size)
+       &&verified?.inventory?.[expectedStocktake.size]===expectedStocktake.count
+       &&Number.isSafeInteger(verified?.revisions?.[expectedStocktake.size])
+       &&verified.revisions[expectedStocktake.size]>expectedStocktake.expectedRevision);
+    if(token!==revision)return mode;
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
     clear();screen('unverified',notes[verified?.status]||
@@ -281,19 +288,22 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      }
      attached=actionsFactory.create({
       primary:p,commands,documentCommands,
-      batchStocktake:batchGuard,
-      createBatchId:()=>host.crypto.randomUUID(),
+      // Draft batch RPC is not enabled for P2-04.
+      batchStocktake:null,
       readDocumentInput:el=>root.XBFormalUIData.documentAction(el),
       prepareQuoteEdit:id=>root.XBFormalUIData.prepareQuoteEdit(id),
       buildAllowsWrites:purchaseReleaseEnabled===true,
       operatorApproved:()=>purchaseReleaseEnabled===true
        &&purchaseOperatorApproved()===true,
       purchaseOnly:true,allowConsume:true,allowReverse:true,
-      onPurchaseReadback:({operationId,kind,reversesOperationId})=>restore({
+      allowStocktake:true,readStocktakeBaseline:()=>mode==='ready'?shownStock:null,
+      onPurchaseReadback:({operationId,kind,reversesOperationId,
+       size,count,expectedRevision})=>restore({
        expectedPurchaseId:kind==='buy'?operationId:null,
        expectedUseId:kind==='use'?operationId:null,
        expectedReverseId:kind==='reverse'?operationId:null,
-       expectedOriginalId:kind==='reverse'?reversesOperationId:null
+       expectedOriginalId:kind==='reverse'?reversesOperationId:null,
+       expectedStocktake:kind==='stocktake'?{size,count,expectedRevision}:null
       }),
       formalModeSelected:()=>mode==='ready',
       readPurchase:()=>root.XBFormalUIData.purchase(),
@@ -301,11 +311,17 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       readTransaction:id=>root.XBFormalUIData.transaction(id),
       notify:answer=>{
        $('formalSyncState').textContent=
-        ['PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+        answer?.status==='PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'
+         ?'单尺码盘点已保存，六尺码云端库存已重新读取。'
+         :answer?.status==='MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED'
+         ?'本阶段一次只能保存一个尺码，请只修改一个尺码后重试；未保存任何修改。'
+         :answer?.status==='PRIMARY_STOCK_REVISION_CONFLICT'
+         ?'库存版本已更新，请刷新后重新盘点；未覆盖另一设备的库存。'
+         :['PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_USE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
          ?'云端采购、消耗或撤销已确认，正式库存及记录已重新读取。'
-         :'采购操作状态：'+String(answer?.status||'UNVERIFIED')
+         :'云端操作状态：'+String(answer?.status||'UNVERIFIED')
           +(purchaseReleaseEnabled===true?'；请核查原操作 ID。':
            '；正式写入尚未授权。');
       }
@@ -314,6 +330,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }
    // Do not wait for an additional getSession() call after showing UI.
    ui.show(data);
+   shownStock=Object.freeze({
+    inventory:Object.freeze({...verified.inventory}),
+    revisions:Object.freeze({...verified.revisions})
+   });
    actor=ctx.actorUid;family=ctx.familyId;
    $('formalCurrentAccount').textContent=ctx.actorUid;
    $('formalCurrentFamily').textContent=ctx.familyId;
@@ -335,7 +355,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
    return !purchaseAppears?'PRIMARY_PURCHASE_READBACK_PENDING':
     !useAppears?'PRIMARY_USE_READBACK_PENDING':
-    !reversedAppears?'PRIMARY_REVERSE_READBACK_PENDING':mode;
+    !reversedAppears?'PRIMARY_REVERSE_READBACK_PENDING':
+    !stocktakeAppears?'PRIMARY_STOCKTAKE_READBACK_PENDING':mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
@@ -430,10 +451,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   on('formalRefresh',restore);
-  // Inventory-ledger retry only (buy/use/reverse); no stocktake or documents.
+  // Inventory-ledger retry only (buy/use/reverse/one-size stocktake).
   if(purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true){
    $('formalSyncNow').disabled=false;
-   $('formalSyncNow').textContent='重新提交待确认采购/消耗/撤销';
+   $('formalSyncNow').textContent='重新提交待确认库存操作';
   }
   on('formalSyncNow',async()=>{
    if(purchaseReleaseEnabled!==true||purchaseOperatorApproved()!==true){
@@ -530,7 +551,8 @@ function browserStart(){
    runnerFactory:root.XBInventoryOutboxRunner,
    syncFactory:root.XBInventorySyncReader,
    cloudWritesEnabled:cloudWritesEnabled===true,
-   purchaseOnly:true,allowConsume:true,allowReverse:true
+   purchaseOnly:true,allowConsume:true,allowReverse:true,
+    allowStocktake:true
   }),
   commandsFactory:root.XBPrimaryBusinessCommands,
   actionsFactory:root.XBPrimaryFormalUIActions

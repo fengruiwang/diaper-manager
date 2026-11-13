@@ -95,6 +95,11 @@
       &&(!Number.isSafeInteger(fresh.inventory[value.size])
        ||fresh.inventory[value.size]<value.count))
      return ret('PRIMARY_INSUFFICIENT_STOCK');
+    // An old form revision must not silently adopt newer cloud stock.
+    if(action==='stocktake'&&value
+      &&Object.prototype.hasOwnProperty.call(value,'expectedRevision')
+      &&value.expectedRevision!==fresh.revisions[value.size])
+     return ret('PRIMARY_STOCK_REVISION_CONFLICT');
     if(action==='stocktake'&&fresh.inventory[value?.size]===value?.count)
      return ret('PRIMARY_STOCK_UNCHANGED');
     const operation=input(action,value,scope,fresh.revisions);

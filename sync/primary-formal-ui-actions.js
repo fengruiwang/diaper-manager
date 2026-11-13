@@ -20,7 +20,8 @@
   operatorApproved=()=>false,documentCommands=null,
   readDocumentInput=null,prepareQuoteEdit=null,
   batchStocktake=null,createBatchId=null,
-  purchaseOnly=false,allowConsume=false,allowReverse=false,onPurchaseReadback=null}={}){
+  purchaseOnly=false,allowConsume=false,allowReverse=false,
+  allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -37,9 +38,12 @@
     if(purchaseOnly!==true
       ||(action!=='purchase'
        &&!(allowConsume===true&&action==='consume')
-       &&!(allowReverse===true&&action==='reverse')))
+       &&!(allowReverse===true&&action==='reverse')
+       &&!(allowStocktake===true&&action==='stocktake')))
      return queued;
-    const isUse=action==='consume',isReverse=action==='reverse';
+    const statusPrefix=action==='consume'?'PRIMARY_USE':
+     action==='reverse'?'PRIMARY_REVERSE':
+     action==='stocktake'?'PRIMARY_STOCKTAKE':'PRIMARY_PURCHASE';
     if(!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued?.status))
      return queued;
@@ -47,36 +51,39 @@
     let synced;
     try{synced=await primary.flush({operatorApproved:true});}
     catch(_){
-     return Object.freeze({status:isReverse?'PRIMARY_REVERSE_PENDING_REVIEW':
-       isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
+     return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     }
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
-     return Object.freeze({status:isReverse?'PRIMARY_REVERSE_PENDING_REVIEW':
-       isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
+     return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
      const visible=typeof onPurchaseReadback==='function'
       ?await onPurchaseReadback({operationId:queued.operationId,
-         kind:isReverse?'reverse':isUse?'use':'buy',
-         reversesOperationId:isReverse?value?.reversesOperationId:null}):null;
+         kind:action==='consume'?'use':action==='purchase'?'buy':action,
+         reversesOperationId:action==='reverse'?value?.reversesOperationId:null,
+         size:action==='stocktake'?value?.size:null,
+         count:action==='stocktake'?value?.count:null,
+         expectedRevision:action==='stocktake'?value?.expectedRevision:null}):null;
      if(visible==='ready')
-      return Object.freeze({status:isReverse?'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED':
-        isUse?'PRIMARY_USE_CLOUD_READBACK_VERIFIED':'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+      return Object.freeze({status:statusPrefix+'_CLOUD_READBACK_VERIFIED',
        operationId:queued.operationId,cloudWriteCommitted:true});
     }catch(_){}
-    return Object.freeze({status:isReverse?'PRIMARY_REVERSE_COMMITTED_READBACK_REQUIRED':
-      isUse?'PRIMARY_USE_COMMITTED_READBACK_REQUIRED':'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
+    return Object.freeze({status:statusPrefix+'_COMMITTED_READBACK_REQUIRED',
      operationId:queued.operationId,cloudWriteCommitted:true});
    }catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
   }
   async function readStocktakeInputs(doc){
+   const displayed=typeof readStocktakeBaseline==='function'
+    ?readStocktakeBaseline():null;
+   if(allowStocktake===true&&(!displayed?.inventory||!displayed?.revisions))
+    return result('PRIMARY_STOCK_BASELINE_UNVERIFIED');
    const read=await primary.read();
    if(read?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
      ||!read.inventory||!read.revisions)
     return result('PRIMARY_STOCK_UNVERIFIED');
-   const changed=[];
+   const baseline=displayed||read,changed=[];
    for(const size of SIZES){
     const field=doc.getElementById('inv_'+size);
     if(!field||typeof field.value!=='string'||field.value.trim()==='')
@@ -85,16 +92,18 @@
     if(!Number.isSafeInteger(n)||n<0||n>100000)
      return result('STOCK_FORM_INVALID');
     if(!Number.isSafeInteger(read.inventory[size])
-      ||!Number.isSafeInteger(read.revisions[size]))
+      ||!Number.isSafeInteger(read.revisions[size])
+      ||!Number.isSafeInteger(baseline.inventory[size])
+      ||!Number.isSafeInteger(baseline.revisions[size]))
      return result('PRIMARY_STOCK_UNVERIFIED');
-    if(n!==read.inventory[size])changed.push({size,count:n});
+    if(n!==baseline.inventory[size])changed.push({size,count:n});
    }
    if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
-   // Entire original stock editor must be all-or-none. If multiple sizes
-   // differ, use 027 one SQL transaction with one durable batch UUID. Never
-   // submit six separate 009 stocktakes that might partially succeed.
+   // Six-size editor remains all-or-none. P2-04 permits only one changed
+   // size; optional 027 batch support is reserved for a later release.
    if(changed.length>1){
-    if(!batchStocktake?.queue||typeof createBatchId!=='function')
+    if(allowStocktake===true||!batchStocktake?.queue
+      ||typeof createBatchId!=='function')
      return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
     const items=changed.map(x=>({...x,
      expectedRevision:read.revisions[x.size]}));
@@ -102,7 +111,12 @@
      items,batchId:createBatchId(),operatorApproved:true
     });
    }
-   return invoke('stocktake',changed[0]);
+   const item=changed[0];
+   if(read.revisions[item.size]!==baseline.revisions[item.size]
+      ||read.inventory[item.size]!==baseline.inventory[item.size])
+    return result('PRIMARY_STOCK_REVISION_CONFLICT');
+   return invoke('stocktake',displayed?
+    {...item,expectedRevision:baseline.revisions[item.size]}:item);
   }
   async function handle(el,doc){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
@@ -110,7 +124,8 @@
    const action=el.dataset?.action;
    if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
      &&!(allowConsume===true&&action==='consume')
-     &&!(allowReverse===true&&action==='deletetx'))
+     &&!(allowReverse===true&&action==='deletetx')
+     &&!(allowStocktake===true&&el.id==='saveStocks'))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
