@@ -17,7 +17,7 @@
  function create({controller,host,accessPreflight,childReader,scopeGuard,
   legacyHistoryReader,inventoryClient,outboxFactory,outboxContract,
   inventoryProjection,inventoryReconciler,runnerFactory,syncFactory,
-  cloudWritesEnabled=false}={}){
+  cloudWritesEnabled=false,purchaseOnly=false}={}){
   if(!controller?.verifiedContext||!accessPreflight?.create
     ||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget
     ||!legacyHistoryReader?.create||!inventoryClient?.create
@@ -193,6 +193,9 @@
    busy=true;
    try{
     const scope=await current();
+    if(purchaseOnly===true&&(op?.type!=='inventory.delta'
+      ||op?.payload?.kind!=='buy'))
+     return result('FORMAL_PURCHASE_ONLY');
     if(!op||!TYPES.has(op.type)||!UUID.test(op.id)
       ||op.familyId!==scope.familyId||op.actorUid!==scope.actorUid
       ||op.payload?.childId!==scope.childId)
@@ -234,7 +237,8 @@
     await authInitialized();
     const remote=inventoryClient.create(scope.app);
     const runner=runnerFactory.create({outbox,remote,verifyAccess:authInitialized});
-    const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20});
+    const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20,
+     purchaseOnly:purchaseOnly===true});
     if(!sent||['manual-review-required','permission-denied','auth-required',
       'network-or-server-failure','unsupported-pending-type']
       .includes(sent.status))

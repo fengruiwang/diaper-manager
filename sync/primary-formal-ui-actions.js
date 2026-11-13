@@ -19,7 +19,8 @@
   notify,formalModeSelected,buildAllowsWrites=false,
   operatorApproved=()=>false,documentCommands=null,
   readDocumentInput=null,prepareQuoteEdit=null,
-  batchStocktake=null,createBatchId=null}={}){
+  batchStocktake=null,createBatchId=null,
+  purchaseOnly=false,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -31,8 +32,27 @@
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(busy)return result('BUSY');
    busy=true;
-   try{return await commands.submit(action,value,{operatorApproved:true});}
-   catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
+   try{
+    const queued=await commands.submit(action,value,{operatorApproved:true});
+    if(action!=='purchase'||purchaseOnly!==true)return queued;
+    if(!['PRIMARY_OPERATION_DURABLY_QUEUED',
+      'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued?.status))
+     return queued;
+    // RPC retries reuse the same durable UUID; never create a second buy.
+    const synced=await primary.flush({operatorApproved:true});
+    if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
+     return Object.freeze({status:'PRIMARY_PURCHASE_PENDING_REVIEW',
+      operationId:queued.operationId,cloudWriteCommitted:false});
+    try{
+     const visible=typeof onPurchaseReadback==='function'
+      ?await onPurchaseReadback():null;
+     if(visible==='ready')
+      return Object.freeze({status:'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+       operationId:queued.operationId,cloudWriteCommitted:true});
+    }catch(_){}
+    return Object.freeze({status:'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
+     operationId:queued.operationId,cloudWriteCommitted:true});
+   }catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
   }
   async function readStocktakeInputs(doc){
@@ -72,6 +92,8 @@
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
+   if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote')
+    return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
    if(action==='buyquote'){
@@ -113,7 +135,7 @@
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
-      'formalConfirmOtp','closeRefEditor','cancelEditedReference',
+      'formalConfirmOtp','formalSyncNow','closeRefEditor','cancelEditedReference',
       'cancelWeight']);
     const allowedActions=new Set(['go','editstock','series','pickref','editref','editweight']);
     if(el.classList?.contains('tab')||allowedIds.has(el.id)

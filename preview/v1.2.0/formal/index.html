@@ -2495,7 +2495,7 @@ restoreActiveTab();
    if(p.kind!=='buy'&&p.kind!=='use')throw Error('replay:invalid_inventory_delta');
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
-  async function flush(scope,{uploadEnabled=false,maxItems=20}={}){
+  async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -2518,6 +2518,11 @@ restoreActiveTab();
     return {status:'family-not-initialized',attempted:0,accepted:0,remaining:null};
 
    const queued=await outbox.ready(scope);
+   // A purchase-only release must not dispatch pre-existing non-buy operations.
+   if(purchaseOnly===true&&queued.some(op=>op?.type!=='inventory.delta'
+     ||op?.payload?.kind!=='buy'))
+    return {status:'unsupported-pending-type',attempted:0,accepted:0,
+     remaining:queued.length};
    let accepted=0,attempted=0,status='awaiting-reconciliation';
    for(const op of queued.slice(0,maxItems)){
     if(op.familyId!==scope.familyId||op.actorUid!==scope.actorUid)
@@ -3066,7 +3071,7 @@ restoreActiveTab();
  function create({controller,host,accessPreflight,childReader,scopeGuard,
   legacyHistoryReader,inventoryClient,outboxFactory,outboxContract,
   inventoryProjection,inventoryReconciler,runnerFactory,syncFactory,
-  cloudWritesEnabled=false}={}){
+  cloudWritesEnabled=false,purchaseOnly=false}={}){
   if(!controller?.verifiedContext||!accessPreflight?.create
     ||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget
     ||!legacyHistoryReader?.create||!inventoryClient?.create
@@ -3242,6 +3247,9 @@ restoreActiveTab();
    busy=true;
    try{
     const scope=await current();
+    if(purchaseOnly===true&&(op?.type!=='inventory.delta'
+      ||op?.payload?.kind!=='buy'))
+     return result('FORMAL_PURCHASE_ONLY');
     if(!op||!TYPES.has(op.type)||!UUID.test(op.id)
       ||op.familyId!==scope.familyId||op.actorUid!==scope.actorUid
       ||op.payload?.childId!==scope.childId)
@@ -3283,7 +3291,8 @@ restoreActiveTab();
     await authInitialized();
     const remote=inventoryClient.create(scope.app);
     const runner=runnerFactory.create({outbox,remote,verifyAccess:authInitialized});
-    const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20});
+    const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20,
+     purchaseOnly:purchaseOnly===true});
     if(!sent||['manual-review-required','permission-denied','auth-required',
       'network-or-server-failure','unsupported-pending-type']
       .includes(sent.status))
@@ -3465,7 +3474,8 @@ restoreActiveTab();
   notify,formalModeSelected,buildAllowsWrites=false,
   operatorApproved=()=>false,documentCommands=null,
   readDocumentInput=null,prepareQuoteEdit=null,
-  batchStocktake=null,createBatchId=null}={}){
+  batchStocktake=null,createBatchId=null,
+  purchaseOnly=false,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -3477,8 +3487,27 @@ restoreActiveTab();
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(busy)return result('BUSY');
    busy=true;
-   try{return await commands.submit(action,value,{operatorApproved:true});}
-   catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
+   try{
+    const queued=await commands.submit(action,value,{operatorApproved:true});
+    if(action!=='purchase'||purchaseOnly!==true)return queued;
+    if(!['PRIMARY_OPERATION_DURABLY_QUEUED',
+      'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued?.status))
+     return queued;
+    // RPC retries reuse the same durable UUID; never create a second buy.
+    const synced=await primary.flush({operatorApproved:true});
+    if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
+     return Object.freeze({status:'PRIMARY_PURCHASE_PENDING_REVIEW',
+      operationId:queued.operationId,cloudWriteCommitted:false});
+    try{
+     const visible=typeof onPurchaseReadback==='function'
+      ?await onPurchaseReadback():null;
+     if(visible==='ready')
+      return Object.freeze({status:'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+       operationId:queued.operationId,cloudWriteCommitted:true});
+    }catch(_){}
+    return Object.freeze({status:'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
+     operationId:queued.operationId,cloudWriteCommitted:true});
+   }catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
   }
   async function readStocktakeInputs(doc){
@@ -3518,6 +3547,8 @@ restoreActiveTab();
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
+   if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote')
+    return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
    if(action==='buyquote'){
@@ -3559,7 +3590,7 @@ restoreActiveTab();
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
-      'formalConfirmOtp','closeRefEditor','cancelEditedReference',
+      'formalConfirmOtp','formalSyncNow','closeRefEditor','cancelEditedReference',
       'cancelWeight']);
     const allowedActions=new Set(['go','editstock','series','pickref','editref','editweight']);
     if(el.classList?.contains('tab')||allowedIds.has(el.id)
