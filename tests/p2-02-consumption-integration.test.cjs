@@ -240,3 +240,10 @@ test('P2-02 both release switches remain off; server grants unchanged',()=>{
  assert.match(schema,/GRANT SELECT ON public.xb_children/);
  assert.match(schema,/xb_inventory_ops_family_read/);
 });
+
+test('P2-02 formal five-tab history distinguishes live uses from post-migration buys',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const html=fs.readFileSync(path.join(__dirname,
+  '../preview/v1.2.0/formal/index.html'),'utf8');
+ assert.ok(html.includes("t.type==='use'?'迁移后云端消耗':'迁移后云端采购'"));
+});
