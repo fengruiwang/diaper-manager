@@ -315,7 +315,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       allowReference:true,
       readReferenceBaseline:()=>mode==='ready'
        &&documentSnapshot&&documentScope===actor+'\x00'+family
-       ?documentSnapshot.documents?.reference:null,
+       ?{...documentSnapshot.documents?.reference,
+         actorUid:actor}:null,
       onReferenceReadback:async({requestId,record,action,expectedRevision})=>{
        const current=controller.verifiedContext();
        if(!current||!documentsClient||!documentsGuard

@@ -168,7 +168,9 @@
     // on this account. Never silently use a newly advanced revision.
     const baseline=typeof readReferenceBaseline==='function'
      ?readReferenceBaseline():null;
-    if(!baseline||!Number.isSafeInteger(baseline.revision)
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)
       ||baseline.revision<0||!baseline.body?.referenceOverrides)
      return result('REFERENCE_DISPLAYED_BASELINE_REQUIRED');
     const input=readDocumentInput(el,doc);
@@ -176,7 +178,8 @@
       ||typeof input.record?.key!=='string'||!input.record.key)
      return result('REFERENCE_FORM_INVALID');
     const saved=await documentCommands.submit({
-     ...input,expectedRevision:baseline.revision,operatorApproved:true
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
     });
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('REFERENCE_COMMAND_UNVERIFIED');

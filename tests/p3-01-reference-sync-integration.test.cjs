@@ -76,7 +76,7 @@ function fixture({enabled=true,loseAck=false,hideReceipt=0}={}){
    cloudWritesEnabled:enabled});
  }
  const scope={familyId:F,actorUid:'dad'};
- let shown={kind:'reference',revision:0,
+ let shown={kind:'reference',revision:0,familyId:F,actorUid:'dad',
   body:JSON.parse(JSON.stringify(doc))};
  const outbox={
   async enqueue(op){assert.equal(op.type,'reference.patch');
@@ -133,7 +133,7 @@ function fixture({enabled=true,loseAck=false,hideReceipt=0}={}){
     return 'pending';
    if(action==='reset'&&Object.hasOwn(fresh.body.referenceOverrides,record.key))
     return 'pending';
-   shown=fresh;return 'ready';
+   shown={...fresh,actorUid:'dad'};return 'ready';
   }
  });
  const invoke=(id='saveEditedReference',action='')=>ui.handle({
