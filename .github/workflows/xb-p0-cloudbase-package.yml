@@ -1,0 +1,40 @@
+name: XiaoBao P0 CloudBase upload package
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+    paths:
+      - 'deploy/xb-test/formal/**'
+      - '.github/workflows/xb-p0-cloudbase-package.yml'
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify upload layout, script references and unchanged login modules
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          base=Path('deploy/xb-test/formal')
+          html=(base/'index.html').read_text('utf-8')
+          assert 'src="./m1-controller.js?v=66cc98c"' in html
+          assert 'src="./formal-controller.js?v=66cc98c"' in html
+          assert 'name="xiaobao-p0-source-sha"' in html
+          assert (base/'m1-controller.js').read_bytes()==Path('preview/v1.2.0/m1-controller.js').read_bytes()
+          assert (base/'formal-controller.js').read_bytes()==Path('preview/v1.2.0/formal-controller.js').read_bytes()
+          assert 'const FORMAL_WRITE_ENABLED=false' in (base/'formal-controller.js').read_text('utf-8')
+          assert 'const ENV_ID=' in (base/'m1-controller.js').read_text('utf-8')
+          print('P0_CLOUDBASE_PACKAGE_PASS')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-P0-CloudBase-66cc98c
+          path: |
+            deploy/xb-test/formal/index.html
+            deploy/xb-test/formal/m1-controller.js
+            deploy/xb-test/formal/formal-controller.js
+            deploy/xb-test/formal/README_UPLOAD.txt
+          if-no-files-found: error
+          retention-days: 30
