@@ -220,3 +220,23 @@ test('P2-01 only a verified cloud purchase operation ID may complete UI readback
  assert.equal(await app.restore({expectedPurchaseId:ID}),'ready');
  assert.equal(doc.body.dataset.formalState,'ready');
 });
+
+test('P2-01 unknown RPC acknowledgment retains original purchase UUID for manual retry',async()=>{
+ const seen=[];
+ const commands={submit:async(action)=>{
+  seen.push(action);return{status:'PRIMARY_OPERATION_DURABLY_QUEUED',
+   operationId:ID,cloudWriteCommitted:false};
+ }};
+ const actions=Actions.create({commands,
+  primary:{read:async()=>({}),flush:async()=>{throw Error('network dropped ACK')}},
+  formalModeSelected:()=>true,buildAllowsWrites:true,
+  operatorApproved:()=>true,purchaseOnly:true,
+  onPurchaseReadback:async()=>{throw Error('must not read back before ACK')},
+  readPurchase:()=>({brand:'好奇',series:'小森林',size:'S',pieces:60,price:99.95}),
+  readQuote:()=>null,readTransaction:()=>null,notify:()=>{}});
+ const result=await actions.handle({id:'buyNow',dataset:{}},{});
+ assert.equal(result.status,'PRIMARY_PURCHASE_PENDING_REVIEW');
+ assert.equal(result.operationId,ID);
+ assert.equal(result.cloudWriteCommitted,false);
+ assert.deepEqual(seen,['purchase']);
+});

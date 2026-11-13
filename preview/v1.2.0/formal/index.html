@@ -3494,7 +3494,12 @@ restoreActiveTab();
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued?.status))
      return queued;
     // RPC retries reuse the same durable UUID; never create a second buy.
-    const synced=await primary.flush({operatorApproved:true});
+    let synced;
+    try{synced=await primary.flush({operatorApproved:true});}
+    catch(_){
+     return Object.freeze({status:'PRIMARY_PURCHASE_PENDING_REVIEW',
+      operationId:queued.operationId,cloudWriteCommitted:false});
+    }
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
      return Object.freeze({status:'PRIMARY_PURCHASE_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
