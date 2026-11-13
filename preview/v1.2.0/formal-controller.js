@@ -8,7 +8,7 @@
 const FORMAL_WRITE_ENABLED=false;
 const OTP_COOLDOWN_MS=60000;
 const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
-const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED']);
+const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED','FORMAL_FAMILY_VERIFIED']);
 const notes={
  LOGIN_REQUIRED:'首次使用请邮箱验证码登录；后续使用 CloudBase 已保持的会话。',
  OFFLINE_LOCAL_ONLY:'当前离线，未清除登录会话。请联网后重试。',
@@ -37,7 +37,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let controller=null,primary=null,attached=null,pendingGuard=null,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
- let otpSending=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
+ let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
  let documentSnapshot=null,documentScope='',documentAttempt='',documentPending='';
@@ -69,6 +69,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   if(otpTimer!==null&&typeof host.clearInterval==='function'){
    host.clearInterval(otpTimer);otpTimer=null;
   }
+ }
+ function redrawConfirmButton(){
+  const b=$('formalConfirmOtp');
+  b.disabled=otpConfirming;
+  b.textContent=otpConfirming?'正在验证，请稍候…':'登录并进入小宝管家';
  }
  function startOtpTicker(){
   redrawOtpButton();
@@ -168,18 +173,21 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(documentPending===scopeKey)documentPending='';
   });
  }
- async function restore(){
+ async function restore({verifiedStatus=null}={}){
   if(busy)return mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
   // A real identity, permission or primary failure still clears it below.
-  if(mode!=='ready')screen('boot','正在恢复登录会话并重新验证家庭授权…');
+  if(mode!=='ready'&&mode!=='boot')screen('boot','正在打开小宝管家…');
   if(host.navigator?.onLine===false){
    clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);
    busy=false;return mode;
   }
   try{
-   const status=await bounded(()=>controller.connect(),10000);
+   // Reuse the just-confirmed session/family only for OTP; every new reload
+   // still verifies afresh. Formal primary, receipt and RLS remain checked.
+   const status=validLogin.has(verifiedStatus)&&controller.verifiedContext()
+    ?verifiedStatus:await bounded(()=>controller.connect(),18000);
    if(token!==revision)return mode;
    if(status==='LOGIN_REQUIRED'){
     clear();screen('login',notes.LOGIN_REQUIRED);return mode;
@@ -195,7 +203,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(actor!==ctx.actorUid||family!==ctx.familyId)clear();
    const verified=await bounded(()=>readModelFactory(ctx.app).read({
     familyId:ctx.familyId,actorUid:ctx.actorUid,limit:50
-   }),15000);
+   }),20000);
    if(token!==revision)return mode;
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
@@ -221,7 +229,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    // An authenticated, receipt-backed primary is required for outbox setup.
    if(!primary){
     const p=primaryFactory({controller,host});
-    const activation=await bounded(()=>p.activate(),12000);
+    const activation=await bounded(()=>p.activate(),16000);
     if(activation.status!=='PRIMARY_OUTBOX_READ_ONLY_READY')
      throw Error('formal_entry:primary_outbox_unverified');
     primary=p;pendingGuard=p;
@@ -324,25 +332,51 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   return result;
  }
  async function confirmOtp(){
-  const code=$('formalOtp').value.trim();$('formalOtp').value='';
-  const result=await controller.confirmOtp(code);
-  if(result==='OTP_INVALID_OR_EXPIRED'||result==='CONFIG_REQUIRED'){
-   $('formalLoginMessage').textContent=result==='OTP_INVALID_OR_EXPIRED'?
-    '验证码不正确或已过期。':'登录配置未就绪，请刷新后重试。';
-   return;
+  if(otpConfirming)return 'OTP_VERIFY_BUSY';
+  const input=$('formalOtp'),code=input.value.trim();
+  if(!code){
+   $('formalLoginMessage').textContent='请输入邮件中的验证码。';
+   return 'OTP_CODE_REQUIRED';
   }
-  // Successful OTP can lead to a verified session but a family/primary
-  // that is not yet provisioned. Those are NOT invalid-login outcomes.
-  // Re-check the actual SDK session and scopes rather than expecting a
-  // single "CLOUD_READ_ONLY_CONNECTED" success code.
-  await restore();
+  otpConfirming=true;redrawConfirmButton();
+  $('formalLoginMessage').textContent='正在验证，请稍候…';
+  try{
+   const result=await bounded(()=>controller.confirmOtp(code),30000);
+   if(result==='OTP_INVALID_OR_EXPIRED'){
+    $('formalLoginMessage').textContent='验证码不正确或已过期，请检查后重新输入。';
+    return result;
+   }
+   if(result==='OTP_VERIFY_FAILED'){
+    $('formalLoginMessage').textContent='验证请求失败，请检查网络后重试；已保留验证码。';
+    return result;
+   }
+   if(result==='CONFIG_REQUIRED'){
+    $('formalLoginMessage').textContent='登录配置暂不可用，请刷新页面重试。';
+    return result;
+   }
+   if(validLogin.has(result)&&controller.verifiedContext()){
+    const next=await restore({verifiedStatus:result});
+    if(next==='ready'){
+     input.value='';$('formalLoginMessage').textContent='';
+    }else if(next==='unverified'){
+     $('formalLoginMessage').textContent='登录可能已成功，但数据暂时无法核验，请重新检查。';
+    }
+    return next;
+   }
+   $('formalLoginMessage').textContent='会话尚未确认，请检查网络后重新检查。';
+   return result;
+  }catch(_){
+   $('formalLoginMessage').textContent='验证超时或网络异常，已保留验证码，请重试。';
+   return 'OTP_VERIFY_UNAVAILABLE';
+  }finally{otpConfirming=false;redrawConfirmButton();}
  }
  async function start(){
-  screen('boot','正在安全恢复 CloudBase 会话…');
+  screen('boot','正在打开小宝管家…');
   controller=loginController.create({
-   host,storage:null,view:authView(),scriptLoader
+   host,storage:null,view:authView(),scriptLoader,
+   deferChildReadToFormal:true
   });
-  restoreOtpCooldown();startOtpTicker();
+  restoreOtpCooldown();startOtpTicker();redrawConfirmButton();
   function on(id,fn){
    $(id).addEventListener('click',()=>{
     Promise.resolve().then(fn).catch(()=>{

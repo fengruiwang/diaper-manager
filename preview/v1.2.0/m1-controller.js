@@ -32,7 +32,7 @@
   if(!key||key.length>2048||/[\s<>"']/.test(key))return '';
   return key;
  }
- function create({host,storage,view,scriptLoader}={}){
+ function create({host,storage,view,scriptLoader,deferChildReadToFormal=false}={}){
   if(!host||!view||typeof view.status!=='function'||typeof scriptLoader!=='function')
    throw Error('m1:dependencies_required');
   let app=null,familyClient=null,sessionRecovery=null,busy=false;
@@ -127,6 +127,12 @@
      familyId=null;return emit('FAMILY_PERMISSION_DENIED');
     }
     verifiedFamily=true;
+    // The formal read model separately verifies active primary, receipt and stock.
+    // Keep the M1 standalone preview's child/inventory path unchanged.
+    if(deferChildReadToFormal===true){
+     activeChildId=null;view.family(true,0);view.cloudStock(null);
+     return emit('FORMAL_FAMILY_VERIFIED');
+    }
     const reader=host.XBCloudbaseChildReader.create(app,host.XBChildScopeGuard);
     const children=await reader.listActiveChildren({familyId});
     view.family(true,children.activeChildren.length);
@@ -176,7 +182,12 @@
    try{
     await familyClient.confirmCode(code);
     return checkSession();
-   }catch(e){return emit('OTP_INVALID_OR_EXPIRED',safeCode(e));}
+   }catch(e){
+    const message=String(e?.message||'');
+    const invalid=/^family_client: (invalid_verification_code|invalid_verification_token|verification_not_started)$/.test(message)
+     || /^(INVALID_OTP|INVALID_VERIFICATION_CODE|OTP_EXPIRED)$/i.test(String(e?.code||''));
+    return emit(invalid?'OTP_INVALID_OR_EXPIRED':'OTP_VERIFY_FAILED',safeCode(e));
+   }
   }
   async function signOut(){
    if(!familyClient)return emit('CONFIG_REQUIRED');
