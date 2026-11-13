@@ -39,6 +39,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let actor=null,family=null,mode='boot',busy=false,revision=0;
  let otpSending=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
+ // Optional documents never gate primary readiness; scope is account-specific.
+ let documentSnapshot=null,documentScope='',documentAttempt='',documentPending='';
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
  function restoreOtpCooldown(){
   try{
@@ -118,6 +120,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  function clear(){
   ui.clear();actor=null;family=null;primary=null;
+  pendingGuard=null;documentsGuard=null;batchGuard=null;
+  documentSnapshot=null;documentScope='';documentAttempt='';documentPending='';
   if(attached){attached.detach();attached=null;}
   $('formalCurrentAccount').textContent='—';
   $('formalCurrentFamily').textContent='—';
@@ -126,18 +130,54 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  function authView(){
   return {status(code,detail){if(code==='OTP_REQUEST_FAILED')otpFailure=detail||'';},needsKey(){},identity(){},family(){},cloudStock(){}};
  }
+ // Bound each critical await. Late responses cannot re-enter the UI after timeout.
+ async function bounded(task,millis){
+  let timer;
+  const expire=new Promise((_,reject)=>{
+   timer=(host.setTimeout||setTimeout)(()=>{
+    reject(Error('formal_entry:read_timeout'));
+   },millis);
+  });
+  try{return await Promise.race([Promise.resolve().then(task),expire]);}
+  finally{(host.clearTimeout||clearTimeout)(timer);}
+ }
+ function optionalRead(client,ctx,scopeKey,base,token){
+  if(!client||typeof client.readAll!=='function'
+    ||documentPending===scopeKey||documentAttempt===scopeKey)return;
+  documentPending=scopeKey;documentAttempt=scopeKey;
+  // Do not await: documents are not a prerequisite for the receipt-backed
+  // primary inventory and historical read-only UI.
+  void bounded(()=>client.readAll({
+   familyId:ctx.familyId,actorUid:ctx.actorUid
+  }),12000).then(snapshot=>{
+   if(token!==revision||mode!=='ready'||actor!==ctx.actorUid
+     ||family!==ctx.familyId||snapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ')
+    return;
+   const merged=documentsOverlay.apply(base,snapshot);
+   if(merged?.canWrite!==false||merged.sharedBusinessDocumentsVerified!==true)
+    return;
+   documentSnapshot=snapshot;documentScope=scopeKey;
+   ui.show(merged);
+   $('formalSyncState').textContent=
+    '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。';
+  }).catch(()=>{
+   // A failed optional read must not hide or sign out a verified primary.
+  }).finally(()=>{
+   if(documentPending===scopeKey)documentPending='';
+  });
+ }
  async function restore(){
   if(busy)return mode;
   busy=true;const token=++revision;
-  screen('boot','正在恢复登录会话并重新验证家庭授权…');
-  // SDK sessions are not invalidated by temporary network loss. In
-  // particular, don't try to download the SDK just to classify offline.
+  // Retain the verified same-account view during visibility/online rechecks.
+  // A real identity, permission or primary failure still clears it below.
+  if(mode!=='ready')screen('boot','正在恢复登录会话并重新验证家庭授权…');
   if(host.navigator?.onLine===false){
    clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);
    busy=false;return mode;
   }
   try{
-   const status=await controller.connect();
+   const status=await bounded(()=>controller.connect(),10000);
    if(token!==revision)return mode;
    if(status==='LOGIN_REQUIRED'){
     clear();screen('login',notes.LOGIN_REQUIRED);return mode;
@@ -151,9 +191,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return mode;
    }
    if(actor!==ctx.actorUid||family!==ctx.familyId)clear();
-   const verified=await readModelFactory(ctx.app).read({
+   const verified=await bounded(()=>readModelFactory(ctx.app).read({
     familyId:ctx.familyId,actorUid:ctx.actorUid,limit:50
-   });
+   }),15000);
    if(token!==revision)return mode;
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
@@ -161,26 +201,24 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      '正式云端数据尚未核实；不显示演示数据。');
     return mode;
    }
+   const scopeKey=ctx.actorUid+'\\x00'+ctx.familyId;
    let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
-   // Once separately approved SQL 026 exists, A/B shared documents replace
-   // the migrated read-only defaults. An unavailable RPC is NOT a local edit
-   // fallback and cannot be called "sync successful".
-   let documentsVerified=false,documentsClient=null;
+   let documentsClient=null;
    if(typeof documentsFactory==='function'&&documentsOverlay?.apply){
-    documentsClient=documentsFactory(ctx.app);
-    const snapshot=await documentsClient.readAll({
-     familyId:ctx.familyId,actorUid:ctx.actorUid
-    });
-    if(snapshot.status==='PRIMARY_DOCUMENTS_FULLY_READ'){
-     data=documentsOverlay.apply(data,snapshot);
-     documentsVerified=data.sharedBusinessDocumentsVerified===true;
+    try{documentsClient=documentsFactory(ctx.app);}catch(_){
+     // Optional document service must not prevent a valid primary read.
     }
    }
-   // Primary outbox must be verified before business UI becomes visible.
+   let documentsVerified=false;
+   if(documentSnapshot&&documentScope===scopeKey){
+    data=documentsOverlay.apply(data,documentSnapshot);
+    documentsVerified=data.sharedBusinessDocumentsVerified===true;
+   }
+   // An authenticated, receipt-backed primary is required for outbox setup.
    if(!primary){
     const p=primaryFactory({controller,host});
-    const activation=await p.activate();
+    const activation=await bounded(()=>p.activate(),12000);
     if(activation.status!=='PRIMARY_OUTBOX_READ_ONLY_READY')
      throw Error('formal_entry:primary_outbox_unverified');
     primary=p;pendingGuard=p;
@@ -223,18 +261,27 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      }).attach(doc);
     }
    }
+   // Do not wait for an additional getSession() call after showing UI.
    ui.show(data);
    actor=ctx.actorUid;family=ctx.familyId;
-   const session=await ctx.app.auth.getSession();
-   const email=session?.data?.user?.email||
-     session?.data?.session?.user?.email;
-   $('formalCurrentAccount').textContent=
-    typeof email==='string'&&email?email:ctx.actorUid;
+   $('formalCurrentAccount').textContent=ctx.actorUid;
    $('formalCurrentFamily').textContent=ctx.familyId;
    screen('ready');
    $('formalSyncState').textContent=documentsVerified?
     '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。':
-    '已验证正式宝宝与历史；非库存文档服务尚未部署，无法编辑或宣称双端同步。';
+    '已验证正式宝宝与历史；非库存文档尚未验证，正式写入关闭。';
+   // Enrich the account label only; cannot gate UI readiness or leak across
+   // actor switches. SDK continues to own all session and refresh tokens.
+   void bounded(()=>ctx.app.auth.getSession(),6000).then(session=>{
+    if(token!==revision||mode!=='ready'||actor!==ctx.actorUid
+       ||family!==ctx.familyId)return;
+    const email=session?.data?.user?.email||
+     session?.data?.session?.user?.email;
+    if(typeof email==='string'&&email)
+     $('formalCurrentAccount').textContent=email;
+   }).catch(()=>{});
+   if(!documentsVerified)
+    optionalRead(documentsClient,ctx,scopeKey,data,token);
    return mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
