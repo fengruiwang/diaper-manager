@@ -177,7 +177,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(documentPending===scopeKey)documentPending='';
   });
  }
- async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null}={}){
+ async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null,
+  expectedReverseId=null,expectedOriginalId=null}={}){
   if(busy)return mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
@@ -217,6 +218,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const useAppears=expectedUseId===null
     ||(Array.isArray(verified?.liveUses)
       &&verified.liveUses.some(row=>row.operationId===expectedUseId));
+   // Reverse ACK only counts after fresh RLS-scoped primary read shows the
+   // exact original UUID with this specific reversal UUID.
+   const reversedAppears=expectedReverseId===null
+    ||(typeof expectedOriginalId==='string'&&
+      [...(verified?.livePurchases||[]),...(verified?.liveUses||[])]
+       .some(row=>row.operationId===expectedOriginalId
+        &&row.reversed===true
+        &&row.reversedByOperationId===expectedReverseId));
    if(token!==revision)return mode;
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
@@ -279,10 +288,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       buildAllowsWrites:purchaseReleaseEnabled===true,
       operatorApproved:()=>purchaseReleaseEnabled===true
        &&purchaseOperatorApproved()===true,
-      purchaseOnly:true,allowConsume:true,
-      onPurchaseReadback:({operationId,kind})=>restore({
-       expectedPurchaseId:kind==='use'?null:operationId,
-       expectedUseId:kind==='use'?operationId:null
+      purchaseOnly:true,allowConsume:true,allowReverse:true,
+      onPurchaseReadback:({operationId,kind,reversesOperationId})=>restore({
+       expectedPurchaseId:kind==='buy'?operationId:null,
+       expectedUseId:kind==='use'?operationId:null,
+       expectedReverseId:kind==='reverse'?operationId:null,
+       expectedOriginalId:kind==='reverse'?reversesOperationId:null
       }),
       formalModeSelected:()=>mode==='ready',
       readPurchase:()=>root.XBFormalUIData.purchase(),
@@ -291,8 +302,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       notify:answer=>{
        $('formalSyncState').textContent=
         ['PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
-          'PRIMARY_USE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
-         ?'云端采购或消耗已确认，正式库存及记录已重新读取。'
+          'PRIMARY_USE_CLOUD_READBACK_VERIFIED',
+          'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+         ?'云端采购、消耗或撤销已确认，正式库存及记录已重新读取。'
          :'采购操作状态：'+String(answer?.status||'UNVERIFIED')
           +(purchaseReleaseEnabled===true?'；请核查原操作 ID。':
            '；正式写入尚未授权。');
@@ -322,7 +334,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(!documentsVerified)
     optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
    return !purchaseAppears?'PRIMARY_PURCHASE_READBACK_PENDING':
-    !useAppears?'PRIMARY_USE_READBACK_PENDING':mode;
+    !useAppears?'PRIMARY_USE_READBACK_PENDING':
+    !reversedAppears?'PRIMARY_REVERSE_READBACK_PENDING':mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
@@ -417,10 +430,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   on('formalRefresh',restore);
-  // Purchase-only retry; never send consume, stocktake or document actions.
+  // Inventory-ledger retry only (buy/use/reverse); no stocktake or documents.
   if(purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true){
    $('formalSyncNow').disabled=false;
-   $('formalSyncNow').textContent='重新提交待确认采购/消耗';
+   $('formalSyncNow').textContent='重新提交待确认采购/消耗/撤销';
   }
   on('formalSyncNow',async()=>{
    if(purchaseReleaseEnabled!==true||purchaseOperatorApproved()!==true){
@@ -517,7 +530,7 @@ function browserStart(){
    runnerFactory:root.XBInventoryOutboxRunner,
    syncFactory:root.XBInventorySyncReader,
    cloudWritesEnabled:cloudWritesEnabled===true,
-   purchaseOnly:true,allowConsume:true
+   purchaseOnly:true,allowConsume:true,allowReverse:true
   }),
   commandsFactory:root.XBPrimaryBusinessCommands,
   actionsFactory:root.XBPrimaryFormalUIActions

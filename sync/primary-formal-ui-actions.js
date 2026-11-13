@@ -20,7 +20,7 @@
   operatorApproved=()=>false,documentCommands=null,
   readDocumentInput=null,prepareQuoteEdit=null,
   batchStocktake=null,createBatchId=null,
-  purchaseOnly=false,allowConsume=false,onPurchaseReadback=null}={}){
+  purchaseOnly=false,allowConsume=false,allowReverse=false,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -35,9 +35,11 @@
    try{
     const queued=await commands.submit(action,value,{operatorApproved:true});
     if(purchaseOnly!==true
-      ||(action!=='purchase'&&!(allowConsume===true&&action==='consume')))
+      ||(action!=='purchase'
+       &&!(allowConsume===true&&action==='consume')
+       &&!(allowReverse===true&&action==='reverse')))
      return queued;
-    const isUse=action==='consume';
+    const isUse=action==='consume',isReverse=action==='reverse';
     if(!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued?.status))
      return queued;
@@ -45,20 +47,26 @@
     let synced;
     try{synced=await primary.flush({operatorApproved:true});}
     catch(_){
-     return Object.freeze({status:isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
+     return Object.freeze({status:isReverse?'PRIMARY_REVERSE_PENDING_REVIEW':
+       isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     }
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
-     return Object.freeze({status:isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
+     return Object.freeze({status:isReverse?'PRIMARY_REVERSE_PENDING_REVIEW':
+       isUse?'PRIMARY_USE_PENDING_REVIEW':'PRIMARY_PURCHASE_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
      const visible=typeof onPurchaseReadback==='function'
-      ?await onPurchaseReadback({operationId:queued.operationId,kind:isUse?'use':'buy'}):null;
+      ?await onPurchaseReadback({operationId:queued.operationId,
+         kind:isReverse?'reverse':isUse?'use':'buy',
+         reversesOperationId:isReverse?value?.reversesOperationId:null}):null;
      if(visible==='ready')
-      return Object.freeze({status:isUse?'PRIMARY_USE_CLOUD_READBACK_VERIFIED':'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+      return Object.freeze({status:isReverse?'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED':
+        isUse?'PRIMARY_USE_CLOUD_READBACK_VERIFIED':'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
        operationId:queued.operationId,cloudWriteCommitted:true});
     }catch(_){}
-    return Object.freeze({status:isUse?'PRIMARY_USE_COMMITTED_READBACK_REQUIRED':'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
+    return Object.freeze({status:isReverse?'PRIMARY_REVERSE_COMMITTED_READBACK_REQUIRED':
+      isUse?'PRIMARY_USE_COMMITTED_READBACK_REQUIRED':'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
      operationId:queued.operationId,cloudWriteCommitted:true});
    }catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
@@ -101,7 +109,8 @@
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
    if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
-     &&!(allowConsume===true&&action==='consume'))
+     &&!(allowConsume===true&&action==='consume')
+     &&!(allowReverse===true&&action==='deletetx'))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
@@ -125,6 +134,7 @@
    if(action==='deletetx'){
     const record=readTransaction(el.dataset?.id);
     if(!record||record.origin!=='cloud_post_migration'
+      ||!['buy','use'].includes(record.type)
       ||record.reversed===true||typeof record.operationId!=='string')
      return result('IMMUTABLE_LEGACY_HISTORY_NOT_REVERSIBLE');
     return invoke('reverse',{size:record.size,

@@ -41,7 +41,7 @@
    if(p.kind!=='buy'&&p.kind!=='use')throw Error('replay:invalid_inventory_delta');
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
-  async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false}={}){
+  async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false,allowReverse=false}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -65,9 +65,11 @@
 
    const queued=await outbox.ready(scope);
    // A purchase-only release must not dispatch pre-existing non-buy operations.
-   if(purchaseOnly===true&&queued.some(op=>op?.type!=='inventory.delta'
-     ||(op?.payload?.kind!=='buy'
-      &&!(allowConsume===true&&op?.payload?.kind==='use'))))
+   if(purchaseOnly===true&&queued.some(op=>
+     !(op?.type==='inventory.delta'
+       &&(op?.payload?.kind==='buy'
+         ||(allowConsume===true&&op?.payload?.kind==='use')))
+     &&!(allowReverse===true&&op?.type==='transaction.reverse')))
     return {status:'unsupported-pending-type',attempted:0,accepted:0,
      remaining:queued.length};
    let accepted=0,attempted=0,status='awaiting-reconciliation';
