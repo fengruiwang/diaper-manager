@@ -167,3 +167,44 @@ test('completed receipt is not sufficient if native growth rows differ',async()=
  assert.equal(r.status,'NATIVE_GROWTH_RECORDS_MISMATCH');
  assert.equal(f.calls.length,0);
 });
+
+test('B2 lost 022 ACK: explicit operator-verified recovery skips 022 and uses original migrationId',async()=>{
+ const f=fixture({enabled:true,stageAckLost:true});
+ assert.equal((await f.executor.execute(f.input)).status,
+  'STOP_STAGE_ACK_UNKNOWN_DO_NOT_REGENERATE_ID');
+ const stageReview={status:'STAGED_SAME_SOURCE_VERIFIED',operatorConfirmed:true,
+  familyId:FAMILY,childId:PRIMARY,stageId:STAGE,sourceSha256:DIGEST};
+ const result=await f.executor.resumeVerifiedStage({...f.input,stageReview});
+ assert.equal(result.status,'MIGRATION_FULL_READBACK_MATCH');
+ assert.deepEqual(f.calls.map(x=>x.name),
+  ['xb_stage_legacy_archive_draft','xb_promote_legacy_archive_draft']);
+ assert.equal(f.calls[1].args.p_migration_id,MIGRATION);
+});
+test('B2 recovery is permanently disabled by default even with operator review',async()=>{
+ const f=fixture();
+ const stageReview={status:'STAGED_SAME_SOURCE_VERIFIED',operatorConfirmed:true,
+  familyId:FAMILY,childId:PRIMARY,stageId:STAGE,sourceSha256:DIGEST};
+ assert.equal((await f.executor.resumeVerifiedStage({...f.input,stageReview})).status,
+  'MIGRATION_WRITES_NOT_AUTHORIZED');
+ assert.equal(f.calls.length,0);
+});
+test('B2 recovery rejects missing, mismatched or unconfirmed operator review',async()=>{
+ const f=fixture({enabled:true});
+ const clean={status:'STAGED_SAME_SOURCE_VERIFIED',operatorConfirmed:true,
+  familyId:FAMILY,childId:PRIMARY,stageId:STAGE,sourceSha256:DIGEST};
+ for(const stageReview of [null,{...clean,operatorConfirmed:false},
+  {...clean,stageId:'e9f41d0a-9f9a-4ad1-9d44-12cb2781da92'},
+  {...clean,sourceSha256:'a'.repeat(64)},{...clean,status:'STAGE_NOT_FOUND_STOP'}]){
+  assert.equal((await f.executor.resumeVerifiedStage({...f.input,stageReview})).status,
+   'STAGE_OPERATOR_VERIFICATION_REQUIRED');
+ }
+ assert.equal(f.calls.length,0);
+});
+test('B2 recovery with an existing same-source receipt reads only, never replays',async()=>{
+ const f=fixture({enabled:true,receipt:true});
+ const stageReview={status:'STAGED_SAME_SOURCE_VERIFIED',operatorConfirmed:true,
+  familyId:FAMILY,childId:PRIMARY,stageId:STAGE,sourceSha256:DIGEST};
+ assert.equal((await f.executor.resumeVerifiedStage({...f.input,stageReview})).status,
+  'MIGRATION_FULL_READBACK_MATCH');
+ assert.equal(f.calls.length,0);
+});

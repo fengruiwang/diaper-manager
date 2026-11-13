@@ -68,6 +68,8 @@
    preflight:input=>coordinator.preflight(input),
    reconcile:input=>coordinator.reconcile(input),
    execute:input=>coordinator.execute(input),
+   // This is NEVER automatic; only after operator SQL verification and B-3 consent.
+   resumeVerifiedStage:input=>coordinator.resumeVerifiedStage(input),
    get cloudWritesEnabled(){return coordinator.cloudWritesEnabled;}
   });
  }

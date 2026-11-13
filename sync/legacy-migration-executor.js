@@ -203,11 +203,23 @@
     stockSizes:6,postMigrationNewPurchases:0,
     originalHistoricalPurchasesReplayed:false});
   }
-  async function execute(input={}){
+  // Operator-only 022 unknown-ACK continuation. The verification report is
+  // a manual interlock, NOT cryptographic proof. SQL 023 always revalidates.
+  function acceptedStageReview(input){
+   const r=input?.stageReview;
+   return r?.status==='STAGED_SAME_SOURCE_VERIFIED'
+    &&r.operatorConfirmed===true
+    &&r.familyId===input.familyId&&r.childId===input.childId
+    &&r.stageId===input.stageId
+    &&r.sourceSha256===input.plan?.sourceSha256;
+  }
+  async function run(input={},resumeVerifiedStage=false){
    if(busy)return deny('MIGRATION_BUSY');
    // Double interlock: no write path from the current UI or normal build.
    if(cloudWritesEnabled!==true||input.operatorApproved!==true)
     return deny('MIGRATION_WRITES_NOT_AUTHORIZED');
+   if(resumeVerifiedStage&&!acceptedStageReview(input))
+    return deny('STAGE_OPERATOR_VERIFICATION_REQUIRED');
    busy=true;
    try{
     let check;
@@ -221,12 +233,14 @@
     if(check.status!=='READY_FOR_SEPARATELY_AUTHORIZED_EXECUTION')
      return deny(check.status);
     const {familyId,childId,stageId,migrationId,raw,plan}=input;
-    const stage=await rpc('xb_stage_legacy_archive_draft',{
-     p_family_id:familyId,p_child_id:childId,
-     p_stage_id:stageId,p_export_text:raw
-    });
-    if(!archived(stage))
-     return deny('STOP_STAGE_ACK_UNKNOWN_DO_NOT_REGENERATE_ID');
+    if(!resumeVerifiedStage){
+     const stage=await rpc('xb_stage_legacy_archive_draft',{
+      p_family_id:familyId,p_child_id:childId,
+      p_stage_id:stageId,p_export_text:raw
+     });
+     if(!archived(stage))
+      return deny('STOP_STAGE_ACK_UNKNOWN_DO_NOT_REGENERATE_ID');
+    }
     const promotion=await rpc('xb_promote_legacy_archive_draft',{
      p_family_id:familyId,p_child_id:childId,
      p_migration_id:migrationId,p_source_sha256:plan.sourceSha256
@@ -237,7 +251,9 @@
     catch(_){return deny('STOP_POST_PROMOTION_READBACK_UNVERIFIED');}
    }finally{busy=false;}
   }
-  return Object.freeze({preflight,execute,reconcile,
+  return Object.freeze({preflight,reconcile,
+   execute:input=>run(input,false),
+   resumeVerifiedStage:input=>run(input,true),
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }
  const api=Object.freeze({create});
