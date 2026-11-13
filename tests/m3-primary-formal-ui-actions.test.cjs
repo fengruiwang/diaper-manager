@@ -30,7 +30,7 @@ function fixture({build=false,approved=false,selected=true,stockChanges={},
   readPurchase:()=>({size:'S',brand:'好奇',series:'小森林',pieces:60,price:100.5}),
   readQuote:()=>({size:'S',brand:'好奇',series:'小森林',pieces:5,price:7.5}),
   readTransaction:id=>id==='cloud'?{id,operationId:'04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2',
-   origin:'cloud_post_migration',size:'S',reversed:false}:
+   origin:'cloud_post_migration',size:'S',type:'buy',reversed:false}:
    {id,origin:'legacy_migration',size:'S'},
   notify:x=>notifications.push(x.status),
   formalModeSelected:()=>selected,buildAllowsWrites:build,
