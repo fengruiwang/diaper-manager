@@ -229,7 +229,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    // An authenticated, receipt-backed primary is required for outbox setup.
    if(!primary){
     const p=primaryFactory({controller,host});
-    const activation=await bounded(()=>p.activate(),16000);
+    const activation=await bounded(()=>p.activate({verifiedReadModel:verified}),16000);
     if(activation.status!=='PRIMARY_OUTBOX_READ_ONLY_READY')
      throw Error('formal_entry:primary_outbox_unverified');
     primary=p;pendingGuard=p;

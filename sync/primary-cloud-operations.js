@@ -95,16 +95,36 @@
    return Object.freeze({familyId:scope.familyId,actorUid:scope.actorUid,
     appCode:'xb',member:true,initialized:true});
   }
-  async function activate(){
+  function verifiedScope(view){
+   // This startup shortcut is only legal in the existing READ-ONLY build.
+   if(cloudWritesEnabled===true||view?.status!=='PRIMARY_READ_ONLY_READY'
+     ||view.source!=='cloudbase-primary-receipt-verified'
+     ||view.canWrite!==false||view.legacyPurchasesAppliedToInventory!==false
+     ||view.legacyHistory?.complete!==true)
+    throw Error('primary_operations:untrusted_view');
+   const ctx=controller.verifiedContext();
+   if(!ctx?.app||!UUID.test(ctx.familyId)||!ctx.actorUid
+     ||view.familyId!==ctx.familyId||view.actorUid!==ctx.actorUid
+     ||!UUID.test(view.childId))
+    throw Error('primary_operations:read_scope_mismatch');
+   const rows=SIZES.map(size=>({size,quantity:view.inventory?.[size],
+    revision:view.revisions?.[size]}));
+   return {scope:{app:ctx.app,familyId:ctx.familyId,
+    actorUid:ctx.actorUid,childId:view.childId},stock:knownRows(rows)};
+  }
+  async function activate({verifiedReadModel=null}={}){
    if(busy)return result('BUSY');
    if(!online())return result('OFFLINE_READ_UNVERIFIED');
    busy=true;
    try{
-    const scope=await current();
-    const remote=inventoryClient.create(scope.app);
+    const trusted=verifiedReadModel===null?null:verifiedScope(verifiedReadModel);
+    const scope=trusted?trusted.scope:await current();
     let local=await outbox.readInventory(scope,scope.childId);
     if(!local){
-     const a=await remote.readReconciliation({familyId:scope.familyId,
+     let baseline=trusted?.stock||null;
+     if(!baseline){
+      const remote=inventoryClient.create(scope.app);
+      const a=await remote.readReconciliation({familyId:scope.familyId,
       childId:scope.childId,operationIds:[]});
      const b=await remote.readReconciliation({familyId:scope.familyId,
       childId:scope.childId,operationIds:[]});
@@ -114,7 +134,9 @@
        ||a.childId!==scope.childId||b.childId!==scope.childId
        ||!equalRows(a.rows,b.rows))
       throw Error('primary_operations:server_baseline_unverified');
-     const {stock,revisions}=knownRows(b.rows);
+     baseline=knownRows(b.rows);
+     }
+     const {stock,revisions}=baseline;
      try{
       local=await outbox.initializeInventory(scope,{
        childId:scope.childId,inventory:stock,serverRevisions:revisions,

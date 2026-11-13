@@ -1276,7 +1276,23 @@ restoreActiveTab();
   if(!Number.isInteger(thresholdSeconds)||thresholdSeconds<0||thresholdSeconds>3600)
    throw Error('session_recovery:invalid_threshold');
   let inFlight=null;
-  async function read(){
+  function actorFrom(response){
+   const d=response?.data;
+   if(!d?.session)return null;
+   const ids=[d.user?.id,d.session.user?.id].filter(x=>x!==undefined&&x!==null);
+   if(!ids.length||ids.some(x=>typeof x!=='string'||!x||x.length>128)
+      ||new Set(ids).size!==1)return null;
+   return ids[0];
+  }
+  function authenticated(response,refresh,withActorUid){
+   const result={status:'authenticated',refresh};
+   if(withActorUid){
+    const id=actorFrom(response);
+    if(id)result.actorUid=id;
+   }
+   return result; // Never expose SDK token or raw session.
+  }
+  async function read(withActorUid=false){
    let response;
    try{response=await auth.getSession();}
    catch(_){return {status:'degraded',reason:'network-or-sdk-failure'};}
@@ -1284,7 +1300,7 @@ restoreActiveTab();
     const code=errorCode(response.error);
     if(AUTH_LOSS.has(code))return {status:'auth-required',reason:'session_expired'};
     if(code==='token_expired'&&typeof auth.refreshSession==='function')
-     return refresh('expired');
+     return refresh('expired',withActorUid);
     return {status:'degraded',reason:TRANSIENT.has(code)?'network-unavailable':'session-check-failed'};
    }
    const current=response?.data?.session||null;
@@ -1294,10 +1310,10 @@ restoreActiveTab();
    const seconds=current.expires_in;
    if(Number.isFinite(seconds)&&seconds>=0&&seconds<thresholdSeconds
       &&typeof auth.refreshSession==='function')
-    return refresh('near-expiry');
-   return {status:'authenticated',refresh:'not-needed'};
+    return refresh('near-expiry',withActorUid);
+   return authenticated(response,'not-needed',withActorUid);
   }
-  async function refresh(why){
+  async function refresh(why,withActorUid=false){
    let response;
    try{response=await auth.refreshSession();}
    catch(_){return {status:'degraded',reason:'refresh-unavailable'};}
@@ -1309,14 +1325,14 @@ restoreActiveTab();
    }
    if(!response?.data?.session)
     return {status:'auth-required',reason:'session_missing_after_refresh'};
-   return {status:'authenticated',refresh:why};
+   return authenticated(response,why,withActorUid);
   }
-  async function restore({online=true}={}){
+  async function restore({online=true,withActorUid=false}={}){
    // Offline PWA access to an already-existing local snapshot remains possible,
    // but no server authorization or fresh family permission is asserted.
    if(!online)return {status:'degraded',reason:'offline'};
    if(inFlight)return inFlight;
-   inFlight=read();
+   inFlight=read(withActorUid);
    try{return await inFlight;}
    finally{inFlight=null;}
   }
@@ -2837,8 +2853,9 @@ restoreActiveTab();
    // SQL 024 does not exist in the real database until independently approved.
    let settings,history;
    try{
-    settings=await legacy.readSettings(scope);
-    history=await legacy.readAll({...scope,kind:'all',limit});
+    [settings,history]=await Promise.all([
+     legacy.readSettings(scope),legacy.readAll({...scope,kind:'all',limit})
+    ]);
    }catch(e){
     // Do not echo RPC/SDK exceptions: they may contain private row details.
     return Object.freeze({status:'MIGRATION_READ_NOT_READY',canWrite:false,
@@ -2854,7 +2871,12 @@ restoreActiveTab();
    if(before.complete!==true||before.actorUid!==actorUid
       ||before.familyId!==familyId||before.childId!==childId)
     fail('server_scope_unverified');
-   const currentPurchases=await inventory.readPurchases(scope);
+   const [currentPurchases,profileQuery]=await Promise.all([
+    inventory.readPurchases(scope),
+    app.rdb().from('xb_baby_profiles')
+     .select('family_id,child_id,profile_data')
+     .eq('family_id',familyId).eq('child_id',childId).limit(2)
+   ]);
    if(!Array.isArray(currentPurchases))fail('current_purchases_unverified');
    const after=await inventory.readReconciliation({...scope,operationIds:[]});
    if(after.complete!==true||after.actorUid!==actorUid
@@ -2862,9 +2884,6 @@ restoreActiveTab();
      ||!equalStock(before.rows,after.rows))fail('server_changed_during_read');
    const stock=numbers(after.rows);
    // Profile is a separate migrated table: never borrow sandbox baby details.
-   const profileQuery=await app.rdb().from('xb_baby_profiles')
-    .select('family_id,child_id,profile_data')
-    .eq('family_id',familyId).eq('child_id',childId).limit(2);
    if(profileQuery?.error||!Array.isArray(profileQuery?.data)
       ||profileQuery.data.length!==1
       ||profileQuery.data[0].family_id!==familyId
@@ -2879,7 +2898,7 @@ restoreActiveTab();
    // Never sum historical purchases into inventory. They are archival facts,
    // and original v1.1.2 stocktake is already the authoritative baseline.
    return Object.freeze({
-    status:'PRIMARY_READ_ONLY_READY',familyId,childId,
+    status:'PRIMARY_READ_ONLY_READY',familyId,childId,actorUid,
     source:'cloudbase-primary-receipt-verified',canWrite:false,
     inventory:Object.freeze(stock.inventory),
     revisions:Object.freeze(stock.revisions),
@@ -3121,16 +3140,36 @@ restoreActiveTab();
    return Object.freeze({familyId:scope.familyId,actorUid:scope.actorUid,
     appCode:'xb',member:true,initialized:true});
   }
-  async function activate(){
+  function verifiedScope(view){
+   // This startup shortcut is only legal in the existing READ-ONLY build.
+   if(cloudWritesEnabled===true||view?.status!=='PRIMARY_READ_ONLY_READY'
+     ||view.source!=='cloudbase-primary-receipt-verified'
+     ||view.canWrite!==false||view.legacyPurchasesAppliedToInventory!==false
+     ||view.legacyHistory?.complete!==true)
+    throw Error('primary_operations:untrusted_view');
+   const ctx=controller.verifiedContext();
+   if(!ctx?.app||!UUID.test(ctx.familyId)||!ctx.actorUid
+     ||view.familyId!==ctx.familyId||view.actorUid!==ctx.actorUid
+     ||!UUID.test(view.childId))
+    throw Error('primary_operations:read_scope_mismatch');
+   const rows=SIZES.map(size=>({size,quantity:view.inventory?.[size],
+    revision:view.revisions?.[size]}));
+   return {scope:{app:ctx.app,familyId:ctx.familyId,
+    actorUid:ctx.actorUid,childId:view.childId},stock:knownRows(rows)};
+  }
+  async function activate({verifiedReadModel=null}={}){
    if(busy)return result('BUSY');
    if(!online())return result('OFFLINE_READ_UNVERIFIED');
    busy=true;
    try{
-    const scope=await current();
-    const remote=inventoryClient.create(scope.app);
+    const trusted=verifiedReadModel===null?null:verifiedScope(verifiedReadModel);
+    const scope=trusted?trusted.scope:await current();
     let local=await outbox.readInventory(scope,scope.childId);
     if(!local){
-     const a=await remote.readReconciliation({familyId:scope.familyId,
+     let baseline=trusted?.stock||null;
+     if(!baseline){
+      const remote=inventoryClient.create(scope.app);
+      const a=await remote.readReconciliation({familyId:scope.familyId,
       childId:scope.childId,operationIds:[]});
      const b=await remote.readReconciliation({familyId:scope.familyId,
       childId:scope.childId,operationIds:[]});
@@ -3140,7 +3179,9 @@ restoreActiveTab();
        ||a.childId!==scope.childId||b.childId!==scope.childId
        ||!equalRows(a.rows,b.rows))
       throw Error('primary_operations:server_baseline_unverified');
-     const {stock,revisions}=knownRows(b.rows);
+     baseline=knownRows(b.rows);
+     }
+     const {stock,revisions}=baseline;
      try{
       local=await outbox.initializeInventory(scope,{
        childId:scope.childId,inventory:stock,serverRevisions:revisions,

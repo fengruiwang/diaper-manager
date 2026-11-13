@@ -19,7 +19,23 @@
   if(!Number.isInteger(thresholdSeconds)||thresholdSeconds<0||thresholdSeconds>3600)
    throw Error('session_recovery:invalid_threshold');
   let inFlight=null;
-  async function read(){
+  function actorFrom(response){
+   const d=response?.data;
+   if(!d?.session)return null;
+   const ids=[d.user?.id,d.session.user?.id].filter(x=>x!==undefined&&x!==null);
+   if(!ids.length||ids.some(x=>typeof x!=='string'||!x||x.length>128)
+      ||new Set(ids).size!==1)return null;
+   return ids[0];
+  }
+  function authenticated(response,refresh,withActorUid){
+   const result={status:'authenticated',refresh};
+   if(withActorUid){
+    const id=actorFrom(response);
+    if(id)result.actorUid=id;
+   }
+   return result; // Never expose SDK token or raw session.
+  }
+  async function read(withActorUid=false){
    let response;
    try{response=await auth.getSession();}
    catch(_){return {status:'degraded',reason:'network-or-sdk-failure'};}
@@ -27,7 +43,7 @@
     const code=errorCode(response.error);
     if(AUTH_LOSS.has(code))return {status:'auth-required',reason:'session_expired'};
     if(code==='token_expired'&&typeof auth.refreshSession==='function')
-     return refresh('expired');
+     return refresh('expired',withActorUid);
     return {status:'degraded',reason:TRANSIENT.has(code)?'network-unavailable':'session-check-failed'};
    }
    const current=response?.data?.session||null;
@@ -37,10 +53,10 @@
    const seconds=current.expires_in;
    if(Number.isFinite(seconds)&&seconds>=0&&seconds<thresholdSeconds
       &&typeof auth.refreshSession==='function')
-    return refresh('near-expiry');
-   return {status:'authenticated',refresh:'not-needed'};
+    return refresh('near-expiry',withActorUid);
+   return authenticated(response,'not-needed',withActorUid);
   }
-  async function refresh(why){
+  async function refresh(why,withActorUid=false){
    let response;
    try{response=await auth.refreshSession();}
    catch(_){return {status:'degraded',reason:'refresh-unavailable'};}
@@ -52,14 +68,14 @@
    }
    if(!response?.data?.session)
     return {status:'auth-required',reason:'session_missing_after_refresh'};
-   return {status:'authenticated',refresh:why};
+   return authenticated(response,why,withActorUid);
   }
-  async function restore({online=true}={}){
+  async function restore({online=true,withActorUid=false}={}){
    // Offline PWA access to an already-existing local snapshot remains possible,
    // but no server authorization or fresh family permission is asserted.
    if(!online)return {status:'degraded',reason:'offline'};
    if(inFlight)return inFlight;
-   inFlight=read();
+   inFlight=read(withActorUid);
    try{return await inFlight;}
    finally{inFlight=null;}
   }

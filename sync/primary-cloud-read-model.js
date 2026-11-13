@@ -67,8 +67,9 @@
    // SQL 024 does not exist in the real database until independently approved.
    let settings,history;
    try{
-    settings=await legacy.readSettings(scope);
-    history=await legacy.readAll({...scope,kind:'all',limit});
+    [settings,history]=await Promise.all([
+     legacy.readSettings(scope),legacy.readAll({...scope,kind:'all',limit})
+    ]);
    }catch(e){
     // Do not echo RPC/SDK exceptions: they may contain private row details.
     return Object.freeze({status:'MIGRATION_READ_NOT_READY',canWrite:false,
@@ -84,7 +85,12 @@
    if(before.complete!==true||before.actorUid!==actorUid
       ||before.familyId!==familyId||before.childId!==childId)
     fail('server_scope_unverified');
-   const currentPurchases=await inventory.readPurchases(scope);
+   const [currentPurchases,profileQuery]=await Promise.all([
+    inventory.readPurchases(scope),
+    app.rdb().from('xb_baby_profiles')
+     .select('family_id,child_id,profile_data')
+     .eq('family_id',familyId).eq('child_id',childId).limit(2)
+   ]);
    if(!Array.isArray(currentPurchases))fail('current_purchases_unverified');
    const after=await inventory.readReconciliation({...scope,operationIds:[]});
    if(after.complete!==true||after.actorUid!==actorUid
@@ -92,9 +98,6 @@
      ||!equalStock(before.rows,after.rows))fail('server_changed_during_read');
    const stock=numbers(after.rows);
    // Profile is a separate migrated table: never borrow sandbox baby details.
-   const profileQuery=await app.rdb().from('xb_baby_profiles')
-    .select('family_id,child_id,profile_data')
-    .eq('family_id',familyId).eq('child_id',childId).limit(2);
    if(profileQuery?.error||!Array.isArray(profileQuery?.data)
       ||profileQuery.data.length!==1
       ||profileQuery.data[0].family_id!==familyId
@@ -109,7 +112,7 @@
    // Never sum historical purchases into inventory. They are archival facts,
    // and original v1.1.2 stocktake is already the authoritative baseline.
    return Object.freeze({
-    status:'PRIMARY_READ_ONLY_READY',familyId,childId,
+    status:'PRIMARY_READ_ONLY_READY',familyId,childId,actorUid,
     source:'cloudbase-primary-receipt-verified',canWrite:false,
     inventory:Object.freeze(stock.inventory),
     revisions:Object.freeze(stock.revisions),
