@@ -149,7 +149,8 @@ test('successful OTP but unprovisioned family stays authenticated, not falsely l
  assert.equal(f.element('formalLoginCard').hidden,true);
  assert.equal(f.trace.includes('ui.show'),false);
  assert.equal(f.element('formalLoginMessage').textContent,'');
- assert.equal(f.trace.filter(x=>x==='session.restore').length,2);
+ assert.equal(f.trace.filter(x=>x==='session.restore').length,1);
+ // OTP confirmation already verified the family; no second connect().
 });
 test('startup while offline does not attempt SDK initialization, does not clear SDK credentials',async()=>{
  const f=setup({session:true,offline:true});
