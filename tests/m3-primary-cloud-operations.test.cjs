@@ -163,3 +163,46 @@ test('M3 formal writes cannot queue while offline even if prior mode was authori
  assert.equal((await f.bridge.queue(f.op,{operatorApproved:true})).status,
   'PRIMARY_NOT_SELECTED');
 });
+
+test('P0 startup: freshly verified read-only primary initializes outbox without redundant CloudBase preflight',async()=>{
+ const f=fixture();
+ const snap={
+  status:'PRIMARY_READ_ONLY_READY',source:'cloudbase-primary-receipt-verified',
+  canWrite:false,legacyPurchasesAppliedToInventory:false,
+  legacyHistory:{complete:true},familyId:FAMILY,childId:PRIMARY,actorUid:ACTOR,
+  inventory:{NB:0,S:140,M:0,L:0,XL:0,XXL:0},
+  revisions:{NB:1,S:2,M:1,L:1,XL:1,XXL:1}
+ };
+ assert.equal((await f.bridge.activate({verifiedReadModel:snap})).status,
+  'PRIMARY_OUTBOX_READ_ONLY_READY');
+ assert.ok(f.calls.includes('outbox.initializeInventory'));
+ assert.equal(f.calls.includes('legacy.readSettings'),false);
+ assert.equal(f.calls.includes('remote.readReconciliation'),false);
+ assert.equal((await f.bridge.queue(f.op,{operatorApproved:true})).status,
+  'FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
+});
+test('P0 startup: mismatched actor or child cannot turn a view into an authorized baseline',async()=>{
+ for(const override of [{actorUid:'stranger'},{source:'untrusted'},
+   {status:'PRIMARY_NOT_READY'},{canWrite:true}]){
+  const f=fixture();
+  const base={status:'PRIMARY_READ_ONLY_READY',source:'cloudbase-primary-receipt-verified',
+   canWrite:false,legacyPurchasesAppliedToInventory:false,
+   legacyHistory:{complete:true},familyId:FAMILY,childId:PRIMARY,actorUid:ACTOR,
+   inventory:{NB:0,S:140,M:0,L:0,XL:0,XXL:0},
+   revisions:{NB:1,S:2,M:1,L:1,XL:1,XXL:1}};
+  const r=await f.bridge.activate({verifiedReadModel:{...base,...override}});
+  assert.equal(r.status,'PRIMARY_INITIALIZATION_UNVERIFIED');
+  assert.equal(f.calls.includes('outbox.initializeInventory'),false);
+ }
+});
+test('P0 startup: write-capable bridge cannot skip its independent primary verification',async()=>{
+ const f=fixture({enabled:true});
+ const snap={status:'PRIMARY_READ_ONLY_READY',source:'cloudbase-primary-receipt-verified',
+  canWrite:false,legacyPurchasesAppliedToInventory:false,legacyHistory:{complete:true},
+  familyId:FAMILY,childId:PRIMARY,actorUid:ACTOR,
+  inventory:{NB:0,S:140,M:0,L:0,XL:0,XXL:0},
+  revisions:{NB:1,S:2,M:1,L:1,XL:1,XXL:1}};
+ assert.equal((await f.bridge.activate({verifiedReadModel:snap})).status,
+  'PRIMARY_INITIALIZATION_UNVERIFIED');
+ assert.equal(f.calls.includes('outbox.initializeInventory'),false);
+});

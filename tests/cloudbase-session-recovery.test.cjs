@@ -88,3 +88,23 @@ test('restore calls coalesce in-flight but future reopen checks the session agai
  resolve({data:{session:{expires_in:3600}},error:null});
  assert.equal((await c).status,'authenticated');
 });
+
+test('P0 opt-in identity reuses the just-checked session without exposing tokens',async()=>{
+ let calls=0;
+ const sdk={getSession:async()=>{
+  calls++;return {data:{user:{id:'dad'},
+   session:{user:{id:'dad'},expires_in:3600,access_token:'SECRET-DO-NOT-EXPOSE'}}};
+ }};
+ const client=create({auth:sdk});
+ const result=await client.restore({withActorUid:true});
+ assert.equal(result.status,'authenticated');
+ assert.equal(result.actorUid,'dad');
+ assert.equal(calls,1);
+ assert.doesNotMatch(JSON.stringify(result),/SECRET-DO-NOT-EXPOSE/);
+});
+test('P0 default session recovery still omits extra identity and refresh behavior stays compatible',async()=>{
+ const x=setup();
+ const old=await x.api.restore();
+ assert.equal('actorUid' in old,false);
+ assert.equal(x.calls.get,1);
+});
