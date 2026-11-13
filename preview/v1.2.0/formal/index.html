@@ -3500,7 +3500,7 @@ restoreActiveTab();
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
      const visible=typeof onPurchaseReadback==='function'
-      ?await onPurchaseReadback():null;
+      ?await onPurchaseReadback({operationId:queued.operationId}):null;
      if(visible==='ready')
       return Object.freeze({status:'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
        operationId:queued.operationId,cloudWriteCommitted:true});

@@ -102,7 +102,8 @@ test('P2-01 original purchase form -> persistent UUID -> RPC -> cloud readback s
   operatorApproved:()=>true,purchaseOnly:true,
   readPurchase:()=>({size:'S',brand:'好奇',series:'小森林',pieces:60,price:99.95}),
   readQuote:()=>null,readTransaction:()=>null,notify:()=>{},
-  onPurchaseReadback:async()=>{
+  onPurchaseReadback:async({operationId})=>{
+   assert.equal(operationId,ID);
    shown=projected(cloud,'dad',await client.readPurchases({
     familyId:F,childId:CHILD}));
    return 'ready';
@@ -186,4 +187,36 @@ test('P2-01 formal controller exposes disabled release, and retry button is capt
  assert.match(source,/'formalSyncNow'/);
  assert.match(ctrl,/const FORMAL_PURCHASE_ENABLED=false/);
  assert.match(ctrl,/purchaseOnly:true/);
+});
+
+// Positive return is not enough: the formal controller must verify this UUID
+// actually appears in the newly read primary transaction history.
+test('P2-01 only a verified cloud purchase operation ID may complete UI readback',async()=>{
+ const root=require('../preview/v1.2.0/formal-controller.js');
+ const elements=new Map();
+ const el=id=>{if(!elements.has(id))elements.set(id,{hidden:false,
+  textContent:'',value:'',addEventListener(){}});return elements.get(id);};
+ const doc={body:{dataset:{}},getElementById:el,addEventListener(){}};
+ const host={navigator:{onLine:true},crypto:{randomUUID:()=>ID},
+  addEventListener(){}};
+ let purchaseRows=[];
+ const controller={connect:async()=> 'FORMAL_FAMILY_VERIFIED',
+  verifiedContext:()=>({app:{auth:{getSession:async()=>({data:{user:{id:'dad'}}})}},
+   familyId:F,actorUid:'dad'}),signOut:async()=> 'LOGIN_REQUIRED'};
+ const app=root.create({host,doc,loginController:{create:()=>controller},
+  readModelFactory:()=>({read:async()=>({...{
+   status:'PRIMARY_READ_ONLY_READY',source:'cloudbase-primary-receipt-verified',
+   familyId:F,childId:CHILD,actorUid:'dad',canWrite:false
+  },livePurchases:purchaseRows})}),
+  primaryFactory:()=>({activate:async()=>({status:'PRIMARY_OUTBOX_READ_ONLY_READY'})}),
+  commandsFactory:{create:()=>({submit:async()=>({status:'DISABLED'})})},
+  actionsFactory:{create:()=>({attach:()=>({detach(){}})})},
+  projection:{project:()=>({canWrite:false,state:{}})},
+  ui:{defaults:()=>({}),show(){},clear(){}},scriptLoader:async()=>{}});
+ assert.equal(await app.start(),'ready');
+ assert.equal(await app.restore({expectedPurchaseId:ID}),
+  'PRIMARY_PURCHASE_READBACK_PENDING');
+ purchaseRows=[{operationId:ID,reversed:false}];
+ assert.equal(await app.restore({expectedPurchaseId:ID}),'ready');
+ assert.equal(doc.body.dataset.formalState,'ready');
 });

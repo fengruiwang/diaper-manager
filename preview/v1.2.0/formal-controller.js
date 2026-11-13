@@ -177,7 +177,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(documentPending===scopeKey)documentPending='';
   });
  }
- async function restore({verifiedStatus=null}={}){
+ async function restore({verifiedStatus=null,expectedPurchaseId=null}={}){
   if(busy)return mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
@@ -208,6 +208,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const verified=await bounded(()=>readModelFactory(ctx.app).read({
     familyId:ctx.familyId,actorUid:ctx.actorUid,limit:50
    }),20000);
+   // An RPC ACK alone is not proof that the purchase appears in the
+   // authoritative RLS-scoped history read by the other family member.
+   const purchaseAppears=expectedPurchaseId===null
+    ||(Array.isArray(verified?.livePurchases)
+      &&verified.livePurchases.some(row=>row.operationId===expectedPurchaseId
+       &&row.reversed!==true));
    if(token!==revision)return mode;
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
@@ -271,7 +277,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       operatorApproved:()=>purchaseReleaseEnabled===true
        &&purchaseOperatorApproved()===true,
       purchaseOnly:true,
-      onPurchaseReadback:()=>restore(),
+      onPurchaseReadback:({operationId})=>restore({expectedPurchaseId:operationId}),
       formalModeSelected:()=>mode==='ready',
       readPurchase:()=>root.XBFormalUIData.purchase(),
       readQuote:id=>root.XBFormalUIData.quote(id),
@@ -308,7 +314,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }).catch(()=>{});
    if(!documentsVerified)
     optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
-   return mode;
+   return purchaseAppears?mode:'PRIMARY_PURCHASE_READBACK_PENDING';
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
