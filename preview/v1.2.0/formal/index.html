@@ -322,7 +322,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
       <div class="price-editor-error" id="priceEditError" role="alert"></div>
       <div class="price-editor-actions"><button type="submit" class="btn" id="saveEditedReference">保存新价格</button><button type="button" class="btn secondary" id="cancelEditedReference">取消</button><button type="button" class="btn ghost" id="restoreDefaultReference">恢复默认价</button></div>
     </form>
-    <p class="price-editor-foot">只修改当前品牌 · 系列 · 尺码；其他尺码不受影响。保存后立即更新对照提醒，并保存在本机备份数据中。</p>
+    <p class="price-editor-foot">只修改当前品牌 · 系列 · 尺码；其他尺码不受影响。云端写入经授权并确认后，将更新对照提醒并供家庭账号共享。</p>
   </div>
 </div>
 <script>
@@ -3569,8 +3569,10 @@ restoreActiveTab();
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   notify,formalModeSelected,buildAllowsWrites=false,
-  operatorApproved=()=>false,documentCommands=null,
-  readDocumentInput=null,prepareQuoteEdit=null,
+  operatorApproved=()=>false,documentCommands=null,documentQueue=null,
+  readDocumentInput=null,readReferenceBaseline=null,
+  onReferenceReadback=null,allowReference=false,
+  prepareQuoteEdit=null,
   batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
   allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
@@ -3579,7 +3581,7 @@ restoreActiveTab();
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
     ||typeof operatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
-  let busy=false,stocktakeBusy=false,attached=null;
+  let busy=false,stocktakeBusy=false,referenceBusy=false,attached=null;
   async function invoke(action,value){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -3707,14 +3709,65 @@ restoreActiveTab();
    }catch(_){return result('PRIMARY_STOCKTAKE_REVIEW_REQUIRED');}
    finally{stocktakeBusy=false;}
   }
+  async function invokeReference(el,doc){
+   if(allowReference!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(referenceBusy)return result('BUSY');
+   referenceBusy=true;
+   try{
+    // A change must be tied to the reference document actually rendered
+    // on this account. Never silently use a newly advanced revision.
+    const baseline=typeof readReferenceBaseline==='function'
+     ?readReferenceBaseline():null;
+    if(!baseline||!Number.isSafeInteger(baseline.revision)
+      ||baseline.revision<0||!baseline.body?.referenceOverrides)
+     return result('REFERENCE_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='reference'||!['set','reset'].includes(input.action)
+      ||typeof input.record?.key!=='string'||!input.record.key)
+     return result('REFERENCE_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('REFERENCE_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let sync;
+    try{sync=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
+    });}
+    if(sync?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({status:sync?.status||
+       'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false});
+    try{
+     const visible=typeof onReferenceReadback==='function'
+      ?await onReferenceReadback({requestId,
+       record:input.record,action:input.action,
+       expectedRevision:baseline.revision}):null;
+     if(visible==='ready')return Object.freeze({
+      status:'REFERENCE_CLOUD_READBACK_VERIFIED',
+      requestId,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'REFERENCE_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('REFERENCE_OPERATION_REVIEW_REQUIRED');}
+   finally{referenceBusy=false;}
+  }
   async function handle(el,doc){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
+   const referenceEvent=el.id==='saveEditedReference'
+    ||el.id==='restoreDefaultReference'||action==='resetref';
    if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
      &&!(allowConsume===true&&action==='consume')
      &&!(allowReverse===true&&action==='deletetx')
-     &&!(allowStocktake===true&&el.id==='saveStocks'))
+     &&!(allowStocktake===true&&el.id==='saveStocks')
+     &&!(allowReference===true&&referenceEvent))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
@@ -3726,6 +3779,7 @@ restoreActiveTab();
     return invoke('consume',{size:el.dataset?.size,count:Number(el.dataset?.count)});
    if(el.id==='saveStocks')
     return readStocktakeInputs(doc);
+   if(referenceEvent)return invokeReference(el,doc);
    if(action==='editquote'&&typeof prepareQuoteEdit==='function'){
     return prepareQuoteEdit(el.dataset?.id);
    }
@@ -3772,6 +3826,7 @@ restoreActiveTab();
    const formHandler=event=>{
     if(!formalModeSelected())return;
     event.preventDefault();event.stopImmediatePropagation();
+    if(event.target?.id!=='priceEditForm')return;
     const el={id:'saveEditedReference',dataset:{}};
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
@@ -4079,7 +4134,7 @@ const DOC_TYPES={quotes:'quote.upsert',reference:'reference.patch',
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
- cloudWritesEnabled=false}={}){
+ cloudWritesEnabled=false,referenceOnly=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
    ||!outboxFactory?.create||!contract?.createOperation
@@ -4112,7 +4167,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return ans('DOCUMENT_QUEUE_BUSY');
   if(!online())return ans('DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE');
-  if(!DOC_TYPES[kind]||!UUID.test(String(requestId))
+  if((referenceOnly===true&&kind!=='reference')
+    ||!DOC_TYPES[kind]||!UUID.test(String(requestId))
     ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0
     ||!nextBody||typeof nextBody!=='object'||Array.isArray(nextBody))
    return ans('INVALID_DOCUMENT_OPERATION');
@@ -4147,6 +4203,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity(),items=await outbox.ready(scope);
+   if(referenceOnly===true&&items.some(op=>op.payload?.kind!=='reference'))
+    return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    if(!items.length){
     const counts=await outbox.stats(scope);
     return ans(counts.outstanding>0?'DOCUMENT_CONFLICT_REVIEW_REQUIRED':
@@ -4159,6 +4217,24 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     const command={...scope,kind:op.payload.kind,
      nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
      requestId:op.id,operatorApproved:true};
+    // P3-01 retries first read the original request receipt. When its
+    // state is uncertain do not create an independent second request.
+    if(referenceOnly===true){
+     const prior=await documentsClient.checkRequest({
+      ...scope,requestId:op.id,readEnabled:true
+     });
+     if(prior.status==='REQUEST_COMMITTED_VERIFIED'){
+      if(prior.kind!==op.payload.kind
+        ||prior.revision!==op.expectedRevision+1)
+       return ans('DOCUMENT_RECEIPT_CONFLICT_KEEP_ID',{requestId:op.id});
+      await outbox.recordResult(scope,op.id,{
+       kind:'accepted',receiptId:op.id
+      });
+      continue;
+     }
+     if(prior.status!=='REQUEST_NOT_YET_RECEIPTED_SAME_ID_ONLY')
+      return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',{requestId:op.id});
+    }
     const result=await documentsClient.put(command);
     let acknowledged=result.status==='PRIMARY_DOCUMENT_COMMITTED';
     if(!acknowledged &&
@@ -4178,6 +4254,16 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     }
     if(!acknowledged)return ans('DOCUMENT_ACK_NOT_VERIFIED',
      {requestId:op.id});
+    if(referenceOnly===true){
+     const verified=await documentsClient.checkRequest({
+      ...scope,requestId:op.id,readEnabled:true
+     });
+     if(verified.status!=='REQUEST_COMMITTED_VERIFIED'
+        ||verified.kind!=='reference'
+        ||verified.revision!==op.expectedRevision+1)
+      return ans('DOCUMENT_RECEIPT_READBACK_REQUIRED_KEEP_ID',
+       {requestId:op.id});
+    }
     await outbox.recordResult(scope,op.id,{
      kind:'accepted',receiptId:op.id
     });
@@ -4193,11 +4279,15 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity(),op=await outbox.get(scope,requestId);
    if(!op)return ans('ORIGINAL_REQUEST_ID_NOT_FOUND');
+   if(referenceOnly===true&&op.payload?.kind!=='reference')
+    return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    const status=await documentsClient.checkRequest({
     ...scope,requestId,readEnabled:true
    });
    if(status.status!=='REQUEST_COMMITTED_VERIFIED'
-     ||status.kind!==op.payload?.kind)
+     ||status.kind!==op.payload?.kind
+     ||(referenceOnly===true
+       &&status.revision!==op.expectedRevision+1))
     return ans('REQUEST_NOT_VERIFIED_KEEP_PENDING');
    await outbox.recordResult(scope,requestId,{
     kind:'accepted',receiptId:requestId
@@ -4295,7 +4385,7 @@ function create({client,queue,uuid}={}){
   return next;
  }
  async function submit({familyId,actorUid,kind,action,record,
-  operatorApproved=false}={}){
+  expectedRevision=null,operatorApproved=false}={}){
   if(queue.cloudWritesEnabled!==true||operatorApproved!==true)
    return reply('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return reply('BUSY');
@@ -4309,6 +4399,13 @@ function create({client,queue,uuid}={}){
    const read=await client.read({familyId,actorUid,kind,readEnabled:true});
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
+   // For on-screen reference edits, use the revision shown when the
+   // editor was rendered, not a fresh revision that could mask a lost race.
+   if(kind==='reference'&&(expectedRevision===null
+     ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0))
+    return reply('REFERENCE_DISPLAYED_BASELINE_REQUIRED');
+   if(expectedRevision!==null&&read.revision!==expectedRevision)
+    return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
    const body=transform(kind,action,read.body,record);
    const requestId=uuid();
    const saved=await queue.queue({kind,nextBody:body,

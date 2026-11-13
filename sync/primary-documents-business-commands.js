@@ -80,7 +80,7 @@ function create({client,queue,uuid}={}){
   return next;
  }
  async function submit({familyId,actorUid,kind,action,record,
-  operatorApproved=false}={}){
+  expectedRevision=null,operatorApproved=false}={}){
   if(queue.cloudWritesEnabled!==true||operatorApproved!==true)
    return reply('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return reply('BUSY');
@@ -94,6 +94,13 @@ function create({client,queue,uuid}={}){
    const read=await client.read({familyId,actorUid,kind,readEnabled:true});
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
+   // For on-screen reference edits, use the revision shown when the
+   // editor was rendered, not a fresh revision that could mask a lost race.
+   if(kind==='reference'&&(expectedRevision===null
+     ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0))
+    return reply('REFERENCE_DISPLAYED_BASELINE_REQUIRED');
+   if(expectedRevision!==null&&read.revision!==expectedRevision)
+    return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
    const body=transform(kind,action,read.body,record);
    const requestId=uuid();
    const saved=await queue.queue({kind,nextBody:body,

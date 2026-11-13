@@ -49,7 +49,7 @@ function fixture({build=false,approved=false,selected=true,stockChanges={},
  }
  async function submit(){
   let prevented=false;
-  submitHandler?.({preventDefault(){prevented=true},
+  submitHandler?.({target:{id:'priceEditForm'},preventDefault(){prevented=true},
    stopImmediatePropagation(){prevented=true}});
   await new Promise(resolve=>setImmediate(resolve));
   return prevented;

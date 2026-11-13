@@ -258,9 +258,26 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     }
    }
    let documentsVerified=false;
-   if(documentSnapshot&&documentScope===scopeKey){
-    data=documentsOverlay.apply(data,documentSnapshot);
-    documentsVerified=data.sharedBusinessDocumentsVerified===true;
+   if(documentSnapshot&&documentScope===scopeKey&&documentsClient){
+    // Refresh reference even if the other four read-only documents are
+    // cached: the spouse's newly committed price must appear on Refresh.
+    const latest=await bounded(()=>documentsClient.read({
+     familyId:ctx.familyId,actorUid:ctx.actorUid,
+     kind:'reference',readEnabled:true
+    }),12000).catch(()=>null);
+    const old=documentSnapshot.documents?.reference;
+    if(latest?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+      &&latest.familyId===ctx.familyId&&latest.childId===old?.childId
+      &&Number.isSafeInteger(latest.revision)){
+     documentSnapshot=Object.freeze({...documentSnapshot,
+      documents:Object.freeze({...documentSnapshot.documents,
+       reference:latest})});
+     data=documentsOverlay.apply(data,documentSnapshot);
+     documentsVerified=data.sharedBusinessDocumentsVerified===true;
+    }else{
+     // Never reapply an old cached reference price after a failed read.
+     documentSnapshot=null;documentScope='';documentAttempt='';
+    }
    }
    // An authenticated, receipt-backed primary is required for outbox setup.
    if(!primary){
@@ -294,7 +311,36 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       batchGuard=batchStocktakeFactory({controller,host,primary:p});
      }
      attached=actionsFactory.create({
-      primary:p,commands,documentCommands,
+      primary:p,commands,documentCommands,documentQueue:documentsGuard,
+      allowReference:true,
+      readReferenceBaseline:()=>mode==='ready'
+       &&documentSnapshot&&documentScope===actor+'\x00'+family
+       ?documentSnapshot.documents?.reference:null,
+      onReferenceReadback:async({requestId,record,action,expectedRevision})=>{
+       const current=controller.verifiedContext();
+       if(!current||!documentsClient||!documentsGuard
+         ||current.actorUid!==actor||current.familyId!==family)
+        return 'pending';
+       const receipt=await documentsGuard.checkSavedRequest(requestId);
+       if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       const fresh=await documentsClient.read({
+        familyId:current.familyId,actorUid:current.actorUid,
+        kind:'reference',readEnabled:true
+       });
+       if(fresh.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ||fresh.revision<=expectedRevision)return 'pending';
+       const values=fresh.body?.referenceOverrides;
+       const matches=action==='reset'
+        ?values&&!Object.prototype.hasOwnProperty.call(values,record.key)
+        :values?.[record.key]===record.value;
+       if(!matches)return 'pending';
+       if(documentSnapshot&&documentScope===actor+'\x00'+family){
+        documentSnapshot=Object.freeze({...documentSnapshot,
+         documents:Object.freeze({...documentSnapshot.documents,
+          reference:fresh})});
+       }
+       return await restore()==='ready'?'ready':'pending';
+      },
       batchStocktake:batchGuard,
       createBatchId:()=>host.crypto.randomUUID(),
       onBatchReadback:({items})=>restore({expectedBatch:items}),
@@ -329,6 +375,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'多尺码盘点暂不可用，未保存任何库存修改。'
          :answer?.status==='PRIMARY_STOCK_REVISION_CONFLICT'
          ?'库存版本已更新，请刷新后重新盘点；未覆盖另一设备的库存。'
+         :answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'
+         ?'自定义参考价已同步至云端，页面已刷新；家庭账号可读取同一价格。'
+         :answer?.status==='REFERENCE_COMMITTED_READBACK_REQUIRED'
+         ?'参考价回执已确认，但页面尚待重新读取；请刷新，不要重复保存。'
+         :answer?.status==='DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED'
+         ?'参考价文档已有其他设备更新，请刷新后重新编辑；未覆盖新价格。'
+         :answer?.status==='DOCUMENT_PENDING_REVIEW_REQUIRED'
+         ?'上次参考价请求尚未核实，请使用待同步重试，不要重复保存。'
          :['PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_USE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
@@ -467,7 +521,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   // Retry original inventory and batch UUIDs; never generate a replacement.
   if(purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true){
    $('formalSyncNow').disabled=false;
-   $('formalSyncNow').textContent='重新提交待确认库存操作';
+   $('formalSyncNow').textContent='重新核验待确认操作';
   }
   on('formalSyncNow',async()=>{
    if(purchaseReleaseEnabled!==true||purchaseOperatorApproved()!==true){
@@ -475,6 +529,22 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return;
    }
    if(!primary)return;
+   if(documentsGuard){
+    const docPending=await documentsGuard.pending();
+    if(docPending?.status==='DOCUMENT_QUEUE_COUNTS_VERIFIED'
+      &&docPending.outstanding>0){
+     const sent=await documentsGuard.send({operatorApproved:true});
+     if(sent?.status==='DOCUMENT_SYNC_CONFIRMED'){
+      const next=await restore();
+      $('formalSyncState').textContent=next==='ready'
+       ?'原参考价请求已确认，云端价格已重新读取。'
+       :'参考价回执已确认，请刷新云端数据。';
+     }else $('formalSyncState').textContent=
+      '参考价待确认：'+String(sent?.status||'UNVERIFIED')
+       +'；保留原 request UUID，请勿再次保存。';
+     return;
+    }
+   }
    if(batchGuard){
     const pending=await batchGuard.pending();
     if(pending?.status==='BATCH_QUEUE_VERIFIED'&&pending.outstanding>0){
@@ -549,7 +619,8 @@ function browserStart(){
     controller,host,documentsClient,
     outboxFactory:root.XBDurableOutbox,
     contract:root.XBOutboxContract,
-    cloudWritesEnabled:FORMAL_WRITE_ENABLED
+    cloudWritesEnabled:FORMAL_WRITE_ENABLED,
+    referenceOnly:true
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,
   batchStocktakeFactory:({controller,host,primary})=>

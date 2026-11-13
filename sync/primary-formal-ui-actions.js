@@ -17,8 +17,10 @@
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   notify,formalModeSelected,buildAllowsWrites=false,
-  operatorApproved=()=>false,documentCommands=null,
-  readDocumentInput=null,prepareQuoteEdit=null,
+  operatorApproved=()=>false,documentCommands=null,documentQueue=null,
+  readDocumentInput=null,readReferenceBaseline=null,
+  onReferenceReadback=null,allowReference=false,
+  prepareQuoteEdit=null,
   batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
   allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
@@ -27,7 +29,7 @@
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
     ||typeof operatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
-  let busy=false,stocktakeBusy=false,attached=null;
+  let busy=false,stocktakeBusy=false,referenceBusy=false,attached=null;
   async function invoke(action,value){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -155,14 +157,65 @@
    }catch(_){return result('PRIMARY_STOCKTAKE_REVIEW_REQUIRED');}
    finally{stocktakeBusy=false;}
   }
+  async function invokeReference(el,doc){
+   if(allowReference!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(referenceBusy)return result('BUSY');
+   referenceBusy=true;
+   try{
+    // A change must be tied to the reference document actually rendered
+    // on this account. Never silently use a newly advanced revision.
+    const baseline=typeof readReferenceBaseline==='function'
+     ?readReferenceBaseline():null;
+    if(!baseline||!Number.isSafeInteger(baseline.revision)
+      ||baseline.revision<0||!baseline.body?.referenceOverrides)
+     return result('REFERENCE_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='reference'||!['set','reset'].includes(input.action)
+      ||typeof input.record?.key!=='string'||!input.record.key)
+     return result('REFERENCE_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('REFERENCE_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let sync;
+    try{sync=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
+    });}
+    if(sync?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({status:sync?.status||
+       'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false});
+    try{
+     const visible=typeof onReferenceReadback==='function'
+      ?await onReferenceReadback({requestId,
+       record:input.record,action:input.action,
+       expectedRevision:baseline.revision}):null;
+     if(visible==='ready')return Object.freeze({
+      status:'REFERENCE_CLOUD_READBACK_VERIFIED',
+      requestId,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'REFERENCE_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('REFERENCE_OPERATION_REVIEW_REQUIRED');}
+   finally{referenceBusy=false;}
+  }
   async function handle(el,doc){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
+   const referenceEvent=el.id==='saveEditedReference'
+    ||el.id==='restoreDefaultReference'||action==='resetref';
    if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
      &&!(allowConsume===true&&action==='consume')
      &&!(allowReverse===true&&action==='deletetx')
-     &&!(allowStocktake===true&&el.id==='saveStocks'))
+     &&!(allowStocktake===true&&el.id==='saveStocks')
+     &&!(allowReference===true&&referenceEvent))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
@@ -174,6 +227,7 @@
     return invoke('consume',{size:el.dataset?.size,count:Number(el.dataset?.count)});
    if(el.id==='saveStocks')
     return readStocktakeInputs(doc);
+   if(referenceEvent)return invokeReference(el,doc);
    if(action==='editquote'&&typeof prepareQuoteEdit==='function'){
     return prepareQuoteEdit(el.dataset?.id);
    }
@@ -220,6 +274,7 @@
    const formHandler=event=>{
     if(!formalModeSelected())return;
     event.preventDefault();event.stopImmediatePropagation();
+    if(event.target?.id!=='priceEditForm')return;
     const el={id:'saveEditedReference',dataset:{}};
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));

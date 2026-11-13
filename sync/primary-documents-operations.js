@@ -11,7 +11,7 @@ const DOC_TYPES={quotes:'quote.upsert',reference:'reference.patch',
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
- cloudWritesEnabled=false}={}){
+ cloudWritesEnabled=false,referenceOnly=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
    ||!outboxFactory?.create||!contract?.createOperation
@@ -44,7 +44,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return ans('DOCUMENT_QUEUE_BUSY');
   if(!online())return ans('DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE');
-  if(!DOC_TYPES[kind]||!UUID.test(String(requestId))
+  if((referenceOnly===true&&kind!=='reference')
+    ||!DOC_TYPES[kind]||!UUID.test(String(requestId))
     ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0
     ||!nextBody||typeof nextBody!=='object'||Array.isArray(nextBody))
    return ans('INVALID_DOCUMENT_OPERATION');
@@ -79,6 +80,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity(),items=await outbox.ready(scope);
+   if(referenceOnly===true&&items.some(op=>op.payload?.kind!=='reference'))
+    return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    if(!items.length){
     const counts=await outbox.stats(scope);
     return ans(counts.outstanding>0?'DOCUMENT_CONFLICT_REVIEW_REQUIRED':
@@ -91,6 +94,24 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     const command={...scope,kind:op.payload.kind,
      nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
      requestId:op.id,operatorApproved:true};
+    // P3-01 retries first read the original request receipt. When its
+    // state is uncertain do not create an independent second request.
+    if(referenceOnly===true){
+     const prior=await documentsClient.checkRequest({
+      ...scope,requestId:op.id,readEnabled:true
+     });
+     if(prior.status==='REQUEST_COMMITTED_VERIFIED'){
+      if(prior.kind!==op.payload.kind
+        ||prior.revision!==op.expectedRevision+1)
+       return ans('DOCUMENT_RECEIPT_CONFLICT_KEEP_ID',{requestId:op.id});
+      await outbox.recordResult(scope,op.id,{
+       kind:'accepted',receiptId:op.id
+      });
+      continue;
+     }
+     if(prior.status!=='REQUEST_NOT_YET_RECEIPTED_SAME_ID_ONLY')
+      return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',{requestId:op.id});
+    }
     const result=await documentsClient.put(command);
     let acknowledged=result.status==='PRIMARY_DOCUMENT_COMMITTED';
     if(!acknowledged &&
@@ -110,6 +131,16 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     }
     if(!acknowledged)return ans('DOCUMENT_ACK_NOT_VERIFIED',
      {requestId:op.id});
+    if(referenceOnly===true){
+     const verified=await documentsClient.checkRequest({
+      ...scope,requestId:op.id,readEnabled:true
+     });
+     if(verified.status!=='REQUEST_COMMITTED_VERIFIED'
+        ||verified.kind!=='reference'
+        ||verified.revision!==op.expectedRevision+1)
+      return ans('DOCUMENT_RECEIPT_READBACK_REQUIRED_KEEP_ID',
+       {requestId:op.id});
+    }
     await outbox.recordResult(scope,op.id,{
      kind:'accepted',receiptId:op.id
     });
@@ -125,11 +156,15 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity(),op=await outbox.get(scope,requestId);
    if(!op)return ans('ORIGINAL_REQUEST_ID_NOT_FOUND');
+   if(referenceOnly===true&&op.payload?.kind!=='reference')
+    return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    const status=await documentsClient.checkRequest({
     ...scope,requestId,readEnabled:true
    });
    if(status.status!=='REQUEST_COMMITTED_VERIFIED'
-     ||status.kind!==op.payload?.kind)
+     ||status.kind!==op.payload?.kind
+     ||(referenceOnly===true
+       &&status.revision!==op.expectedRevision+1))
     return ans('REQUEST_NOT_VERIFIED_KEEP_PENDING');
    await outbox.recordResult(scope,requestId,{
     kind:'accepted',receiptId:requestId
