@@ -1,4 +1,4 @@
-name: XiaoBao P0 CloudBase upload package
+name: XiaoBao P1-01 CloudBase upload package
 on:
   push:
     branches:
@@ -13,24 +13,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify exact package and unchanged authentication
+      - name: Verify strict P1-01 deployment source and no writes
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          d=Path('deploy/xb-test/formal')
-          html=(d/'index.html').read_text('utf-8')
-          assert 'src="./m1-controller.js?v=da93ab1"' in html
-          assert 'src="./formal-controller.js?v=da93ab1"' in html
-          assert 'name="xiaobao-p0-source-sha" content="da93ab12bce17f735a16d5dbc5ef32b24ef3c070"' in html
-          assert (d/'m1-controller.js').read_bytes()==Path('preview/v1.2.0/m1-controller.js').read_bytes()
-          assert (d/'formal-controller.js').read_bytes()==Path('preview/v1.2.0/formal-controller.js').read_bytes()
-          assert 'const FORMAL_WRITE_ENABLED=false' in (d/'formal-controller.js').read_text('utf-8')
-          assert "const ENV_ID='f495637659-d2gnuzz2jf5657da8'" in (d/'m1-controller.js').read_text('utf-8')
-          print('P0_STARTUP_PERF_PACKAGE_PASS')
+          base=Path('deploy/xb-test/formal')
+          html=(base/'index.html').read_text('utf-8')
+          assert 'src="./m1-controller.js?v=92c7923"' in html
+          assert 'src="./formal-controller.js?v=92c7923"' in html
+          assert 'name="xiaobao-p1-source-sha" content="92c7923676b5fd1dd6b8cd2b4de111c21af14d2a"' in html
+          assert (base/'m1-controller.js').read_bytes()==Path('preview/v1.2.0/m1-controller.js').read_bytes()
+          assert (base/'formal-controller.js').read_bytes()==Path('preview/v1.2.0/formal-controller.js').read_bytes()
+          for p in ['primary-ui-projection','primary-documents-overlay']:
+           src=Path('sync/'+p+'.js').read_text('utf-8').strip()
+           assert src in html, 'inline module mismatch '+p
+          assert 'const FORMAL_WRITE_ENABLED=false' in (base/'formal-controller.js').read_text('utf-8')
+          assert "const ENV_ID='f495637659-d2gnuzz2jf5657da8'" in (base/'m1-controller.js').read_text('utf-8')
+          print('P1_01_CLOUDBASE_PACKAGE_PASS')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoBao-P0-CloudBase-da93ab1
+          name: XiaoBao-P1-01-CloudBase-92c7923
           path: |
             deploy/xb-test/formal/index.html
             deploy/xb-test/formal/m1-controller.js

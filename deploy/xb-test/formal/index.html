@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="xiaobao-p0-source-sha" content="da93ab12bce17f735a16d5dbc5ef32b24ef3c070" />
+<meta name="xiaobao-p1-source-sha" content="92c7923676b5fd1dd6b8cd2b4de111c21af14d2a" />
 <meta name="theme-color" content="#f6f7fb" />
 <meta name="description" content="纸尿裤备货计划、库存管理、采购记录、参考好价提醒和单片比价。" />
 <title>M3 独立预览 · 小宝管家 V1.2.0 · 独立联网测试版 M1-01</title>
@@ -2988,11 +2988,15 @@ restoreActiveTab();
    state.transactions.push({
     id,type:'buy',date:row.purchaseDate,brand:row.brand,
     series:row.series,size:row.size,pieces:row.pieces,
-    price:row.totalFen/100,origin:'cloud_post_migration'
+    price:row.totalFen/100,operationId:row.operationId,
+    reversed:row.reversed===true,origin:'cloud_post_migration'
    });
   }
   return Object.freeze({
    status:view.status,source:view.source||'unverified',canWrite:false,
+   familyId:view.status==='PRIMARY_READ_ONLY_READY'?view.familyId:null,
+   childId:view.status==='PRIMARY_READ_ONLY_READY'?view.childId:null,
+   actorUid:view.status==='PRIMARY_READ_ONLY_READY'?view.actorUid:null,
    state:Object.freeze(state),revisions:Object.freeze(clone(view.revisions)),
    historyCount:state.transactions.length,
    quoteCount:state.quotes.length,weightCount:state.weightRecords.length,
@@ -3043,7 +3047,7 @@ restoreActiveTab();
 })(typeof window!=='undefined'?window:null);
 
 </script>
-<script src="./m1-controller.js?v=da93ab1" defer></script>
+<script src="./m1-controller.js?v=92c7923" defer></script>
 <script>/* M3 formal PRIMARY inventory/transaction bridge, using P2/P3 modules.
  * NOT imported by M1-02, M3 synthetic preview, V1.1.2 or live PWA.
  * No auto network calls on import/create. This is NOT an authorization.
@@ -3804,6 +3808,13 @@ function apply(original,snapshot){
    fail('mixed_family_documents');
   family=d.familyId;child=d.childId;versions[kind]=d.revision;
  }
+ // Five documents could be mutually consistent but belong to a different
+ // child. Compare with the already receipt-verified primary before overlay.
+ if(original.status!=='PRIMARY_READ_ONLY_READY'
+    ||original.source!=='cloudbase-primary-receipt-verified'
+    ||original.familyId!==family||original.childId!==child
+    ||typeof original.actorUid!=='string'||!original.actorUid)
+  fail('document_primary_scope_mismatch');
  const state=clone(original.state);
  const inventory=JSON.stringify(state.inventory);
  const transactions=JSON.stringify(state.transactions);
@@ -4264,7 +4275,7 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
-<script src="./formal-controller.js?v=da93ab1" defer></script>
+<script src="./formal-controller.js?v=92c7923" defer></script>
 
 </body>
 </html>
