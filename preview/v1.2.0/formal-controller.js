@@ -6,6 +6,8 @@
 (function(root){
 'use strict';
 const FORMAL_WRITE_ENABLED=false;
+// Purchase release is prepared but OFF until separate operator authorization.
+const FORMAL_PURCHASE_ENABLED=false;
 const OTP_COOLDOWN_MS=60000;
 const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
 const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED','FORMAL_FAMILY_VERIFIED']);
@@ -27,7 +29,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  commandsFactory,actionsFactory,projection,ui,scriptLoader,
  documentsFactory=null,documentsOverlay=null,
  documentOpsFactory=null,documentCommandsFactory=null,
- batchStocktakeFactory=null}={}){
+ batchStocktakeFactory=null,
+ purchaseReleaseEnabled=FORMAL_PURCHASE_ENABLED,
+ purchaseOperatorApproved=()=>false}={}){
  if(!host||!doc||!loginController?.create||typeof readModelFactory!=='function'
    ||typeof primaryFactory!=='function'||!commandsFactory?.create
    ||!actionsFactory?.create||!projection?.project
@@ -228,8 +232,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }
    // An authenticated, receipt-backed primary is required for outbox setup.
    if(!primary){
-    const p=primaryFactory({controller,host});
-    const activation=await bounded(()=>p.activate({verifiedReadModel:verified}),16000);
+    const p=primaryFactory({controller,host,
+     cloudWritesEnabled:purchaseReleaseEnabled===true});
+    // Write-capable activation retains independent server scope validation.
+    const activation=await bounded(()=>p.activate({
+     verifiedReadModel:purchaseReleaseEnabled===true?null:verified
+    }),16000);
     if(activation.status!=='PRIMARY_OUTBOX_READ_ONLY_READY')
      throw Error('formal_entry:primary_outbox_unverified');
     primary=p;pendingGuard=p;
@@ -259,15 +267,22 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       createBatchId:()=>host.crypto.randomUUID(),
       readDocumentInput:el=>root.XBFormalUIData.documentAction(el),
       prepareQuoteEdit:id=>root.XBFormalUIData.prepareQuoteEdit(id),
-      buildAllowsWrites:FORMAL_WRITE_ENABLED,
-      operatorApproved:()=>false,
+      buildAllowsWrites:purchaseReleaseEnabled===true,
+      operatorApproved:()=>purchaseReleaseEnabled===true
+       &&purchaseOperatorApproved()===true,
+      purchaseOnly:true,
+      onPurchaseReadback:()=>restore(),
       formalModeSelected:()=>mode==='ready',
       readPurchase:()=>root.XBFormalUIData.purchase(),
       readQuote:id=>root.XBFormalUIData.quote(id),
       readTransaction:id=>root.XBFormalUIData.transaction(id),
       notify:answer=>{
-       $('formalSyncState').textContent='操作状态：'+
-        String(answer?.status||'UNVERIFIED')+'；正式写入尚未授权。';
+       $('formalSyncState').textContent=
+        answer?.status==='PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED'
+         ?'云端采购已确认，正式库存及记录已重新读取。'
+         :'采购操作状态：'+String(answer?.status||'UNVERIFIED')
+          +(purchaseReleaseEnabled===true?'；请核查原操作 ID。':
+           '；正式写入尚未授权。');
       }
      }).attach(doc);
     }
@@ -388,21 +403,25 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   on('formalRefresh',restore);
+  // Purchase-only retry; never send consume, stocktake or document actions.
+  if(purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true){
+   $('formalSyncNow').disabled=false;
+   $('formalSyncNow').textContent='重新提交待确认采购';
+  }
   on('formalSyncNow',async()=>{
-   if(!FORMAL_WRITE_ENABLED){
-    $('formalSyncState').textContent='正式业务写入尚未授权，未发送任何云端操作。';
+   if(purchaseReleaseEnabled!==true||purchaseOperatorApproved()!==true){
+    $('formalSyncState').textContent='正式采购写入尚未批准，未发送操作。';
     return;
    }
-   if(!primary||!documentsGuard||!batchGuard)return;
-   const a=await primary.flush({operatorApproved:true});
-   const b=await documentsGuard.send({operatorApproved:true});
-   const c=await batchGuard.send({operatorApproved:true});
-   $('formalSyncState').textContent='库存：'+a.status+
-    '；其他业务：'+b.status+'；盘点：'+c.status;
-   if(a.status==='PRIMARY_CLOUD_SYNCED_VERIFIED'
-     &&b.status==='DOCUMENT_SYNC_CONFIRMED'
-     &&['BATCH_ATOMIC_COMMIT_ACKED','BATCH_ACK_RECOVERED',
-      'BATCH_NO_READY_OPERATION'].includes(c.status))await restore();
+   if(!primary)return;
+   const sent=await primary.flush({operatorApproved:true});
+   if(sent.status==='PRIMARY_CLOUD_SYNCED_VERIFIED'){
+    const next=await restore();
+    $('formalSyncState').textContent=next==='ready'
+     ?'云端已核验，采购与库存已刷新。'
+     :'云端操作已确认，页面读取仍需重试。';
+   }else $('formalSyncState').textContent=
+    '待确认采购：'+String(sent.status)+'；保留原操作 ID，不要新建重复采购。';
   });
   on('formalSignOut',signOut);
   on('formalGateSignOut',signOut);
@@ -470,7 +489,7 @@ function browserStart(){
    inventoryClient:root.XBInventoryClient,
    legacyHistoryReader:root.XBLegacyHistoryReader
   }),
-  primaryFactory:({controller,host})=>root.XBPrimaryCloudOperations.create({
+  primaryFactory:({controller,host,cloudWritesEnabled=false})=>root.XBPrimaryCloudOperations.create({
    controller,host,
    accessPreflight:root.XBCloudbaseAccessPreflight,
    childReader:root.XBCloudbaseChildReader,
@@ -483,14 +502,15 @@ function browserStart(){
    inventoryReconciler:root.XBInventoryReconciler,
    runnerFactory:root.XBInventoryOutboxRunner,
    syncFactory:root.XBInventorySyncReader,
-   cloudWritesEnabled:FORMAL_WRITE_ENABLED
+   cloudWritesEnabled:cloudWritesEnabled===true,
+   purchaseOnly:true
   }),
   commandsFactory:root.XBPrimaryBusinessCommands,
   actionsFactory:root.XBPrimaryFormalUIActions
  });
  root.XBFormalApp=app;app.start();
 }
-const api=Object.freeze({create,FORMAL_WRITE_ENABLED});
+const api=Object.freeze({create,FORMAL_WRITE_ENABLED,FORMAL_PURCHASE_ENABLED});
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(root?.document){
  root.XBFormalAppModule=api;
