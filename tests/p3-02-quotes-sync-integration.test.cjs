@@ -103,7 +103,7 @@ function fixture({enabled=true,loseAck=false,hideReceipts=0,legacy=[QUOTE]}={}){
   return Ops.create({
    controller:{verifiedContext:()=>scope},
    host:{indexedDB:{open(){}},navigator:{onLine:true}},
-   documentsClient,outboxFactory:{create:()=>outbox},
+   documentsClient:documentClient,outboxFactory:{create:()=>outbox},
    contract:require('../sync/outbox-contract.js'),
    cloudWritesEnabled:enabled,referenceAndQuotes:true
   });
