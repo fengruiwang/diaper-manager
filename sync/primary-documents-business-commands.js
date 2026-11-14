@@ -52,19 +52,22 @@ function create({client,queue,uuid}={}){
    if(action!=='patch'||!object(record))throw Error('invalid_settings');
    const editable=new Set(['currentSize','sizeMode','autoSize','replenishPolicy',
     'preset','goalPrice','plannedBudget','target','daily']);
-   for(const [k,v] of Object.entries(record)){
-    if(!editable.has(k))throw Error('unknown_edit_field');
-    if((k==='target'||k==='daily')&&!object(v))
-     throw Error('invalid_settings');
-    next[k]=clone(v);
-   }
    if(!object(next.target)||!object(next.daily))
     throw Error('invalid_settings');
-   for(const k of ['target','daily']){
-    for(const [sz,val] of Object.entries(next[k])){
-     if(!sizeSet.has(sz)||!Number.isSafeInteger(val)||val<0
-       ||(k==='daily'&&val<1))throw Error('invalid_settings');
-    }
+   for(const [k,v] of Object.entries(record)){
+    if(!editable.has(k))throw Error('unknown_edit_field');
+    if(k==='target'||k==='daily'){
+     if(!object(v))throw Error('invalid_settings');
+     for(const [sz,val] of Object.entries(v)){
+      if(!sizeSet.has(sz)||!Number.isSafeInteger(val)||val<0
+        ||(k==='daily'&&val<1))throw Error('invalid_settings');
+     }
+     // Presets patch NB/S only. Preserve every other size and
+     // historical extension nested in an existing map.
+     next[k]={...next[k],...clone(v)};
+    }else if(k==='replenishPolicy'&&object(v)){
+     next[k]={...(object(next[k])?next[k]:{}),...clone(v)};
+    }else next[k]=clone(v);
    }
   }else if(kind==='profile'){
    if(action!=='patch'||!object(record))throw Error('invalid_profile');
@@ -96,12 +99,13 @@ function create({client,queue,uuid}={}){
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
    // For on-screen reference/quote/growth/profile edits, use the revision that was
    // actually displayed; never substitute a newly advanced revision.
-   if((kind==='reference'||kind==='quotes'||kind==='growth'||kind==='profile')
+   if((kind==='reference'||kind==='quotes'||kind==='growth'||kind==='profile'||kind==='settings')
     &&(expectedRevision===null
      ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0))
     return reply(kind==='quotes'?'QUOTES_DISPLAYED_BASELINE_REQUIRED':
      kind==='growth'?'GROWTH_DISPLAYED_BASELINE_REQUIRED':
      kind==='profile'?'PROFILE_DISPLAYED_BASELINE_REQUIRED':
+     kind==='settings'?'SETTINGS_DISPLAYED_BASELINE_REQUIRED':
      'REFERENCE_DISPLAYED_BASELINE_REQUIRED');
    if(expectedRevision!==null&&read.revision!==expectedRevision)
     return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');

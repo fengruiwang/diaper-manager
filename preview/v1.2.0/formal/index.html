@@ -1083,33 +1083,49 @@ function formalDocumentAction(el){
   }};
  }
  if(id==='saveSizePreferences'){
-  const mode=$('sizeMode').value,size=$('currentSize').value;
-  const goal=Number($('goalPrice').value);
-  if(!['manual','auto'].includes(mode)||!SIZES.includes(size)
-    ||!Number.isFinite(goal)||goal<=0||goal>100)return null;
-  return {kind:'settings',action:'patch',record:{
-   sizeMode:mode,currentSize:size,goalPrice:goal}};
+  const mode=$('sizeMode').value;
+  const size=$('currentSize').value,raw=$('goalPrice').value.trim();
+  const goal=Number(raw);
+  if(!['manual','auto'].includes(mode)
+    ||(mode==='manual'&&!SIZES.includes(size))
+    ||!raw||!Number.isFinite(goal)||goal<=0||goal>100)return null;
+  // Automatic mode continues to calculate from growth records; it never
+  // pins the manually selected currentSize to a new value.
+  const record={sizeMode:mode,goalPrice:goal};
+  if(mode==='manual')record.currentSize=size;
+  return {kind:'settings',action:'patch',record};
  }
  if(id==='savePlans'){
+  const born=XBGrowth.born(state);
+  const mode=born?$('replenishMode').value:'custom';
+  const days=born?Number($('replenishDays').value):7;
+  if(!['days','custom'].includes(mode)||![5,7,10].includes(days))
+   return null;
   const target={},daily={};
   for(const sz of SIZES){
-   const t=Number($('target_'+sz)?.value),d=Number($('daily_'+sz)?.value);
-   if(!Number.isSafeInteger(t)||t<0||t>10000
-    ||!Number.isSafeInteger(d)||d<1||d>30)return null;
+   const rawTarget=$('target_'+sz)?.value?.trim();
+   const rawDaily=$('daily_'+sz)?.value?.trim();
+   const t=Number(rawTarget),d=Number(rawDaily);
+   if(!rawTarget||!Number.isSafeInteger(t)||t<0||t>10000
+     ||!rawDaily||!Number.isSafeInteger(d)||d<1||d>30)
+    return null;
    target[sz]=t;daily[sz]=d;
   }
-  const mode=$('replenishMode').value,days=Number($('replenishDays').value);
-  if(!['days','custom'].includes(mode)||![5,7,10].includes(days))return null;
-  return {kind:'settings',action:'patch',
-   record:{target,daily,replenishPolicy:{mode,days}}};
+  // Post-birth "days" updates daily and policy only, preserving every
+  // original manually entered target. Prenatal save marks preset custom.
+  const record={daily};
+  if(!born||mode==='custom')record.target=target;
+  if(born)record.replenishPolicy={mode,days};
+  else record.preset='custom';
+  return {kind:'settings',action:'patch',record};
  }
  if(el.dataset?.preset){
   const names={cautious:[80,60],balanced:[100,60],relaxed:[120,80]};
   const values=names[el.dataset.preset];
-  if(!values)return null;
+  // Prenatal presets remain unavailable after birth.
+  if(!values||XBGrowth.born(state))return null;
   return {kind:'settings',action:'patch',
-   record:{preset:el.dataset.preset,
-    target:{...state.target,NB:values[0],S:values[1]}}};
+   record:{preset:el.dataset.preset,target:{NB:values[0],S:values[1]}}};
  }
  if(id==='saveEditedReference'||id==='restoreDefaultReference'
     ||action==='resetref'){
@@ -3614,6 +3630,7 @@ restoreActiveTab();
   allowGrowth=false,readGrowthBaseline=null,onGrowthReadback=null,
   confirmGrowthDelete=()=>false,
   allowProfile=false,readProfileBaseline=null,onProfileReadback=null,
+  allowSettings=false,readSettingsBaseline=null,onSettingsReadback=null,
   batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
   allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
@@ -3622,7 +3639,7 @@ restoreActiveTab();
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
     ||typeof operatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
-  let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,profileBusy=false,attached=null;
+  let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,profileBusy=false,settingsBusy=false,attached=null;
   async function invoke(action,value){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -3978,6 +3995,59 @@ restoreActiveTab();
    }catch(_){return result('PROFILE_OPERATION_REVIEW_REQUIRED');}
    finally{profileBusy=false;}
   }
+  async function invokeSettings(el,doc){
+   if(allowSettings!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(settingsBusy)return result('BUSY');
+   settingsBusy=true;
+   try{
+    // Bind all settings edits to the revision actually displayed in UI.
+    const baseline=typeof readSettingsBaseline==='function'
+     ?readSettingsBaseline():null;
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
+      ||!baseline.body?.target||!baseline.body?.daily)
+     return result('SETTINGS_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='settings'||input.action!=='patch'
+      ||!input.record||typeof input.record!=='object'
+      ||Object.keys(input.record).length===0)
+     return result('SETTINGS_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('SETTINGS_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let synced;
+    try{synced=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId,
+     cloudWriteCommitted:false
+    });}
+    if(synced?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({
+      status:synced?.status||'SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false
+     });
+    try{
+     const visible=typeof onSettingsReadback==='function'
+      ?await onSettingsReadback({
+       requestId,record:input.record,expectedRevision:baseline.revision
+      }):null;
+     if(visible==='ready')return Object.freeze({
+      status:'SETTINGS_CLOUD_READBACK_VERIFIED',
+      requestId,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'SETTINGS_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('SETTINGS_OPERATION_REVIEW_REQUIRED');}
+   finally{settingsBusy=false;}
+  }
   async function handle(el,doc){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -3989,6 +4059,8 @@ restoreActiveTab();
    const quoteEditEvent=action==='editquote';
    const growthWriteEvent=el.id==='saveWeight'||action==='deleteweight';
    const profileWriteEvent=el.id==='saveProfile';
+   const settingsWriteEvent=el.id==='saveSizePreferences'
+    ||el.id==='savePlans'||Boolean(el.dataset?.preset);
    if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
      &&!(allowConsume===true&&action==='consume')
      &&!(allowReverse===true&&action==='deletetx')
@@ -3996,7 +4068,8 @@ restoreActiveTab();
      &&!(allowReference===true&&referenceEvent)
      &&!(allowQuotes===true&&(quoteWriteEvent||quoteEditEvent))
      &&!(allowGrowth===true&&growthWriteEvent)
-     &&!(allowProfile===true&&profileWriteEvent))
+     &&!(allowProfile===true&&profileWriteEvent)
+     &&!(allowSettings===true&&settingsWriteEvent))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
@@ -4012,6 +4085,7 @@ restoreActiveTab();
    if(quoteWriteEvent)return invokeQuotes(el,doc);
    if(growthWriteEvent)return invokeGrowth(el,doc);
    if(profileWriteEvent)return invokeProfile(el,doc);
+   if(settingsWriteEvent)return invokeSettings(el,doc);
    if(quoteEditEvent&&typeof prepareQuoteEdit==='function'){
     return prepareQuoteEdit(el.dataset?.id);
    }
@@ -4367,7 +4441,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
  cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
- allowGrowth=false,allowProfile=false}={}){
+ allowGrowth=false,allowProfile=false,allowSettings=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
    ||!outboxFactory?.create||!contract?.createOperation
@@ -4381,6 +4455,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
  const enabledKind=kind=>referenceAndQuotes===true
   ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
     ||(allowProfile===true&&kind==='profile')
+    ||(allowSettings===true&&kind==='settings')
   :referenceOnly!==true||kind==='reference';
  const strictReceipt=referenceOnly===true||referenceAndQuotes===true;
  const online=()=>host.navigator?.onLine!==false;
@@ -4595,19 +4670,22 @@ function create({client,queue,uuid}={}){
    if(action!=='patch'||!object(record))throw Error('invalid_settings');
    const editable=new Set(['currentSize','sizeMode','autoSize','replenishPolicy',
     'preset','goalPrice','plannedBudget','target','daily']);
-   for(const [k,v] of Object.entries(record)){
-    if(!editable.has(k))throw Error('unknown_edit_field');
-    if((k==='target'||k==='daily')&&!object(v))
-     throw Error('invalid_settings');
-    next[k]=clone(v);
-   }
    if(!object(next.target)||!object(next.daily))
     throw Error('invalid_settings');
-   for(const k of ['target','daily']){
-    for(const [sz,val] of Object.entries(next[k])){
-     if(!sizeSet.has(sz)||!Number.isSafeInteger(val)||val<0
-       ||(k==='daily'&&val<1))throw Error('invalid_settings');
-    }
+   for(const [k,v] of Object.entries(record)){
+    if(!editable.has(k))throw Error('unknown_edit_field');
+    if(k==='target'||k==='daily'){
+     if(!object(v))throw Error('invalid_settings');
+     for(const [sz,val] of Object.entries(v)){
+      if(!sizeSet.has(sz)||!Number.isSafeInteger(val)||val<0
+        ||(k==='daily'&&val<1))throw Error('invalid_settings');
+     }
+     // Presets patch NB/S only. Preserve every other size and
+     // historical extension nested in an existing map.
+     next[k]={...next[k],...clone(v)};
+    }else if(k==='replenishPolicy'&&object(v)){
+     next[k]={...(object(next[k])?next[k]:{}),...clone(v)};
+    }else next[k]=clone(v);
    }
   }else if(kind==='profile'){
    if(action!=='patch'||!object(record))throw Error('invalid_profile');
@@ -4639,12 +4717,13 @@ function create({client,queue,uuid}={}){
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
    // For on-screen reference/quote/growth/profile edits, use the revision that was
    // actually displayed; never substitute a newly advanced revision.
-   if((kind==='reference'||kind==='quotes'||kind==='growth'||kind==='profile')
+   if((kind==='reference'||kind==='quotes'||kind==='growth'||kind==='profile'||kind==='settings')
     &&(expectedRevision===null
      ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0))
     return reply(kind==='quotes'?'QUOTES_DISPLAYED_BASELINE_REQUIRED':
      kind==='growth'?'GROWTH_DISPLAYED_BASELINE_REQUIRED':
      kind==='profile'?'PROFILE_DISPLAYED_BASELINE_REQUIRED':
+     kind==='settings'?'SETTINGS_DISPLAYED_BASELINE_REQUIRED':
      'REFERENCE_DISPLAYED_BASELINE_REQUIRED');
    if(expectedRevision!==null&&read.revision!==expectedRevision)
     return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');

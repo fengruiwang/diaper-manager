@@ -12,7 +12,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
  cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
- allowGrowth=false,allowProfile=false}={}){
+ allowGrowth=false,allowProfile=false,allowSettings=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
    ||!outboxFactory?.create||!contract?.createOperation
@@ -26,6 +26,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
  const enabledKind=kind=>referenceAndQuotes===true
   ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
     ||(allowProfile===true&&kind==='profile')
+    ||(allowSettings===true&&kind==='settings')
   :referenceOnly!==true||kind==='reference';
  const strictReceipt=referenceOnly===true||referenceAndQuotes===true;
  const online=()=>host.navigator?.onLine!==false;

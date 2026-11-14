@@ -56,6 +56,23 @@ function profileChangeVisible(document,expected){
    &&record.babyProfile&&Object.entries(record.babyProfile)
     .every(([key,value])=>body.babyProfile[key]===value);
 }
+function settingsChangeVisible(document,expected){
+ if(!expected||!document?.body
+   ||!Number.isSafeInteger(document.revision)
+   ||document.revision<=expected.expectedRevision)return false;
+ const record=expected.record;
+ if(!record||typeof record!=='object')return false;
+ return Object.entries(record).every(([key,value])=>{
+  const latest=document.body[key];
+  if(key==='target'||key==='daily')
+   return value&&typeof value==='object'&&latest
+    &&Object.entries(value).every(([size,n])=>latest[size]===n);
+  if(key==='replenishPolicy')
+   return value&&typeof value==='object'&&latest
+    &&Object.entries(value).every(([field,n])=>latest[field]===n);
+  return latest===value;
+ });
+}
 function create({host,doc,loginController,readModelFactory,primaryFactory,
  commandsFactory,actionsFactory,projection,ui,scriptLoader,
  documentsFactory=null,documentsOverlay=null,
@@ -212,11 +229,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null,
   expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null,
   expectedBatch=null,expectedQuotes=null,expectedGrowth=null,
-  expectedProfile=null}={}){
+  expectedProfile=null,expectedSettings=null}={}){
   if(busy)return expectedBatch!==null?'BATCH_READBACK_PENDING':
    expectedQuotes!==null?'QUOTES_READBACK_PENDING':
    expectedGrowth!==null?'GROWTH_READBACK_PENDING':
-   expectedProfile!==null?'PROFILE_READBACK_PENDING':mode;
+   expectedProfile!==null?'PROFILE_READBACK_PENDING':
+   expectedSettings!==null?'SETTINGS_READBACK_PENDING':mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
   // A real identity, permission or primary failure still clears it below.
@@ -293,10 +311,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }
    let documentsVerified=false;
    if(documentSnapshot&&documentScope===scopeKey&&documentsClient){
-    // Refresh reference, quotes, growth and profile: changes from the other family
+    // Refresh all five shared documents on each verified reload.
     // account must not be masked by an old cached full-document snapshot.
     const old=documentSnapshot.documents;
-    const fresh=await Promise.all(['reference','quotes','growth','profile'].map(kind=>
+    const fresh=await Promise.all(['reference','quotes','growth','profile','settings'].map(kind=>
      bounded(()=>documentsClient.read({
       familyId:ctx.familyId,actorUid:ctx.actorUid,
       kind,readEnabled:true
@@ -304,13 +322,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     ));
     const acceptable=fresh.every((doc,i)=>
      doc?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
-     &&doc.kind===['reference','quotes','growth','profile'][i]
+     &&doc.kind===['reference','quotes','growth','profile','settings'][i]
      &&doc.familyId===ctx.familyId
      &&doc.childId===old?.[doc.kind]?.childId
      &&Number.isSafeInteger(doc.revision));
     if(acceptable){
      documentSnapshot=Object.freeze({...documentSnapshot,
-      documents:Object.freeze({...old,reference:fresh[0],quotes:fresh[1],growth:fresh[2],profile:fresh[3]})});
+      documents:Object.freeze({...old,reference:fresh[0],quotes:fresh[1],growth:fresh[2],profile:fresh[3],settings:fresh[4]})});
      data=documentsOverlay.apply(data,documentSnapshot);
      documentsVerified=data.sharedBusinessDocumentsVerified===true;
     }else{
@@ -352,6 +370,29 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      attached=actionsFactory.create({
       primary:p,commands,documentCommands,documentQueue:documentsGuard,
       allowReference:true,allowQuotes:true,allowGrowth:true,allowProfile:true,
+      allowSettings:true,
+      readSettingsBaseline:()=>mode==='ready'
+       &&documentSnapshot&&documentScope===actor+'\x00'+family
+       ?{...documentSnapshot.documents?.settings,actorUid:actor}:null,
+      onSettingsReadback:async(expected)=>{
+       const current=controller.verifiedContext();
+       if(!current||!documentsClient||!documentsGuard
+         ||current.actorUid!==actor||current.familyId!==family)
+        return 'pending';
+       const receipt=await documentsGuard.checkSavedRequest(expected.requestId);
+       if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       const fresh=await documentsClient.read({
+        familyId:current.familyId,actorUid:current.actorUid,
+        kind:'settings',readEnabled:true
+       });
+       if(fresh.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ||!settingsChangeVisible(fresh,expected))return 'pending';
+       if(documentSnapshot&&documentScope===actor+'\x00'+family){
+        documentSnapshot=Object.freeze({...documentSnapshot,
+         documents:Object.freeze({...documentSnapshot.documents,settings:fresh})});
+       }
+       return await restore({expectedSettings:expected})==='ready'?'ready':'pending';
+      },
       readProfileBaseline:()=>mode==='ready'
        &&documentSnapshot&&documentScope===actor+'\x00'+family
        ?{...documentSnapshot.documents?.profile,actorUid:actor}:null,
@@ -502,6 +543,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'库存版本已更新，请刷新后重新盘点；未覆盖另一设备的库存。'
          :answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'
          ?'自定义参考价已同步至云端，页面已刷新；家庭账号可读取同一价格。'
+         :answer?.status==='SETTINGS_CLOUD_READBACK_VERIFIED'
+         ?'设置已保存并从云端重新读取；首页及补货计划已更新。'
+         :answer?.status==='SETTINGS_COMMITTED_READBACK_REQUIRED'
+         ?'设置回执已确认，但页面尚未核实最新值；请刷新，不要重复提交。'
+         :answer?.status==='SETTINGS_FORM_INVALID'
+         ?'设置未保存：请检查尺码、单片目标、备货目标和每日用量。'
          :answer?.status==='PROFILE_CLOUD_READBACK_VERIFIED'
          ?'宝宝基本资料已保存并从云端核验；成长统计和页面已更新。'
          :answer?.status==='PROFILE_COMMITTED_READBACK_REQUIRED'
@@ -568,6 +615,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }).catch(()=>{});
    if(!documentsVerified)
     optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
+   const settingsAppear=expectedSettings===null||
+    (documentsVerified&&settingsChangeVisible(
+     documentSnapshot?.documents?.settings,expectedSettings));
    const profileAppears=expectedProfile===null||
     (documentsVerified&&profileChangeVisible(
      documentSnapshot?.documents?.profile,expectedProfile));
@@ -584,7 +634,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     !batchAppears?'BATCH_READBACK_PENDING':
     !quotesAppear?'QUOTES_READBACK_PENDING':
     !growthAppears?'GROWTH_READBACK_PENDING':
-    !profileAppears?'PROFILE_READBACK_PENDING':mode;
+    !profileAppears?'PROFILE_READBACK_PENDING':
+    !settingsAppear?'SETTINGS_READBACK_PENDING':mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
@@ -781,7 +832,7 @@ function browserStart(){
     outboxFactory:root.XBDurableOutbox,
     contract:root.XBOutboxContract,
     cloudWritesEnabled:FORMAL_WRITE_ENABLED,
-    referenceAndQuotes:true,allowGrowth:true,allowProfile:true
+    referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,
   batchStocktakeFactory:({controller,host,primary})=>
