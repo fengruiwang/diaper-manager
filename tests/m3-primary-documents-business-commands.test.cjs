@@ -78,11 +78,20 @@ test('approved candidate add queues exact full CAS state with server revision',a
  const f=fixture({enabled:true});
  const r=await f.commands.submit({kind:'quotes',action:'add',
   record:{id:'q2',brand:'Babycare',series:'皇室',size:'S',pieces:10,price:15},
-  familyId:'F',actorUid:'A',operatorApproved:true});
+  familyId:'F',actorUid:'A',expectedRevision:2,operatorApproved:true});
  assert.equal(r.status,'DOCUMENT_OPERATION_DURABLY_QUEUED');
  assert.equal(f.calls[0].expectedRevision,2);
  assert.equal(f.calls[0].nextBody.items.length,2);
  assert.equal(f.calls[0].nextBody.items[0].id,'q1');
  assert.equal(f.calls[0].nextBody.items[1].id,'q2');
  assert.equal(r.cloudWriteCommitted,false);
+});
+
+test('quotes now require a displayed revision before creating a request UUID',async()=>{
+ const f=fixture({enabled:true});
+ const r=await f.commands.submit({kind:'quotes',action:'add',
+  record:{id:'q2',brand:'Babycare'},familyId:'F',actorUid:'A',
+  operatorApproved:true});
+ assert.equal(r.status,'QUOTES_DISPLAYED_BASELINE_REQUIRED');
+ assert.equal(f.calls.length,0);
 });

@@ -1003,12 +1003,23 @@ function prepareFormalQuoteEdit(id){
  const q=state.quotes.find(row=>row.id===id);
  if(!q)return {status:'QUOTE_NOT_FOUND'};
  formalEditingQuoteId=id;
+ $('saveQuote').textContent='保存本次修改';
  $('qBrand').value=q.brand;$('qSeries').value=q.series;
  $('qSeries').hidden=false;$('qSize').value=q.size;
  $('qPerPack').value=q.per;$('qPacks').value=q.packs;
  $('qPrice').value=q.price;
+ updateSeriesPicks();
  tab('compare');preview();
  return {status:'QUOTE_FIELDS_READY_TO_EDIT'};
+}
+function finishFormalQuoteEdit({action,recordId}={}){
+ if(action==='add'||action==='edit'||action==='clear'
+   ||(action==='delete'&&formalEditingQuoteId===recordId)){
+  formalEditingQuoteId=null;
+  $('saveQuote').textContent='加入候选价';
+  if(action==='add'||action==='edit')$('qPrice').value='';
+  preview();
+ }
 }
 function formalDocumentAction(el){
  const id=el.id,action=el.dataset?.action||'';
@@ -1095,7 +1106,8 @@ window.XBFormalUIData=Object.freeze({
  quote:id=>state.quotes.find(q=>q.id===id)||null,
  transaction:id=>state.transactions.find(t=>t.id===id)||null,
  documentAction:formalDocumentAction,
- prepareQuoteEdit:prepareFormalQuoteEdit
+ prepareQuoteEdit:prepareFormalQuoteEdit,
+ finishQuoteEdit:finishFormalQuoteEdit
 });
 window.XBM1UI=Object.freeze({refresh:renderAll});
 updateSeriesPicks();
@@ -3572,7 +3584,8 @@ restoreActiveTab();
   operatorApproved=()=>false,documentCommands=null,documentQueue=null,
   readDocumentInput=null,readReferenceBaseline=null,
   onReferenceReadback=null,allowReference=false,
-  prepareQuoteEdit=null,
+  allowQuotes=false,readQuotesBaseline=null,onQuotesReadback=null,
+  confirmQuoteClear=()=>false,prepareQuoteEdit=null,
   batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
   allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
@@ -3581,7 +3594,7 @@ restoreActiveTab();
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
     ||typeof operatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
-  let busy=false,stocktakeBusy=false,referenceBusy=false,attached=null;
+  let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,attached=null;
   async function invoke(action,value){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -3760,17 +3773,85 @@ restoreActiveTab();
    }catch(_){return result('REFERENCE_OPERATION_REVIEW_REQUIRED');}
    finally{referenceBusy=false;}
   }
+  async function invokeQuotes(el,doc){
+   if(allowQuotes!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(quoteBusy)return result('BUSY');
+   quoteBusy=true;
+   try{
+    const baseline=typeof readQuotesBaseline==='function'
+     ?readQuotesBaseline():null;
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
+      ||!Array.isArray(baseline.body?.items))
+     return result('QUOTES_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='quotes'
+      ||!['add','edit','delete','clear'].includes(input.action))
+     return result('QUOTES_FORM_INVALID');
+    if(input.action==='clear'){
+     if(!baseline.body.items.length)return result('QUOTES_ALREADY_EMPTY');
+     if(typeof confirmQuoteClear!=='function'||confirmQuoteClear()!==true)
+      return result('QUOTES_CLEAR_CANCELLED');
+    }
+    if(input.action==='edit'||input.action==='delete'){
+     if(typeof input.record?.id!=='string'
+       ||!baseline.body.items.some(row=>row.id===input.record.id))
+      return result('QUOTES_RECORD_NOT_IN_DISPLAYED_LIST');
+    }
+    if(input.action==='add'&&(!input.record?.id
+      ||baseline.body.items.some(row=>row.id===input.record.id)))
+     return result('QUOTES_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('QUOTES_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let sync;
+    try{sync=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'QUOTES_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
+    });}
+    if(sync?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({
+      status:sync?.status||'QUOTES_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false
+     });
+    try{
+     const visible=typeof onQuotesReadback==='function'
+      ?await onQuotesReadback({
+       requestId,action:input.action,record:input.record,
+       expectedRevision:baseline.revision
+      }):null;
+     if(visible==='ready')return Object.freeze({
+      status:'QUOTES_CLOUD_READBACK_VERIFIED',
+      requestId,action:input.action,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'QUOTES_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('QUOTES_OPERATION_REVIEW_REQUIRED');}
+   finally{quoteBusy=false;}
+  }
   async function handle(el,doc){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
    const referenceEvent=el.id==='saveEditedReference'
     ||el.id==='restoreDefaultReference'||action==='resetref';
+   const quoteWriteEvent=el.id==='saveQuote'||el.id==='clearQuotes'
+    ||action==='deletequote';
+   const quoteEditEvent=action==='editquote';
    if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
      &&!(allowConsume===true&&action==='consume')
      &&!(allowReverse===true&&action==='deletetx')
      &&!(allowStocktake===true&&el.id==='saveStocks')
-     &&!(allowReference===true&&referenceEvent))
+     &&!(allowReference===true&&referenceEvent)
+     &&!(allowQuotes===true&&(quoteWriteEvent||quoteEditEvent)))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
@@ -3783,7 +3864,8 @@ restoreActiveTab();
    if(el.id==='saveStocks')
     return readStocktakeInputs(doc);
    if(referenceEvent)return invokeReference(el,doc);
-   if(action==='editquote'&&typeof prepareQuoteEdit==='function'){
+   if(quoteWriteEvent)return invokeQuotes(el,doc);
+   if(quoteEditEvent&&typeof prepareQuoteEdit==='function'){
     return prepareQuoteEdit(el.dataset?.id);
    }
    if(documentCommands?.submit&&typeof readDocumentInput==='function'){
@@ -4137,7 +4219,7 @@ const DOC_TYPES={quotes:'quote.upsert',reference:'reference.patch',
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
- cloudWritesEnabled=false,referenceOnly=false}={}){
+ cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
    ||!outboxFactory?.create||!contract?.createOperation
@@ -4148,6 +4230,10 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    ||!outbox?.recordResult||!outbox?.get)
   throw Error('primary_docs_outbox:outbox_incomplete');
  let busy=false;
+ const enabledKind=kind=>referenceAndQuotes===true
+  ?kind==='reference'||kind==='quotes'
+  :referenceOnly!==true||kind==='reference';
+ const strictReceipt=referenceOnly===true||referenceAndQuotes===true;
  const online=()=>host.navigator?.onLine!==false;
  const current=()=>controller.verifiedContext();
  function identity(){
@@ -4170,7 +4256,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return ans('DOCUMENT_QUEUE_BUSY');
   if(!online())return ans('DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE');
-  if((referenceOnly===true&&kind!=='reference')
+  if(!enabledKind(kind)
     ||!DOC_TYPES[kind]||!UUID.test(String(requestId))
     ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0
     ||!nextBody||typeof nextBody!=='object'||Array.isArray(nextBody))
@@ -4206,7 +4292,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity(),items=await outbox.ready(scope);
-   if(referenceOnly===true&&items.some(op=>op.payload?.kind!=='reference'))
+   if(items.some(op=>!enabledKind(op.payload?.kind)))
     return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    if(!items.length){
     const counts=await outbox.stats(scope);
@@ -4220,9 +4306,9 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     const command={...scope,kind:op.payload.kind,
      nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
      requestId:op.id,operatorApproved:true};
-    // P3-01 retries first read the original request receipt. When its
-    // state is uncertain do not create an independent second request.
-    if(referenceOnly===true){
+    // P3 reference/quotes retries inspect the original request receipt
+    // before sending. No new request UUID on an ambiguous network ACK.
+    if(strictReceipt){
      const prior=await documentsClient.checkRequest({
       ...scope,requestId:op.id,readEnabled:true
      });
@@ -4257,12 +4343,12 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     }
     if(!acknowledged)return ans('DOCUMENT_ACK_NOT_VERIFIED',
      {requestId:op.id});
-    if(referenceOnly===true){
+    if(strictReceipt){
      const verified=await documentsClient.checkRequest({
       ...scope,requestId:op.id,readEnabled:true
      });
      if(verified.status!=='REQUEST_COMMITTED_VERIFIED'
-        ||verified.kind!=='reference'
+        ||verified.kind!==op.payload.kind
         ||verified.revision!==op.expectedRevision+1)
       return ans('DOCUMENT_RECEIPT_READBACK_REQUIRED_KEEP_ID',
        {requestId:op.id});
@@ -4282,14 +4368,14 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity(),op=await outbox.get(scope,requestId);
    if(!op)return ans('ORIGINAL_REQUEST_ID_NOT_FOUND');
-   if(referenceOnly===true&&op.payload?.kind!=='reference')
+   if(!enabledKind(op.payload?.kind))
     return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    const status=await documentsClient.checkRequest({
     ...scope,requestId,readEnabled:true
    });
    if(status.status!=='REQUEST_COMMITTED_VERIFIED'
      ||status.kind!==op.payload?.kind
-     ||(referenceOnly===true
+     ||(strictReceipt
        &&status.revision!==op.expectedRevision+1))
     return ans('REQUEST_NOT_VERIFIED_KEEP_PENDING');
    await outbox.recordResult(scope,requestId,{
@@ -4402,11 +4488,12 @@ function create({client,queue,uuid}={}){
    const read=await client.read({familyId,actorUid,kind,readEnabled:true});
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
-   // For on-screen reference edits, use the revision shown when the
-   // editor was rendered, not a fresh revision that could mask a lost race.
-   if(kind==='reference'&&(expectedRevision===null
+   // For on-screen reference/quote edits, use the revision that was
+   // actually displayed; never substitute a newly advanced revision.
+   if((kind==='reference'||kind==='quotes')&&(expectedRevision===null
      ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0))
-    return reply('REFERENCE_DISPLAYED_BASELINE_REQUIRED');
+    return reply(kind==='quotes'?'QUOTES_DISPLAYED_BASELINE_REQUIRED':
+     'REFERENCE_DISPLAYED_BASELINE_REQUIRED');
    if(expectedRevision!==null&&read.revision!==expectedRevision)
     return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
    const body=transform(kind,action,read.body,record);

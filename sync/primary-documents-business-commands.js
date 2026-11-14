@@ -94,11 +94,12 @@ function create({client,queue,uuid}={}){
    const read=await client.read({familyId,actorUid,kind,readEnabled:true});
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
-   // For on-screen reference edits, use the revision shown when the
-   // editor was rendered, not a fresh revision that could mask a lost race.
-   if(kind==='reference'&&(expectedRevision===null
+   // For on-screen reference/quote edits, use the revision that was
+   // actually displayed; never substitute a newly advanced revision.
+   if((kind==='reference'||kind==='quotes')&&(expectedRevision===null
      ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0))
-    return reply('REFERENCE_DISPLAYED_BASELINE_REQUIRED');
+    return reply(kind==='quotes'?'QUOTES_DISPLAYED_BASELINE_REQUIRED':
+     'REFERENCE_DISPLAYED_BASELINE_REQUIRED');
    if(expectedRevision!==null&&read.revision!==expectedRevision)
     return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
    const body=transform(kind,action,read.body,record);

@@ -26,6 +26,18 @@ const notes={
  MIGRATION_READ_NOT_READY:'正式宝宝迁移未完成；不会显示合成数据或测试宝宝库存。',
  FAMILY_PERMISSION_DENIED:'家庭授权未通过，已隐藏业务内容。'
 };
+function quoteChangeVisible(document,expected){
+ if(!expected||!Array.isArray(document?.body?.items)
+   ||!Number.isSafeInteger(document.revision)
+   ||document.revision<=expected.expectedRevision)return false;
+ const list=document.body.items,action=expected.action,record=expected.record;
+ if(action==='clear')return list.length===0;
+ if(!record||typeof record.id!=='string')return false;
+ const current=list.find(item=>item.id===record.id);
+ if(action==='delete')return !current;
+ return (action==='add'||action==='edit')&&current
+   &&Object.entries(record).every(([key,value])=>current[key]===value);
+}
 function create({host,doc,loginController,readModelFactory,primaryFactory,
  commandsFactory,actionsFactory,projection,ui,scriptLoader,
  documentsFactory=null,documentsOverlay=null,
@@ -181,8 +193,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null,
   expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null,
-  expectedBatch=null}={}){
-  if(busy)return expectedBatch!==null?'BATCH_READBACK_PENDING':mode;
+  expectedBatch=null,expectedQuotes=null}={}){
+  if(busy)return expectedBatch!==null?'BATCH_READBACK_PENDING':
+   expectedQuotes!==null?'QUOTES_READBACK_PENDING':mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
   // A real identity, permission or primary failure still clears it below.
@@ -259,23 +272,28 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }
    let documentsVerified=false;
    if(documentSnapshot&&documentScope===scopeKey&&documentsClient){
-    // Refresh reference even if the other four read-only documents are
-    // cached: the spouse's newly committed price must appear on Refresh.
-    const latest=await bounded(()=>documentsClient.read({
-     familyId:ctx.familyId,actorUid:ctx.actorUid,
-     kind:'reference',readEnabled:true
-    }),12000).catch(()=>null);
-    const old=documentSnapshot.documents?.reference;
-    if(latest?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
-      &&latest.familyId===ctx.familyId&&latest.childId===old?.childId
-      &&Number.isSafeInteger(latest.revision)){
+    // Refresh both shared price documents: changes from the other family
+    // account must not be masked by an old cached full-document snapshot.
+    const old=documentSnapshot.documents;
+    const fresh=await Promise.all(['reference','quotes'].map(kind=>
+     bounded(()=>documentsClient.read({
+      familyId:ctx.familyId,actorUid:ctx.actorUid,
+      kind,readEnabled:true
+     }),12000).catch(()=>null)
+    ));
+    const acceptable=fresh.every((doc,i)=>
+     doc?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+     &&doc.kind===['reference','quotes'][i]
+     &&doc.familyId===ctx.familyId
+     &&doc.childId===old?.[doc.kind]?.childId
+     &&Number.isSafeInteger(doc.revision));
+    if(acceptable){
      documentSnapshot=Object.freeze({...documentSnapshot,
-      documents:Object.freeze({...documentSnapshot.documents,
-       reference:latest})});
+      documents:Object.freeze({...old,reference:fresh[0],quotes:fresh[1]})});
      data=documentsOverlay.apply(data,documentSnapshot);
      documentsVerified=data.sharedBusinessDocumentsVerified===true;
     }else{
-     // Never reapply an old cached reference price after a failed read.
+     // Never render stale quotes or reference values after failed refresh.
      documentSnapshot=null;documentScope='';documentAttempt='';
     }
    }
@@ -312,7 +330,39 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      }
      attached=actionsFactory.create({
       primary:p,commands,documentCommands,documentQueue:documentsGuard,
-      allowReference:true,
+      allowReference:true,allowQuotes:true,
+      readQuotesBaseline:()=>mode==='ready'
+       &&documentSnapshot&&documentScope===actor+'\x00'+family
+       ?{...documentSnapshot.documents?.quotes,
+         actorUid:actor}:null,
+      confirmQuoteClear:()=>host.confirm?.(
+       '确定清空全部候选价格？不会影响采购记录。')===true,
+      onQuotesReadback:async(expected)=>{
+       const current=controller.verifiedContext();
+       if(!current||!documentsClient||!documentsGuard
+         ||current.actorUid!==actor||current.familyId!==family)
+        return 'pending';
+       const receipt=await documentsGuard.checkSavedRequest(expected.requestId);
+       if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       const fresh=await documentsClient.read({
+        familyId:current.familyId,actorUid:current.actorUid,
+        kind:'quotes',readEnabled:true
+       });
+       if(fresh.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ||!quoteChangeVisible(fresh,expected))return 'pending';
+       if(documentSnapshot&&documentScope===actor+'\x00'+family){
+        documentSnapshot=Object.freeze({...documentSnapshot,
+         documents:Object.freeze({...documentSnapshot.documents,quotes:fresh})});
+       }
+       const visible=await restore({expectedQuotes:expected});
+       if(visible==='ready'){
+        root.XBFormalUIData.finishQuoteEdit?.({
+         action:expected.action,recordId:expected.record?.id
+        });
+        return 'ready';
+       }
+       return 'pending';
+      },
       readReferenceBaseline:()=>mode==='ready'
        &&documentSnapshot&&documentScope===actor+'\x00'+family
        ?{...documentSnapshot.documents?.reference,
@@ -378,12 +428,22 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'库存版本已更新，请刷新后重新盘点；未覆盖另一设备的库存。'
          :answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'
          ?'自定义参考价已同步至云端，页面已刷新；家庭账号可读取同一价格。'
+         :answer?.status==='QUOTES_CLOUD_READBACK_VERIFIED'
+         ?'候选价已同步到云端，列表已更新；其他家庭账号刷新后可查看。'
+         :answer?.status==='QUOTES_COMMITTED_READBACK_REQUIRED'
+         ?'候选价回执已确认，页面尚待重新读取；请刷新，不要重复保存。'
+         :answer?.status==='QUOTES_CLEAR_CANCELLED'
+         ?'已取消清空候选价，云端列表保持不变。'
+         :answer?.status==='QUOTES_ALREADY_EMPTY'
+         ?'候选价列表已为空，无需清空。'
+         :answer?.status==='QUOTE_FIELDS_READY_TO_EDIT'
+         ?'已载入候选价，请修改后点击“保存本次修改”。'
          :answer?.status==='REFERENCE_COMMITTED_READBACK_REQUIRED'
          ?'参考价回执已确认，但页面尚待重新读取；请刷新，不要重复保存。'
          :answer?.status==='DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED'
-         ?'参考价文档已有其他设备更新，请刷新后重新编辑；未覆盖新价格。'
+         ?'共享文档已有其他设备更新，请刷新后重新编辑；未覆盖新数据。'
          :answer?.status==='DOCUMENT_PENDING_REVIEW_REQUIRED'
-         ?'上次参考价请求尚未核实，请使用待同步重试，不要重复保存。'
+         ?'上次共享文档请求尚未核实，请使用待同步重试，不要重复保存。'
          :['PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_USE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
@@ -420,11 +480,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }).catch(()=>{});
    if(!documentsVerified)
     optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
+   const quotesAppear=expectedQuotes===null||
+    (documentsVerified&&quoteChangeVisible(
+     documentSnapshot?.documents?.quotes,expectedQuotes));
    return !purchaseAppears?'PRIMARY_PURCHASE_READBACK_PENDING':
     !useAppears?'PRIMARY_USE_READBACK_PENDING':
     !reversedAppears?'PRIMARY_REVERSE_READBACK_PENDING':
     !stocktakeAppears?'PRIMARY_STOCKTAKE_READBACK_PENDING':
-    !batchAppears?'BATCH_READBACK_PENDING':mode;
+    !batchAppears?'BATCH_READBACK_PENDING':
+    !quotesAppear?'QUOTES_READBACK_PENDING':mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
@@ -538,10 +602,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      if(sent?.status==='DOCUMENT_SYNC_CONFIRMED'){
       const next=await restore();
       $('formalSyncState').textContent=next==='ready'
-       ?'原参考价请求已确认，云端价格已重新读取。'
-       :'参考价回执已确认，请刷新云端数据。';
+       ?'原共享文档请求已确认，云端内容已重新读取。'
+       :'文档回执已确认，请刷新云端数据。';
      }else $('formalSyncState').textContent=
-      '参考价待确认：'+String(sent?.status||'UNVERIFIED')
+      '共享文档待确认：'+String(sent?.status||'UNVERIFIED')
        +'；保留原 request UUID，请勿再次保存。';
      return;
     }
@@ -621,7 +685,7 @@ function browserStart(){
     outboxFactory:root.XBDurableOutbox,
     contract:root.XBOutboxContract,
     cloudWritesEnabled:FORMAL_WRITE_ENABLED,
-    referenceOnly:true
+    referenceAndQuotes:true
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,
   batchStocktakeFactory:({controller,host,primary})=>
