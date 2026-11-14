@@ -11,7 +11,8 @@ const DOC_TYPES={quotes:'quote.upsert',reference:'reference.patch',
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
- cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false}={}){
+ cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
+ allowGrowth=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
    ||!outboxFactory?.create||!contract?.createOperation
@@ -23,7 +24,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   throw Error('primary_docs_outbox:outbox_incomplete');
  let busy=false;
  const enabledKind=kind=>referenceAndQuotes===true
-  ?kind==='reference'||kind==='quotes'
+  ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
   :referenceOnly!==true||kind==='reference';
  const strictReceipt=referenceOnly===true||referenceAndQuotes===true;
  const online=()=>host.navigator?.onLine!==false;
@@ -98,7 +99,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     const command={...scope,kind:op.payload.kind,
      nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
      requestId:op.id,operatorApproved:true};
-    // P3 reference/quotes retries inspect the original request receipt
+    // P3 shared-document retries inspect the original request receipt
     // before sending. No new request UUID on an ambiguous network ACK.
     if(strictReceipt){
      const prior=await documentsClient.checkRequest({

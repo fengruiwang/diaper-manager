@@ -38,6 +38,15 @@ function quoteChangeVisible(document,expected){
  return (action==='add'||action==='edit')&&current
    &&Object.entries(record).every(([key,value])=>current[key]===value);
 }
+function growthChangeVisible(document,expected){
+ if(!expected||!Array.isArray(document?.body?.items)
+   ||!Number.isSafeInteger(document.revision)
+   ||document.revision<=expected.expectedRevision)return false;
+ const row=document.body.items.find(x=>x.id===expected.record?.id);
+ if(expected.action==='delete')return !row;
+ return (expected.action==='add'||expected.action==='edit')&&row
+   &&Object.entries(expected.record).every(([k,v])=>row[k]===v);
+}
 function create({host,doc,loginController,readModelFactory,primaryFactory,
  commandsFactory,actionsFactory,projection,ui,scriptLoader,
  documentsFactory=null,documentsOverlay=null,
@@ -193,9 +202,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null,
   expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null,
-  expectedBatch=null,expectedQuotes=null}={}){
+  expectedBatch=null,expectedQuotes=null,expectedGrowth=null}={}){
   if(busy)return expectedBatch!==null?'BATCH_READBACK_PENDING':
-   expectedQuotes!==null?'QUOTES_READBACK_PENDING':mode;
+   expectedQuotes!==null?'QUOTES_READBACK_PENDING':
+   expectedGrowth!==null?'GROWTH_READBACK_PENDING':mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
   // A real identity, permission or primary failure still clears it below.
@@ -272,10 +282,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }
    let documentsVerified=false;
    if(documentSnapshot&&documentScope===scopeKey&&documentsClient){
-    // Refresh both shared price documents: changes from the other family
+    // Refresh reference, quotes and growth: changes from the other family
     // account must not be masked by an old cached full-document snapshot.
     const old=documentSnapshot.documents;
-    const fresh=await Promise.all(['reference','quotes'].map(kind=>
+    const fresh=await Promise.all(['reference','quotes','growth'].map(kind=>
      bounded(()=>documentsClient.read({
       familyId:ctx.familyId,actorUid:ctx.actorUid,
       kind,readEnabled:true
@@ -283,17 +293,17 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     ));
     const acceptable=fresh.every((doc,i)=>
      doc?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
-     &&doc.kind===['reference','quotes'][i]
+     &&doc.kind===['reference','quotes','growth'][i]
      &&doc.familyId===ctx.familyId
      &&doc.childId===old?.[doc.kind]?.childId
      &&Number.isSafeInteger(doc.revision));
     if(acceptable){
      documentSnapshot=Object.freeze({...documentSnapshot,
-      documents:Object.freeze({...old,reference:fresh[0],quotes:fresh[1]})});
+      documents:Object.freeze({...old,reference:fresh[0],quotes:fresh[1],growth:fresh[2]})});
      data=documentsOverlay.apply(data,documentSnapshot);
      documentsVerified=data.sharedBusinessDocumentsVerified===true;
     }else{
-     // Never render stale quotes or reference values after failed refresh.
+     // Never render stale shared documents after failed refresh.
      documentSnapshot=null;documentScope='';documentAttempt='';
     }
    }
@@ -330,7 +340,38 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      }
      attached=actionsFactory.create({
       primary:p,commands,documentCommands,documentQueue:documentsGuard,
-      allowReference:true,allowQuotes:true,
+      allowReference:true,allowQuotes:true,allowGrowth:true,
+      readGrowthBaseline:()=>mode==='ready'
+       &&documentSnapshot&&documentScope===actor+'\x00'+family
+       ?{...documentSnapshot.documents?.growth,actorUid:actor}:null,
+      confirmGrowthDelete:record=>host.confirm?.(
+       '确定删除 '+record.date+' 的体重记录？无法撤销。')===true,
+      onGrowthReadback:async(expected)=>{
+       const current=controller.verifiedContext();
+       if(!current||!documentsClient||!documentsGuard
+         ||current.actorUid!==actor||current.familyId!==family)
+        return 'pending';
+       const receipt=await documentsGuard.checkSavedRequest(expected.requestId);
+       if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       const fresh=await documentsClient.read({
+        familyId:current.familyId,actorUid:current.actorUid,
+        kind:'growth',readEnabled:true
+       });
+       if(fresh.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ||!growthChangeVisible(fresh,expected))return 'pending';
+       if(documentSnapshot&&documentScope===actor+'\x00'+family){
+        documentSnapshot=Object.freeze({...documentSnapshot,
+         documents:Object.freeze({...documentSnapshot.documents,growth:fresh})});
+       }
+       const visible=await restore({expectedGrowth:expected});
+       if(visible==='ready'){
+        root.XBFormalUIData.finishGrowthEdit?.({
+         action:expected.action,recordId:expected.record?.id
+        });
+        return 'ready';
+       }
+       return 'pending';
+      },
       readQuotesBaseline:()=>mode==='ready'
        &&documentSnapshot&&documentScope===actor+'\x00'+family
        ?{...documentSnapshot.documents?.quotes,
@@ -428,6 +469,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'库存版本已更新，请刷新后重新盘点；未覆盖另一设备的库存。'
          :answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'
          ?'自定义参考价已同步至云端，页面已刷新；家庭账号可读取同一价格。'
+         :answer?.status==='GROWTH_CLOUD_READBACK_VERIFIED'
+         ?'体重记录已保存并从云端读回，成长曲线与统计已更新。'
+         :answer?.status==='GROWTH_COMMITTED_READBACK_REQUIRED'
+         ?'体重记录回执已确认，云端页面尚待核验；请刷新，不要重复保存。'
+         :answer?.status==='GROWTH_DELETE_CANCELLED'
+         ?'已取消删除，体重记录未改变。'
+         :answer?.status==='GROWTH_FORM_INVALID'
+         ?'体重表单信息不完整，请核查日期、时间和体重后重试。'
          :answer?.status==='QUOTES_CLOUD_READBACK_VERIFIED'
          ?'候选价已同步到云端，列表已更新；其他家庭账号刷新后可查看。'
          :answer?.status==='QUOTES_COMMITTED_READBACK_REQUIRED'
@@ -480,6 +529,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }).catch(()=>{});
    if(!documentsVerified)
     optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
+   const growthAppears=expectedGrowth===null||
+    (documentsVerified&&growthChangeVisible(
+     documentSnapshot?.documents?.growth,expectedGrowth));
    const quotesAppear=expectedQuotes===null||
     (documentsVerified&&quoteChangeVisible(
      documentSnapshot?.documents?.quotes,expectedQuotes));
@@ -488,7 +540,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     !reversedAppears?'PRIMARY_REVERSE_READBACK_PENDING':
     !stocktakeAppears?'PRIMARY_STOCKTAKE_READBACK_PENDING':
     !batchAppears?'BATCH_READBACK_PENDING':
-    !quotesAppear?'QUOTES_READBACK_PENDING':mode;
+    !quotesAppear?'QUOTES_READBACK_PENDING':
+    !growthAppears?'GROWTH_READBACK_PENDING':mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
@@ -685,7 +738,7 @@ function browserStart(){
     outboxFactory:root.XBDurableOutbox,
     contract:root.XBOutboxContract,
     cloudWritesEnabled:FORMAL_WRITE_ENABLED,
-    referenceAndQuotes:true
+    referenceAndQuotes:true,allowGrowth:true
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,
   batchStocktakeFactory:({controller,host,primary})=>

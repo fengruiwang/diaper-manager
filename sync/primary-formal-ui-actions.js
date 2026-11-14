@@ -22,6 +22,8 @@
   onReferenceReadback=null,allowReference=false,
   allowQuotes=false,readQuotesBaseline=null,onQuotesReadback=null,
   confirmQuoteClear=()=>false,prepareQuoteEdit=null,
+  allowGrowth=false,readGrowthBaseline=null,onGrowthReadback=null,
+  confirmGrowthDelete=()=>false,
   batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
   allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
@@ -30,7 +32,7 @@
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
     ||typeof operatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
-  let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,attached=null;
+  let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,attached=null;
   async function invoke(action,value){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -273,6 +275,66 @@
    }catch(_){return result('QUOTES_OPERATION_REVIEW_REQUIRED');}
    finally{quoteBusy=false;}
   }
+  async function invokeGrowth(el,doc){
+   if(allowGrowth!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(growthBusy)return result('BUSY');
+   growthBusy=true;
+   try{
+    const baseline=typeof readGrowthBaseline==='function'
+     ?readGrowthBaseline():null;
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
+      ||!Array.isArray(baseline.body?.items))
+     return result('GROWTH_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='growth'||!['add','edit','delete'].includes(input.action))
+     return result('GROWTH_FORM_INVALID');
+    if(typeof input.record?.id!=='string'||!input.record.id)
+     return result('GROWTH_FORM_INVALID');
+    if(input.action==='edit'||input.action==='delete'){
+     const existing=baseline.body.items.find(x=>x.id===input.record.id);
+     if(!existing)return result('GROWTH_RECORD_NOT_IN_DISPLAYED_LIST');
+     if(input.action==='delete'&&
+       (typeof confirmGrowthDelete!=='function'
+        ||confirmGrowthDelete(existing)!==true))
+      return result('GROWTH_DELETE_CANCELLED');
+    }else if(baseline.body.items.some(x=>x.id===input.record.id))
+     return result('GROWTH_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('GROWTH_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let synced;
+    try{synced=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'GROWTH_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
+    });}
+    if(synced?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({status:synced?.status
+       ||'GROWTH_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false});
+    try{
+     const visible=typeof onGrowthReadback==='function'
+      ?await onGrowthReadback({
+       requestId,action:input.action,record:input.record,
+       expectedRevision:baseline.revision
+      }):null;
+     if(visible==='ready')return Object.freeze({
+      status:'GROWTH_CLOUD_READBACK_VERIFIED',requestId,
+      action:input.action,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'GROWTH_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('GROWTH_OPERATION_REVIEW_REQUIRED');}
+   finally{growthBusy=false;}
+  }
   async function handle(el,doc){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -282,12 +344,14 @@
    const quoteWriteEvent=el.id==='saveQuote'||el.id==='clearQuotes'
     ||action==='deletequote';
    const quoteEditEvent=action==='editquote';
+   const growthWriteEvent=el.id==='saveWeight'||action==='deleteweight';
    if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
      &&!(allowConsume===true&&action==='consume')
      &&!(allowReverse===true&&action==='deletetx')
      &&!(allowStocktake===true&&el.id==='saveStocks')
      &&!(allowReference===true&&referenceEvent)
-     &&!(allowQuotes===true&&(quoteWriteEvent||quoteEditEvent)))
+     &&!(allowQuotes===true&&(quoteWriteEvent||quoteEditEvent))
+     &&!(allowGrowth===true&&growthWriteEvent))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
@@ -301,6 +365,7 @@
     return readStocktakeInputs(doc);
    if(referenceEvent)return invokeReference(el,doc);
    if(quoteWriteEvent)return invokeQuotes(el,doc);
+   if(growthWriteEvent)return invokeGrowth(el,doc);
    if(quoteEditEvent&&typeof prepareQuoteEdit==='function'){
     return prepareQuoteEdit(el.dataset?.id);
    }
