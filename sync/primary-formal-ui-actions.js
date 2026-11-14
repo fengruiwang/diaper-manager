@@ -17,7 +17,10 @@
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   notify,formalModeSelected,buildAllowsWrites=false,
-  operatorApproved=()=>false,documentCommands=null,documentQueue=null,
+  operatorApproved=()=>false,
+  buildAllowsDocumentWrites=buildAllowsWrites,
+  documentOperatorApproved=operatorApproved,
+  documentCommands=null,documentQueue=null,
   readDocumentInput=null,readReferenceBaseline=null,
   onReferenceReadback=null,allowReference=false,
   allowQuotes=false,readQuotesBaseline=null,onQuotesReadback=null,
@@ -32,11 +35,16 @@
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
-    ||typeof operatorApproved!=='function')
+    ||typeof operatorApproved!=='function'
+    ||typeof documentOperatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
   let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,profileBusy=false,settingsBusy=false,attached=null;
+  const purchaseAuthorized=()=>buildAllowsWrites===true
+   &&operatorApproved()===true;
+  const documentsAuthorized=()=>buildAllowsDocumentWrites===true
+   &&documentOperatorApproved()===true;
   async function invoke(action,value){
-   if(buildAllowsWrites!==true||operatorApproved()!==true)
+   if(!purchaseAuthorized())
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(busy)return result('BUSY');
    busy=true;
@@ -444,8 +452,6 @@
    finally{settingsBusy=false;}
   }
   async function handle(el,doc){
-   if(buildAllowsWrites!==true||operatorApproved()!==true)
-    return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
    const referenceEvent=el.id==='saveEditedReference'
     ||el.id==='restoreDefaultReference'||action==='resetref';
@@ -456,6 +462,15 @@
    const profileWriteEvent=el.id==='saveProfile';
    const settingsWriteEvent=el.id==='saveSizePreferences'
     ||el.id==='savePlans'||Boolean(el.dataset?.preset);
+   const documentEvent=referenceEvent||quoteWriteEvent||quoteEditEvent
+    ||growthWriteEvent||profileWriteEvent||settingsWriteEvent;
+   // Each category has its own authorization; no cross-grant.
+   if(documentEvent&&!documentsAuthorized())
+    return result(purchaseAuthorized()
+     ?'FORMAL_DOCUMENT_WRITES_NOT_AUTHORIZED'
+     :'FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
+   if(!documentEvent&&!purchaseAuthorized())
+    return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
      &&!(allowConsume===true&&action==='consume')
      &&!(allowReverse===true&&action==='deletetx')
@@ -484,7 +499,8 @@
    if(quoteEditEvent&&typeof prepareQuoteEdit==='function'){
     return prepareQuoteEdit(el.dataset?.id);
    }
-   if(documentCommands?.submit&&typeof readDocumentInput==='function'){
+   if(documentsAuthorized()&&documentCommands?.submit
+     &&typeof readDocumentInput==='function'){
     const docAction=readDocumentInput(el,doc);
     if(docAction){
      return documentCommands.submit({...docAction,operatorApproved:true});

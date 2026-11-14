@@ -79,7 +79,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  documentOpsFactory=null,documentCommandsFactory=null,
  batchStocktakeFactory=null,
  purchaseReleaseEnabled=FORMAL_PURCHASE_ENABLED,
- purchaseOperatorApproved=()=>false}={}){
+ purchaseOperatorApproved=()=>false,
+ documentWritesEnabled=FORMAL_WRITE_ENABLED}={}){
  if(!host||!doc||!loginController?.create||typeof readModelFactory!=='function'
    ||typeof primaryFactory!=='function'||!commandsFactory?.create
    ||!actionsFactory?.create||!projection?.project
@@ -515,6 +516,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       buildAllowsWrites:purchaseReleaseEnabled===true,
       operatorApproved:()=>purchaseReleaseEnabled===true
        &&purchaseOperatorApproved()===true,
+      buildAllowsDocumentWrites:documentWritesEnabled===true,
+      documentOperatorApproved:()=>documentWritesEnabled===true,
       purchaseOnly:true,allowConsume:true,allowReverse:true,
       allowStocktake:true,readStocktakeBaseline:()=>mode==='ready'?shownStock:null,
       onPurchaseReadback:({operationId,kind,reversesOperationId,
@@ -730,18 +733,22 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   on('formalRefresh',restore);
-  // Retry original inventory and batch UUIDs; never generate a replacement.
-  if(purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true){
+  // Retry each domain's ORIGINAL UUIDs under its own authorization.
+  const documentsApproved=()=>documentWritesEnabled===true;
+  const purchasesApproved=()=>purchaseReleaseEnabled===true
+    &&purchaseOperatorApproved()===true;
+  if(documentsApproved()||purchasesApproved()){
    $('formalSyncNow').disabled=false;
    $('formalSyncNow').textContent='重新核验待确认操作';
   }
   on('formalSyncNow',async()=>{
-   if(purchaseReleaseEnabled!==true||purchaseOperatorApproved()!==true){
-    $('formalSyncState').textContent='正式采购写入尚未批准，未发送操作。';
+   if(!documentsApproved()&&!purchasesApproved()){
+    $('formalSyncState').textContent='正式业务写入尚未批准，未发送操作。';
     return;
    }
-   if(!primary)return;
-   if(documentsGuard){
+   // Document receipts may be retried while inventory writes remain OFF.
+   // Never let this button invoke the other queue without its grant.
+   if(documentsApproved()&&documentsGuard){
     const docPending=await documentsGuard.pending();
     if(docPending?.status==='DOCUMENT_QUEUE_COUNTS_VERIFIED'
       &&docPending.outstanding>0){
@@ -757,6 +764,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      return;
     }
    }
+   if(!purchasesApproved()){
+    $('formalSyncState').textContent='共享文档无待确认请求；库存与采购写入尚未批准。';
+    return;
+   }
+   if(!primary)return;
    if(batchGuard){
     const pending=await batchGuard.pending();
     if(pending?.status==='BATCH_QUEUE_VERIFIED'&&pending.outstanding>0){
