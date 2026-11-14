@@ -105,7 +105,7 @@ function fixture({enabled=true,lostAck=false,hiddenReceipts=0,
  const createQueue=()=>Ops.create({
   controller:{verifiedContext:()=>scope},
   host:{indexedDB:{open(){}},navigator:{onLine:true}},
-  documentsClient,outboxFactory:{create:()=>store},
+  documentsClient:documentClient,outboxFactory:{create:()=>store},
   contract:require('../sync/outbox-contract.js'),
   cloudWritesEnabled:enabled,referenceAndQuotes:true,allowGrowth:true
  });
