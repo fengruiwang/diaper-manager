@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="xiaobao-p1-source-sha" content="0f7e50b365ab6f7b23e699f5ee78c00981d627f3" />
+<meta name="xiaobao-p4-02b-source-sha" content="79d39a4dc718ebae0f561914afb50f139a473153" />
 <meta name="theme-color" content="#f6f7fb" />
 <meta name="description" content="纸尿裤备货计划、库存管理、采购记录、参考好价提醒和单片比价。" />
 <title>M3 独立预览 · 小宝管家 V1.2.0 · 独立联网测试版 M1-01</title>
@@ -323,7 +323,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
       <div class="price-editor-error" id="priceEditError" role="alert"></div>
       <div class="price-editor-actions"><button type="submit" class="btn" id="saveEditedReference">保存新价格</button><button type="button" class="btn secondary" id="cancelEditedReference">取消</button><button type="button" class="btn ghost" id="restoreDefaultReference">恢复默认价</button></div>
     </form>
-    <p class="price-editor-foot">只修改当前品牌 · 系列 · 尺码；其他尺码不受影响。保存后立即更新对照提醒，并保存在本机备份数据中。</p>
+    <p class="price-editor-foot">只修改当前品牌 · 系列 · 尺码；其他尺码不受影响。云端写入经授权并确认后，将更新对照提醒并供家庭账号共享。</p>
   </div>
 </div>
 <script>
@@ -589,7 +589,7 @@ function dateInfo(){
 }
 function stageStock(size){if(m3ReadOnly)return Math.max(0,Math.round(num(state.inventory[size])));const cloud=window.XBM102?.stock(size);return cloud===null||cloud===undefined?Math.max(0,Math.round(num(state.inventory[size]))):cloud}
 function stockDays(size){const days=clamp(num(state.daily[size],1),1,30);return stageStock(size)/days}
-function spend(){if(m3ReadOnly)return state.transactions.filter(t=>t.type==='buy').reduce((n,t)=>n+num(t.price),0);const cloud=window.XBM102?.spend();return cloud===null||cloud===undefined?state.transactions.filter(t=>t.type==='buy').reduce((s,t)=>s+num(t.price),0):cloud}
+function spend(){if(m3ReadOnly)return state.transactions.filter(t=>t.type==='buy'&&t.reversed!==true).reduce((n,t)=>n+num(t.price),0);const cloud=window.XBM102?.spend();return cloud===null||cloud===undefined?state.transactions.filter(t=>t.type==='buy').reduce((s,t)=>s+num(t.price),0):cloud}
 function firstTarget(){return state.target.NB+state.target.S}
 function firstStock(){return Math.min(stageStock('NB'),state.target.NB)+Math.min(stageStock('S'),state.target.S)}
 function renderKpisLegacy(){const neededNB=Math.max(0,state.target.NB-stageStock('NB'));const neededS=Math.max(0,state.target.S-stageStock('S'));const current=state.currentSize||'NB';const days=stockDays(current);const pct=firstTarget()>0?Math.round(100*firstStock()/firstTarget()):100;
@@ -783,8 +783,8 @@ function renderM102History(){
   '<div class="empty">暂无云端确认的采购记录；本机演练流水不会出现在这里。</div>');
  renderStockEditor();
 }
-function renderHistory(){if(!m3ReadOnly&&window.XBM102?.isActive()){renderM102History();return;}const buys=state.transactions.filter(t=>t.type==='buy'),used=state.transactions.filter(t=>t.type==='use'),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
-const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}${m3ReadOnly?'<div class="fine">'+(t.origin==='cloud_post_migration'?'迁移后新采购':'旧版迁移历史')+'</div>':''}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td><button class="btn ghost sm" data-action="deletetx" data-id="${esc(t.id)}">撤销</button></td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
+function renderHistory(){if(!m3ReadOnly&&window.XBM102?.isActive()){renderM102History();return;}const buys=state.transactions.filter(t=>t.type==='buy'&&t.reversed!==true),used=state.transactions.filter(t=>t.type==='use'&&t.reversed!==true),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
+const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}${m3ReadOnly?'<div class="fine">'+(t.origin==='cloud_post_migration'?(t.type==='use'?'迁移后云端消耗':'迁移后云端采购'):'旧版迁移历史')+'</div>':''}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td>${t.reversed===true?'<span class="fine">已撤销</span>':m3ReadOnly&&t.origin!=='cloud_post_migration'?'<span class="fine">迁移历史不可撤销</span>':'<button class="btn ghost sm" data-action="deletetx" data-id="'+esc(t.id)+'">撤销</button>'}</td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
 renderStockEditor()}
 function updateSizeModePreview(){
  const mode=$('sizeMode').value,manual=$('currentSize').value;
@@ -994,6 +994,7 @@ window.XBM3UI=Object.freeze({
   if(!m3ReadOnly)return;
   state=m3SavedSandboxState;
   m3SavedSandboxState=null;m3ReadOnly=false;
+  clearWeightForm();
   renderAll();
  }
 });
@@ -1004,12 +1005,28 @@ function prepareFormalQuoteEdit(id){
  const q=state.quotes.find(row=>row.id===id);
  if(!q)return {status:'QUOTE_NOT_FOUND'};
  formalEditingQuoteId=id;
+ $('saveQuote').textContent='保存本次修改';
  $('qBrand').value=q.brand;$('qSeries').value=q.series;
  $('qSeries').hidden=false;$('qSize').value=q.size;
  $('qPerPack').value=q.per;$('qPacks').value=q.packs;
  $('qPrice').value=q.price;
+ updateSeriesPicks();
  tab('compare');preview();
  return {status:'QUOTE_FIELDS_READY_TO_EDIT'};
+}
+function finishFormalQuoteEdit({action,recordId}={}){
+ if(action==='add'||action==='edit'||action==='clear'
+   ||(action==='delete'&&formalEditingQuoteId===recordId)){
+  formalEditingQuoteId=null;
+  $('saveQuote').textContent='加入候选价';
+  if(action==='add'||action==='edit')$('qPrice').value='';
+  preview();
+ }
+}
+function finishFormalGrowthEdit({action,recordId}={}){
+ if(action==='add'||action==='edit'
+   ||(action==='delete'&&editingWeightId===recordId))
+  clearWeightForm();
 }
 function formalDocumentAction(el){
  const id=el.id,action=el.dataset?.action||'';
@@ -1027,7 +1044,8 @@ function formalDocumentAction(el){
   const raw=$('weightKg').value.trim(),weight=Number(raw);
   const date=$('weightDate').value,time=$('weightTime').value;
   if(!raw||!XBGrowth.validWeight(weight)||!XBGrowth.dateOK(date)
-    ||!XBGrowth.timeOK(time)||date>localDate())return null;
+    ||!XBGrowth.timeOK(time)||date>localDate()
+    ||(state.birthDate&&date<state.birthDate))return null;
   return {kind:'growth',action:editingWeightId?'edit':'add',
    record:{id:editingWeightId||crypto.randomUUID(),
     date,time,weight:Math.round(weight*1000)/1000,
@@ -1036,46 +1054,79 @@ function formalDocumentAction(el){
  if(action==='deleteweight')
   return {kind:'growth',action:'delete',record:{id:el.dataset.id}};
  if(id==='saveProfile'){
-  const birth=$('birthDate').value,due=$('dueDate').value;
-  if(!XBGrowth.dateOK(due)||(birth&&!XBGrowth.dateOK(birth)))return null;
-  const fields=['birthHour','birthMinute','birthSecond'].map(k=>$(k).value.trim());
-  if(fields.some(Boolean)&&fields.some(x=>!/^\\d{1,2}$/.test(x)))return null;
-  const birthTime=fields.every(Boolean)?fields.map(x=>x.padStart(2,'0')).join(':'):'';
+  const due=$('dueDate').value,birth=$('birthDate').value;
+  if(!XBGrowth.dateOK(due)
+    ||(birth&&(!XBGrowth.dateOK(birth)||birth>localDate())))return null;
+  const bits=['birthHour','birthMinute','birthSecond']
+   .map(k=>$(k).value.trim());
+  const hasTime=bits.some(Boolean);
+  // Numbers in the original input widgets are decimal digits. This
+  // regex has ONE backslash, unlike the old incorrectly escaped variant.
+  if(hasTime&&(bits.some(x=>!x||!/^\d{1,2}$/.test(x))
+    ||Number(bits[0])>23||Number(bits[1])>59||Number(bits[2])>59))
+   return null;
+  const birthTime=hasTime?bits.map(x=>x.padStart(2,'0')).join(':'):'';
+  const rawWeight=$('birthWeight').value.trim();
+  const rawLength=$('birthLength').value.trim();
+  if((rawWeight&&(!XBGrowth.validWeight(rawWeight)
+     ||Number(rawWeight)>10))
+   ||(rawLength&&(!Number.isFinite(Number(rawLength))
+     ||Number(rawLength)<20||Number(rawLength)>70)))return null;
+  if(!birth&&(hasTime||rawWeight||rawLength))return null;
+  const name=$('babyName').value.trim().slice(0,30)||'小宝';
+  const sex=$('babySex').value;
+  if(!['','男','女'].includes(sex))return null;
   return {kind:'profile',action:'patch',record:{
    dueDate:due,birthDate:birth,
-   babyProfile:{name:$('babyName').value.trim(),sex:$('babySex').value,
-    birthTime,birthWeight:$('birthWeight').value?Number($('birthWeight').value):'',
-    birthLength:$('birthLength').value?Number($('birthLength').value):''}
+   babyProfile:{name,sex,birthTime,
+    birthWeight:rawWeight?Number(rawWeight):'',
+    birthLength:rawLength?Number(rawLength):''}
   }};
  }
  if(id==='saveSizePreferences'){
-  const mode=$('sizeMode').value,size=$('currentSize').value;
-  const goal=Number($('goalPrice').value);
-  if(!['manual','auto'].includes(mode)||!SIZES.includes(size)
-    ||!Number.isFinite(goal)||goal<=0||goal>100)return null;
-  return {kind:'settings',action:'patch',record:{
-   sizeMode:mode,currentSize:size,goalPrice:goal}};
+  const mode=$('sizeMode').value;
+  const size=$('currentSize').value,raw=$('goalPrice').value.trim();
+  const goal=Number(raw);
+  if(!['manual','auto'].includes(mode)
+    ||(mode==='manual'&&!SIZES.includes(size))
+    ||!raw||!Number.isFinite(goal)||goal<=0||goal>100)return null;
+  // Automatic mode continues to calculate from growth records; it never
+  // pins the manually selected currentSize to a new value.
+  const record={sizeMode:mode,goalPrice:goal};
+  if(mode==='manual')record.currentSize=size;
+  return {kind:'settings',action:'patch',record};
  }
  if(id==='savePlans'){
+  const born=XBGrowth.born(state);
+  const mode=born?$('replenishMode').value:'custom';
+  const days=born?Number($('replenishDays').value):7;
+  if(!['days','custom'].includes(mode)||![5,7,10].includes(days))
+   return null;
   const target={},daily={};
   for(const sz of SIZES){
-   const t=Number($('target_'+sz)?.value),d=Number($('daily_'+sz)?.value);
-   if(!Number.isSafeInteger(t)||t<0||t>10000
-    ||!Number.isSafeInteger(d)||d<1||d>30)return null;
+   const rawTarget=$('target_'+sz)?.value?.trim();
+   const rawDaily=$('daily_'+sz)?.value?.trim();
+   const t=Number(rawTarget),d=Number(rawDaily);
+   if(!rawTarget||!Number.isSafeInteger(t)||t<0||t>10000
+     ||!rawDaily||!Number.isSafeInteger(d)||d<1||d>30)
+    return null;
    target[sz]=t;daily[sz]=d;
   }
-  const mode=$('replenishMode').value,days=Number($('replenishDays').value);
-  if(!['days','custom'].includes(mode)||![5,7,10].includes(days))return null;
-  return {kind:'settings',action:'patch',
-   record:{target,daily,replenishPolicy:{mode,days}}};
+  // Post-birth "days" updates daily and policy only, preserving every
+  // original manually entered target. Prenatal save marks preset custom.
+  const record={daily};
+  if(!born||mode==='custom')record.target=target;
+  if(born)record.replenishPolicy={mode,days};
+  else record.preset='custom';
+  return {kind:'settings',action:'patch',record};
  }
  if(el.dataset?.preset){
   const names={cautious:[80,60],balanced:[100,60],relaxed:[120,80]};
   const values=names[el.dataset.preset];
-  if(!values)return null;
+  // Prenatal presets remain unavailable after birth.
+  if(!values||XBGrowth.born(state))return null;
   return {kind:'settings',action:'patch',
-   record:{preset:el.dataset.preset,
-    target:{...state.target,NB:values[0],S:values[1]}}};
+   record:{preset:el.dataset.preset,target:{NB:values[0],S:values[1]}}};
  }
  if(id==='saveEditedReference'||id==='restoreDefaultReference'
     ||action==='resetref'){
@@ -1096,7 +1147,9 @@ window.XBFormalUIData=Object.freeze({
  quote:id=>state.quotes.find(q=>q.id===id)||null,
  transaction:id=>state.transactions.find(t=>t.id===id)||null,
  documentAction:formalDocumentAction,
- prepareQuoteEdit:prepareFormalQuoteEdit
+ prepareQuoteEdit:prepareFormalQuoteEdit,
+ finishQuoteEdit:finishFormalQuoteEdit,
+ finishGrowthEdit:finishFormalGrowthEdit
 });
 window.XBM1UI=Object.freeze({refresh:renderAll});
 updateSeriesPicks();
@@ -1742,8 +1795,58 @@ restoreActiveTab();
      operationId:row.operation_id,brand:row.brand,series:row.series,
      size:row.size,pieces:row.pieces,totalFen:row.total_fen,
      purchaseDate:row.purchase_date,
-     reversed:row.reversed_by_operation_id!=null,actorUid:row.created_by
+     reversed:row.reversed_by_operation_id!=null,
+     reversedByOperationId:row.reversed_by_operation_id||null,
+     actorUid:row.created_by
     };
+   });
+  }
+  // The existing family RLS policy grants SELECT on operation receipts.
+  // Only 'use' rows are projected; migration baselines are never replayed.
+  async function readUses({familyId,childId}={}){
+   const family=id(familyId,'family_id'),child=id(childId,'child_id');
+   await checkSession();
+   // Both reads use the same existing family RLS and primary child scope.
+   // The reverse rows are read-only audit receipts, not a second stock delta.
+   const query=kind=>db.from('xb_inventory_operations')
+    .select('operation_id,kind,size,delta,occurred_at,actor_uid,reverses_operation_id')
+    .eq('family_id',family).eq('child_id',child).eq('kind',kind);
+   const [uses,reversals]=await Promise.all([query('use'),query('reverse')]);
+   if(uses?.error)safeRpcError(uses.error);
+   if(reversals?.error)safeRpcError(reversals.error);
+   if(!Array.isArray(uses?.data)||!Array.isArray(reversals?.data))
+    fail('invalid_use_rows');
+   const reverseByOriginal=new Map(),reverseIds=new Set();
+   for(const row of reversals.data){
+    if(!row||row.kind!=='reverse'||!UUID.test(String(row.operation_id))
+      ||!UUID.test(String(row.reverses_operation_id))
+      ||reverseIds.has(row.operation_id)||!SIZES.has(row.size)
+      ||!Number.isSafeInteger(row.delta))
+     fail('invalid_reverse_rows');
+    reverseIds.add(row.operation_id);
+    // Reverse of a purchase is valid but not part of the consumption tally.
+    if(reverseByOriginal.has(row.reverses_operation_id))
+     fail('duplicate_reverse');
+    reverseByOriginal.set(row.reverses_operation_id,row);
+   }
+   const seen=new Set();
+   return uses.data.map(row=>{
+    if(!row||!UUID.test(String(row.operation_id))
+      ||seen.has(row.operation_id)||row.kind!=='use'||!SIZES.has(row.size)
+      ||!Number.isSafeInteger(row.delta)||row.delta>=0
+      ||row.delta< -100000||row.reverses_operation_id!=null
+      ||typeof row.occurred_at!=='string'
+      ||!Number.isFinite(Date.parse(row.occurred_at))
+      ||typeof row.actor_uid!=='string'||!row.actor_uid)
+     fail('invalid_use_rows');
+    seen.add(row.operation_id);
+    const reversed=reverseByOriginal.get(row.operation_id)||null;
+    if(reversed&&(reversed.size!==row.size||reversed.delta!==-row.delta))
+     fail('invalid_reverse_rows');
+    return Object.freeze({operationId:row.operation_id,size:row.size,
+     pieces:-row.delta,occurredAt:row.occurred_at,actorUid:row.actor_uid,
+     reversed:reversed!==null,
+     reversedByOperationId:reversed?.operation_id||null});
    });
   }
   async function readInventory({familyId,childId}){
@@ -1762,7 +1865,7 @@ restoreActiveTab();
      updatedAt:row.updated_at};
    });
   }
-  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases,readReconciliation});
+  return Object.freeze({normalizeOperation,applyOperation,readInventory,readPurchases,readUses,readReconciliation});
  }
  const api=Object.freeze({create});
  if(root)root.XBInventoryClient=api;
@@ -2496,7 +2599,8 @@ restoreActiveTab();
    if(p.kind!=='buy'&&p.kind!=='use')throw Error('replay:invalid_inventory_delta');
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
-  async function flush(scope,{uploadEnabled=false,maxItems=20}={}){
+  async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false,
+  allowReverse=false,allowStocktake=false}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -2519,6 +2623,15 @@ restoreActiveTab();
     return {status:'family-not-initialized',attempted:0,accepted:0,remaining:null};
 
    const queued=await outbox.ready(scope);
+   // A purchase-only release must not dispatch pre-existing non-buy operations.
+   if(purchaseOnly===true&&queued.some(op=>
+     !(op?.type==='inventory.delta'
+       &&(op?.payload?.kind==='buy'
+         ||(allowConsume===true&&op?.payload?.kind==='use')))
+     &&!(allowReverse===true&&op?.type==='transaction.reverse')
+     &&!(allowStocktake===true&&op?.type==='inventory.count')))
+    return {status:'unsupported-pending-type',attempted:0,accepted:0,
+     remaining:queued.length};
    let accepted=0,attempted=0,status='awaiting-reconciliation';
    for(const op of queued.slice(0,maxItems)){
     if(op.familyId!==scope.familyId||op.actorUid!==scope.actorUid)
@@ -2872,13 +2985,15 @@ restoreActiveTab();
    if(before.complete!==true||before.actorUid!==actorUid
       ||before.familyId!==familyId||before.childId!==childId)
     fail('server_scope_unverified');
-   const [currentPurchases,profileQuery]=await Promise.all([
+   const [currentPurchases,currentUses,profileQuery]=await Promise.all([
     inventory.readPurchases(scope),
+    inventory.readUses(scope),
     app.rdb().from('xb_baby_profiles')
      .select('family_id,child_id,profile_data')
      .eq('family_id',familyId).eq('child_id',childId).limit(2)
    ]);
    if(!Array.isArray(currentPurchases))fail('current_purchases_unverified');
+   if(!Array.isArray(currentUses))fail('current_uses_unverified');
    const after=await inventory.readReconciliation({...scope,operationIds:[]});
    if(after.complete!==true||after.actorUid!==actorUid
      ||after.familyId!==familyId||after.childId!==childId
@@ -2910,6 +3025,7 @@ restoreActiveTab();
       hasMore:history.hasMore,complete:history.complete
     }),
     livePurchases:Object.freeze(currentPurchases.slice()),
+    liveUses:Object.freeze(currentUses.slice()),
     legacyPurchasesAppliedToInventory:false
    });
   }
@@ -2939,7 +3055,8 @@ restoreActiveTab();
     ||!object(view.settings)||!object(view.profileData)
     ||!object(view.profileData.babyProfile)
     ||!object(view.legacyHistory)||!Array.isArray(view.legacyHistory.rows)
-    ||!Array.isArray(view.livePurchases))
+    ||!Array.isArray(view.livePurchases)
+    ||(view.liveUses!==undefined&&!Array.isArray(view.liveUses)))
    fail('unverified_read_model');
   if(view.legacyHistory.hasMore===true
     ||view.legacyHistory.rows.length!==view.legacyHistory.total)
@@ -2980,7 +3097,7 @@ restoreActiveTab();
    if(!row||typeof row.operationId!=='string'||!row.operationId
      ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
      ||row.pieces<1||!Number.isSafeInteger(row.totalFen)
-     ||row.totalFen<1||row.reversed===true)
+     ||row.totalFen<1)
     fail('invalid_post_migration_purchase');
    const id='cloud:'+row.operationId;
    if(seen.has('transaction:'+id))fail('duplicate_history');
@@ -2989,7 +3106,29 @@ restoreActiveTab();
     id,type:'buy',date:row.purchaseDate,brand:row.brand,
     series:row.series,size:row.size,pieces:row.pieces,
     price:row.totalFen/100,operationId:row.operationId,
-    reversed:row.reversed===true,origin:'cloud_post_migration'
+    reversed:row.reversed===true,
+    reversedByOperationId:row.reversedByOperationId||null,
+    origin:'cloud_post_migration'
+   });
+  }
+  // Current cloud consumption events are display-only; stock is the separately
+  // verified authoritative six-size snapshot, not a sum of transactions.
+  for(const row of view.liveUses||[]){
+   if(!row||typeof row.operationId!=='string'||!row.operationId
+     ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
+     ||row.pieces<1||row.pieces>100000
+     ||typeof row.occurredAt!=='string'
+     ||!Number.isFinite(Date.parse(row.occurredAt)))
+    fail('invalid_post_migration_use');
+   const id='cloud:'+row.operationId;
+   if(seen.has('transaction:'+id))fail('duplicate_history');
+   seen.add('transaction:'+id);
+   state.transactions.push({
+    id,type:'use',date:row.occurredAt.slice(0,10),size:row.size,
+    pieces:row.pieces,price:0,operationId:row.operationId,
+    reversed:row.reversed===true,
+    reversedByOperationId:row.reversedByOperationId||null,
+    origin:'cloud_post_migration'
    });
   }
   return Object.freeze({
@@ -3047,7 +3186,7 @@ restoreActiveTab();
 })(typeof window!=='undefined'?window:null);
 
 </script>
-<script src="./m1-controller.js?v=0f7e50b" defer></script>
+<script src="./m1-controller.js?v=79d39a4" defer></script>
 <script>/* M3 formal PRIMARY inventory/transaction bridge, using P2/P3 modules.
  * NOT imported by M1-02, M3 synthetic preview, V1.1.2 or live PWA.
  * No auto network calls on import/create. This is NOT an authorization.
@@ -3067,7 +3206,8 @@ restoreActiveTab();
  function create({controller,host,accessPreflight,childReader,scopeGuard,
   legacyHistoryReader,inventoryClient,outboxFactory,outboxContract,
   inventoryProjection,inventoryReconciler,runnerFactory,syncFactory,
-  cloudWritesEnabled=false}={}){
+  cloudWritesEnabled=false,purchaseOnly=false,allowConsume=false,
+  allowReverse=false,allowStocktake=false}={}){
   if(!controller?.verifiedContext||!accessPreflight?.create
     ||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget
     ||!legacyHistoryReader?.create||!inventoryClient?.create
@@ -3243,6 +3383,13 @@ restoreActiveTab();
    busy=true;
    try{
     const scope=await current();
+    if(purchaseOnly===true
+      &&!(op?.type==='inventory.delta'
+       &&(op?.payload?.kind==='buy'
+         ||(allowConsume===true&&op?.payload?.kind==='use')))
+      &&!(allowReverse===true&&op?.type==='transaction.reverse')
+      &&!(allowStocktake===true&&op?.type==='inventory.count'))
+     return result('FORMAL_PURCHASE_ONLY');
     if(!op||!TYPES.has(op.type)||!UUID.test(op.id)
       ||op.familyId!==scope.familyId||op.actorUid!==scope.actorUid
       ||op.payload?.childId!==scope.childId)
@@ -3284,7 +3431,9 @@ restoreActiveTab();
     await authInitialized();
     const remote=inventoryClient.create(scope.app);
     const runner=runnerFactory.create({outbox,remote,verifyAccess:authInitialized});
-    const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20});
+    const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20,
+     purchaseOnly:purchaseOnly===true,allowConsume:allowConsume===true,
+     allowReverse:allowReverse===true,allowStocktake:allowStocktake===true});
     if(!sent||['manual-review-required','permission-denied','auth-required',
       'network-or-server-failure','unsupported-pending-type']
       .includes(sent.status))
@@ -3422,6 +3571,16 @@ restoreActiveTab();
     if(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
       ||!fresh.inventory||!fresh.revisions)
      return ret('PRIMARY_FRESH_STOCK_UNVERIFIED');
+    if(action==='consume'&&SIZES.includes(value?.size)
+      &&Number.isSafeInteger(value?.count)&&value.count>=1
+      &&(!Number.isSafeInteger(fresh.inventory[value.size])
+       ||fresh.inventory[value.size]<value.count))
+     return ret('PRIMARY_INSUFFICIENT_STOCK');
+    // An old form revision must not silently adopt newer cloud stock.
+    if(action==='stocktake'&&value
+      &&Object.prototype.hasOwnProperty.call(value,'expectedRevision')
+      &&value.expectedRevision!==fresh.revisions[value.size])
+     return ret('PRIMARY_STOCK_REVISION_CONFLICT');
     if(action==='stocktake'&&fresh.inventory[value?.size]===value?.count)
      return ret('PRIMARY_STOCK_UNCHANGED');
     const operation=input(action,value,scope,fresh.revisions);
@@ -3464,61 +3623,470 @@ restoreActiveTab();
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   notify,formalModeSelected,buildAllowsWrites=false,
-  operatorApproved=()=>false,documentCommands=null,
-  readDocumentInput=null,prepareQuoteEdit=null,
-  batchStocktake=null,createBatchId=null}={}){
+  operatorApproved=()=>false,
+  buildAllowsDocumentWrites=buildAllowsWrites,
+  documentOperatorApproved=operatorApproved,
+  documentCommands=null,documentQueue=null,
+  readDocumentInput=null,readReferenceBaseline=null,
+  onReferenceReadback=null,allowReference=false,
+  allowQuotes=false,readQuotesBaseline=null,onQuotesReadback=null,
+  confirmQuoteClear=()=>false,prepareQuoteEdit=null,
+  allowGrowth=false,readGrowthBaseline=null,onGrowthReadback=null,
+  confirmGrowthDelete=()=>false,
+  allowProfile=false,readProfileBaseline=null,onProfileReadback=null,
+  allowSettings=false,readSettingsBaseline=null,onSettingsReadback=null,
+  batchStocktake=null,createBatchId=null,onBatchReadback=null,
+  purchaseOnly=false,allowConsume=false,allowReverse=false,
+  allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
-    ||typeof operatorApproved!=='function')
+    ||typeof operatorApproved!=='function'
+    ||typeof documentOperatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
-  let busy=false, attached=null;
+  let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,profileBusy=false,settingsBusy=false,attached=null;
+  const purchaseAuthorized=()=>buildAllowsWrites===true
+   &&operatorApproved()===true;
+  const documentsAuthorized=()=>buildAllowsDocumentWrites===true
+   &&documentOperatorApproved()===true;
   async function invoke(action,value){
-   if(buildAllowsWrites!==true||operatorApproved()!==true)
+   if(!purchaseAuthorized())
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(busy)return result('BUSY');
    busy=true;
-   try{return await commands.submit(action,value,{operatorApproved:true});}
-   catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
+   try{
+    const queued=await commands.submit(action,value,{operatorApproved:true});
+    if(purchaseOnly!==true
+      ||(action!=='purchase'
+       &&!(allowConsume===true&&action==='consume')
+       &&!(allowReverse===true&&action==='reverse')
+       &&!(allowStocktake===true&&action==='stocktake')))
+     return queued;
+    const statusPrefix=action==='consume'?'PRIMARY_USE':
+     action==='reverse'?'PRIMARY_REVERSE':
+     action==='stocktake'?'PRIMARY_STOCKTAKE':'PRIMARY_PURCHASE';
+    if(!['PRIMARY_OPERATION_DURABLY_QUEUED',
+      'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued?.status))
+     return queued;
+    // RPC retries reuse the same durable UUID; never create a second buy.
+    let synced;
+    try{synced=await primary.flush({operatorApproved:true});}
+    catch(_){
+     return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
+      operationId:queued.operationId,cloudWriteCommitted:false});
+    }
+    if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
+     return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
+      operationId:queued.operationId,cloudWriteCommitted:false});
+    try{
+     const visible=typeof onPurchaseReadback==='function'
+      ?await onPurchaseReadback({operationId:queued.operationId,
+         kind:action==='consume'?'use':action==='purchase'?'buy':action,
+         reversesOperationId:action==='reverse'?value?.reversesOperationId:null,
+         size:action==='stocktake'?value?.size:null,
+         count:action==='stocktake'?value?.count:null,
+         expectedRevision:action==='stocktake'?value?.expectedRevision:null}):null;
+     if(visible==='ready')
+      return Object.freeze({status:statusPrefix+'_CLOUD_READBACK_VERIFIED',
+       operationId:queued.operationId,cloudWriteCommitted:true});
+    }catch(_){}
+    return Object.freeze({status:statusPrefix+'_COMMITTED_READBACK_REQUIRED',
+     operationId:queued.operationId,cloudWriteCommitted:true});
+   }catch(_){return result('FORMAL_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
   }
   async function readStocktakeInputs(doc){
-   const read=await primary.read();
-   if(read?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
-     ||!read.inventory||!read.revisions)
-    return result('PRIMARY_STOCK_UNVERIFIED');
-   const changed=[];
-   for(const size of SIZES){
-    const field=doc.getElementById('inv_'+size);
-    if(!field||typeof field.value!=='string'||field.value.trim()==='')
-     return result('STOCK_FORM_INCOMPLETE');
-    const n=Number(field.value);
-    if(!Number.isSafeInteger(n)||n<0||n>100000)
-     return result('STOCK_FORM_INVALID');
-    if(!Number.isSafeInteger(read.inventory[size])
-      ||!Number.isSafeInteger(read.revisions[size]))
+   if(stocktakeBusy)return result('BUSY');
+   stocktakeBusy=true;
+   try{
+    // The baseline belongs to the rendered editor, not a newly fetched
+    // revision: a stale editor must never overwrite another member's work.
+    const displayed=typeof readStocktakeBaseline==='function'
+     ?readStocktakeBaseline():null;
+    if(allowStocktake===true&&(!displayed?.inventory||!displayed?.revisions))
+     return result('PRIMARY_STOCK_BASELINE_UNVERIFIED');
+    const read=await primary.read();
+    if(read?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
+      ||!read.inventory||!read.revisions)
      return result('PRIMARY_STOCK_UNVERIFIED');
-    if(n!==read.inventory[size])changed.push({size,count:n});
-   }
-   if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
-   // Entire original stock editor must be all-or-none. If multiple sizes
-   // differ, use 027 one SQL transaction with one durable batch UUID. Never
-   // submit six separate 009 stocktakes that might partially succeed.
-   if(changed.length>1){
+    const baseline=displayed||read,changed=[];
+    for(const size of SIZES){
+     const field=doc.getElementById('inv_'+size);
+     if(!field||typeof field.value!=='string'||field.value.trim()==='')
+      return result('STOCK_FORM_INCOMPLETE');
+     const n=Number(field.value);
+     if(!Number.isSafeInteger(n)||n<0||n>100000)
+      return result('STOCK_FORM_INVALID');
+     if(!Number.isSafeInteger(read.inventory[size])
+       ||!Number.isSafeInteger(read.revisions[size])
+       ||!Number.isSafeInteger(baseline.inventory[size])
+       ||!Number.isSafeInteger(baseline.revisions[size]))
+      return result('PRIMARY_STOCK_UNVERIFIED');
+     if(n!==baseline.inventory[size])changed.push({size,count:n});
+    }
+    if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
+    if(changed.some(x=>read.revisions[x.size]!==baseline.revisions[x.size]
+      ||read.inventory[x.size]!==baseline.inventory[x.size]))
+     return result('PRIMARY_STOCK_REVISION_CONFLICT');
+    if(changed.length===1){
+     const item=changed[0];
+     return invoke('stocktake',displayed?
+      {...item,expectedRevision:baseline.revisions[item.size]}:item);
+    }
+    // Never split one original six-size Save into multiple single-size RPCs.
     if(!batchStocktake?.queue||typeof createBatchId!=='function')
      return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
     const items=changed.map(x=>({...x,
-     expectedRevision:read.revisions[x.size]}));
-    return batchStocktake.queue({
-     items,batchId:createBatchId(),operatorApproved:true
+     expectedRevision:baseline.revisions[x.size]}));
+    // Preserve the existing pre-release batch queue contract for isolated
+    // callers; the formal P2-05 path explicitly opts into durable send/read.
+    if(allowStocktake!==true)
+     return batchStocktake.queue({
+      items,batchId:createBatchId(),operatorApproved:true
+     });
+    if(typeof batchStocktake.send!=='function')
+     return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
+    const batchId=createBatchId();
+    const queued=await batchStocktake.queue({
+     items,batchId,operatorApproved:true
     });
-   }
-   return invoke('stocktake',changed[0]);
+    if(!['BATCH_DURABLY_QUEUED','BATCH_ALREADY_QUEUED']
+      .includes(queued?.status))return queued;
+    // The batch ID is stored in IndexedDB before any network write.
+    // A missing/ambiguous ACK never causes a fresh batch to be created.
+    let sent;
+    try{sent=await batchStocktake.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
+    });}
+    if(!['BATCH_ATOMIC_COMMIT_ACKED','BATCH_ACK_RECOVERED']
+      .includes(sent?.status))return sent||Object.freeze({
+       status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
+      });
+    try{
+     const visible=typeof onBatchReadback==='function'
+      ?await onBatchReadback({batchId,items}):null;
+     if(visible==='ready')return Object.freeze({
+      status:'BATCH_CLOUD_READBACK_VERIFIED',batchId,
+      changedSizes:items.length,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'BATCH_COMMITTED_READBACK_REQUIRED',
+     batchId,cloudWriteCommitted:true});
+   }catch(_){return result('PRIMARY_STOCKTAKE_REVIEW_REQUIRED');}
+   finally{stocktakeBusy=false;}
+  }
+  async function invokeReference(el,doc){
+   if(allowReference!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(referenceBusy)return result('BUSY');
+   referenceBusy=true;
+   try{
+    // A change must be tied to the reference document actually rendered
+    // on this account. Never silently use a newly advanced revision.
+    const baseline=typeof readReferenceBaseline==='function'
+     ?readReferenceBaseline():null;
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)
+      ||baseline.revision<0||!baseline.body?.referenceOverrides)
+     return result('REFERENCE_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='reference'||!['set','reset'].includes(input.action)
+      ||typeof input.record?.key!=='string'||!input.record.key)
+     return result('REFERENCE_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('REFERENCE_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let sync;
+    try{sync=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
+    });}
+    if(sync?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({status:sync?.status||
+       'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false});
+    try{
+     const visible=typeof onReferenceReadback==='function'
+      ?await onReferenceReadback({requestId,
+       record:input.record,action:input.action,
+       expectedRevision:baseline.revision}):null;
+     if(visible==='ready')return Object.freeze({
+      status:'REFERENCE_CLOUD_READBACK_VERIFIED',
+      requestId,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'REFERENCE_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('REFERENCE_OPERATION_REVIEW_REQUIRED');}
+   finally{referenceBusy=false;}
+  }
+  async function invokeQuotes(el,doc){
+   if(allowQuotes!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(quoteBusy)return result('BUSY');
+   quoteBusy=true;
+   try{
+    const baseline=typeof readQuotesBaseline==='function'
+     ?readQuotesBaseline():null;
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
+      ||!Array.isArray(baseline.body?.items))
+     return result('QUOTES_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='quotes'
+      ||!['add','edit','delete','clear'].includes(input.action))
+     return result('QUOTES_FORM_INVALID');
+    if(input.action==='clear'){
+     if(!baseline.body.items.length)return result('QUOTES_ALREADY_EMPTY');
+     if(typeof confirmQuoteClear!=='function'||confirmQuoteClear()!==true)
+      return result('QUOTES_CLEAR_CANCELLED');
+    }
+    if(input.action==='edit'||input.action==='delete'){
+     if(typeof input.record?.id!=='string'
+       ||!baseline.body.items.some(row=>row.id===input.record.id))
+      return result('QUOTES_RECORD_NOT_IN_DISPLAYED_LIST');
+    }
+    if(input.action==='add'&&(!input.record?.id
+      ||baseline.body.items.some(row=>row.id===input.record.id)))
+     return result('QUOTES_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('QUOTES_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let sync;
+    try{sync=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'QUOTES_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
+    });}
+    if(sync?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({
+      status:sync?.status||'QUOTES_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false
+     });
+    try{
+     const visible=typeof onQuotesReadback==='function'
+      ?await onQuotesReadback({
+       requestId,action:input.action,record:input.record,
+       expectedRevision:baseline.revision
+      }):null;
+     if(visible==='ready')return Object.freeze({
+      status:'QUOTES_CLOUD_READBACK_VERIFIED',
+      requestId,action:input.action,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'QUOTES_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('QUOTES_OPERATION_REVIEW_REQUIRED');}
+   finally{quoteBusy=false;}
+  }
+  async function invokeGrowth(el,doc){
+   if(allowGrowth!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(growthBusy)return result('BUSY');
+   growthBusy=true;
+   try{
+    const baseline=typeof readGrowthBaseline==='function'
+     ?readGrowthBaseline():null;
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
+      ||!Array.isArray(baseline.body?.items))
+     return result('GROWTH_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='growth'||!['add','edit','delete'].includes(input.action))
+     return result('GROWTH_FORM_INVALID');
+    if(typeof input.record?.id!=='string'||!input.record.id)
+     return result('GROWTH_FORM_INVALID');
+    if(input.action==='edit'||input.action==='delete'){
+     const existing=baseline.body.items.find(x=>x.id===input.record.id);
+     if(!existing)return result('GROWTH_RECORD_NOT_IN_DISPLAYED_LIST');
+     if(input.action==='delete'&&
+       (typeof confirmGrowthDelete!=='function'
+        ||confirmGrowthDelete(existing)!==true))
+      return result('GROWTH_DELETE_CANCELLED');
+    }else if(baseline.body.items.some(x=>x.id===input.record.id))
+     return result('GROWTH_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('GROWTH_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let synced;
+    try{synced=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'GROWTH_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
+    });}
+    if(synced?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({status:synced?.status
+       ||'GROWTH_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false});
+    try{
+     const visible=typeof onGrowthReadback==='function'
+      ?await onGrowthReadback({
+       requestId,action:input.action,record:input.record,
+       expectedRevision:baseline.revision
+      }):null;
+     if(visible==='ready')return Object.freeze({
+      status:'GROWTH_CLOUD_READBACK_VERIFIED',requestId,
+      action:input.action,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'GROWTH_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('GROWTH_OPERATION_REVIEW_REQUIRED');}
+   finally{growthBusy=false;}
+  }
+  async function invokeProfile(el,doc){
+   if(allowProfile!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(profileBusy)return result('BUSY');
+   profileBusy=true;
+   try{
+    // Match the exact document revision visible in the settings editor.
+    const baseline=typeof readProfileBaseline==='function'
+     ?readProfileBaseline():null;
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
+      ||!baseline.body?.babyProfile
+      ||typeof baseline.body.babyProfile!=='object')
+     return result('PROFILE_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='profile'||input.action!=='patch'
+       ||!input.record?.babyProfile)
+     return result('PROFILE_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('PROFILE_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let synced;
+    try{synced=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId,
+     cloudWriteCommitted:false
+    });}
+    if(synced?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({
+      status:synced?.status||'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false
+     });
+    try{
+     const visible=typeof onProfileReadback==='function'
+      ?await onProfileReadback({
+       requestId,record:input.record,expectedRevision:baseline.revision
+      }):null;
+     if(visible==='ready')return Object.freeze({
+      status:'PROFILE_CLOUD_READBACK_VERIFIED',
+      requestId,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'PROFILE_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('PROFILE_OPERATION_REVIEW_REQUIRED');}
+   finally{profileBusy=false;}
+  }
+  async function invokeSettings(el,doc){
+   if(allowSettings!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(settingsBusy)return result('BUSY');
+   settingsBusy=true;
+   try{
+    // Bind all settings edits to the revision actually displayed in UI.
+    const baseline=typeof readSettingsBaseline==='function'
+     ?readSettingsBaseline():null;
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
+      ||!baseline.body?.target||!baseline.body?.daily)
+     return result('SETTINGS_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='settings'||input.action!=='patch'
+      ||!input.record||typeof input.record!=='object'
+      ||Object.keys(input.record).length===0)
+     return result('SETTINGS_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('SETTINGS_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let synced;
+    try{synced=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId,
+     cloudWriteCommitted:false
+    });}
+    if(synced?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({
+      status:synced?.status||'SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false
+     });
+    try{
+     const visible=typeof onSettingsReadback==='function'
+      ?await onSettingsReadback({
+       requestId,record:input.record,expectedRevision:baseline.revision
+      }):null;
+     if(visible==='ready')return Object.freeze({
+      status:'SETTINGS_CLOUD_READBACK_VERIFIED',
+      requestId,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'SETTINGS_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('SETTINGS_OPERATION_REVIEW_REQUIRED');}
+   finally{settingsBusy=false;}
   }
   async function handle(el,doc){
-   if(buildAllowsWrites!==true||operatorApproved()!==true)
-    return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    const action=el.dataset?.action;
+   const referenceEvent=el.id==='saveEditedReference'
+    ||el.id==='restoreDefaultReference'||action==='resetref';
+   const quoteWriteEvent=el.id==='saveQuote'||el.id==='clearQuotes'
+    ||action==='deletequote';
+   const quoteEditEvent=action==='editquote';
+   const growthWriteEvent=el.id==='saveWeight'||action==='deleteweight';
+   const profileWriteEvent=el.id==='saveProfile';
+   const settingsWriteEvent=el.id==='saveSizePreferences'
+    ||el.id==='savePlans'||Boolean(el.dataset?.preset);
+   const documentEvent=referenceEvent||quoteWriteEvent||quoteEditEvent
+    ||growthWriteEvent||profileWriteEvent||settingsWriteEvent;
+   // Each category has its own authorization; no cross-grant.
+   if(documentEvent&&!documentsAuthorized())
+    return result(purchaseAuthorized()
+     ?'FORMAL_DOCUMENT_WRITES_NOT_AUTHORIZED'
+     :'FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
+   if(!documentEvent&&!purchaseAuthorized())
+    return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
+   if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
+     &&!(allowConsume===true&&action==='consume')
+     &&!(allowReverse===true&&action==='deletetx')
+     &&!(allowStocktake===true&&el.id==='saveStocks')
+     &&!(allowReference===true&&referenceEvent)
+     &&!(allowQuotes===true&&(quoteWriteEvent||quoteEditEvent))
+     &&!(allowGrowth===true&&growthWriteEvent)
+     &&!(allowProfile===true&&profileWriteEvent)
+     &&!(allowSettings===true&&settingsWriteEvent))
+    return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
    if(action==='buyquote'){
@@ -3529,10 +4097,16 @@ restoreActiveTab();
     return invoke('consume',{size:el.dataset?.size,count:Number(el.dataset?.count)});
    if(el.id==='saveStocks')
     return readStocktakeInputs(doc);
-   if(action==='editquote'&&typeof prepareQuoteEdit==='function'){
+   if(referenceEvent)return invokeReference(el,doc);
+   if(quoteWriteEvent)return invokeQuotes(el,doc);
+   if(growthWriteEvent)return invokeGrowth(el,doc);
+   if(profileWriteEvent)return invokeProfile(el,doc);
+   if(settingsWriteEvent)return invokeSettings(el,doc);
+   if(quoteEditEvent&&typeof prepareQuoteEdit==='function'){
     return prepareQuoteEdit(el.dataset?.id);
    }
-   if(documentCommands?.submit&&typeof readDocumentInput==='function'){
+   if(documentsAuthorized()&&documentCommands?.submit
+     &&typeof readDocumentInput==='function'){
     const docAction=readDocumentInput(el,doc);
     if(docAction){
      return documentCommands.submit({...docAction,operatorApproved:true});
@@ -3541,6 +4115,7 @@ restoreActiveTab();
    if(action==='deletetx'){
     const record=readTransaction(el.dataset?.id);
     if(!record||record.origin!=='cloud_post_migration'
+      ||!['buy','use'].includes(record.type)
       ||record.reversed===true||typeof record.operationId!=='string')
      return result('IMMUTABLE_LEGACY_HISTORY_NOT_REVERSIBLE');
     return invoke('reverse',{size:record.size,
@@ -3560,7 +4135,7 @@ restoreActiveTab();
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
-      'formalConfirmOtp','closeRefEditor','cancelEditedReference',
+      'formalConfirmOtp','formalSyncNow','closeRefEditor','cancelEditedReference',
       'cancelWeight']);
     const allowedActions=new Set(['go','editstock','series','pickref','editref','editweight']);
     if(el.classList?.contains('tab')||allowedIds.has(el.id)
@@ -3574,6 +4149,7 @@ restoreActiveTab();
    const formHandler=event=>{
     if(!formalModeSelected())return;
     event.preventDefault();event.stopImmediatePropagation();
+    if(event.target?.id!=='priceEditForm')return;
     const el={id:'saveEditedReference',dataset:{}};
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
@@ -3688,7 +4264,16 @@ function create({controller,host,primary,outboxFactory,contract,
   }catch(_){return answer('BATCH_QUEUE_UNVERIFIED_KEEP_ID',{batchId});}
   finally{busy=false;}
  }
- async function receipt(id,batchId){
+ function receiptMatches(result,items){
+  const changes=result?.changes;
+  return Number.isSafeInteger(result?.changed_sizes)
+   &&result.changed_sizes===items.length
+   &&Array.isArray(changes)&&changes.length===items.length
+   &&items.every(item=>changes.some(change=>
+    change.size===item.size&&change.new_quantity===item.count
+    &&change.revision===item.expectedRevision+1));
+ }
+ async function receipt(id,batchId,items){
   const app=controller.verifiedContext()?.app;
   if(!app?.rdb)return null;
   try{
@@ -3701,7 +4286,8 @@ function create({controller,host,primary,outboxFactory,contract,
    const d=Array.isArray(response?.data)?response.data[0]:response?.data;
    if(d?.status!=='COMMITTED'||d.family_id!==id.familyId
      ||d.child_id!==id.childId||d.batch_id!==batchId
-     ||d.result?.status!=='APPLIED')return null;
+     ||d.result?.status!=='APPLIED'
+     ||!receiptMatches(d.result,items))return null;
    return d;
   }catch(_){return null;}
  }
@@ -3720,10 +4306,10 @@ function create({controller,host,primary,outboxFactory,contract,
      ||op.actorUid!==id.actorUid||op.payload?.childId!==id.childId
      ||!Array.isArray(items))return answer('BATCH_IMMUTABLE_SCOPE_INVALID');
    // Before trying once, check whether an earlier ACK was lost.
-   const already=await receipt(id,op.id);
+   const already=await receipt(id,op.id,items);
    if(already){
     await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
-    return answer('BATCH_ACK_RECOVERED',{batchId:op.id});
+    return answer('BATCH_ACK_RECOVERED',{batchId:op.id,items});
    }
    const app=controller.verifiedContext()?.app;
    let response;
@@ -3734,15 +4320,15 @@ function create({controller,host,primary,outboxFactory,contract,
     });
    }catch(_){
     // Do not replace batch ID or retry after an ambiguous network error.
-    const found=await receipt(id,op.id);
+    const found=await receipt(id,op.id,items);
     if(!found)return answer('BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',
      {batchId:op.id});
     await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
-    return answer('BATCH_ACK_RECOVERED',{batchId:op.id});
+    return answer('BATCH_ACK_RECOVERED',{batchId:op.id,items});
    }
    if(response?.error){
     const code=String(response.error.code||response.error.errorCode||'');
-    if(code==='40001'){
+    if(code==='40001'||code==='DATABASE_40001'){
      await store.recordResult(id,op.id,{kind:'conflict'});
      return answer('BATCH_REVISION_CONFLICT_MANUAL_REVIEW',
       {batchId:op.id});
@@ -3752,12 +4338,17 @@ function create({controller,host,primary,outboxFactory,contract,
    const d=Array.isArray(response?.data)?response.data[0]:response?.data;
    if(d?.saved!==true||d.batch_id!==op.id
       ||d.family_id!==id.familyId||d.child_id!==id.childId
-      ||d.result?.status!=='APPLIED'){
+      ||d.result?.status!=='APPLIED'
+      ||!receiptMatches(d.result,items)){
     return answer('BATCH_ACK_UNVERIFIED_KEEP_ID',{batchId:op.id});
    }
+   // A returned write ACK is not sufficient: verify the receipt
+   // through the existing read-only batch receipt RPC before local ACK.
+   if(!await receipt(id,op.id,items))
+    return answer('BATCH_RECEIPT_READBACK_REQUIRED_KEEP_ID',{batchId:op.id});
    await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
    return answer('BATCH_ATOMIC_COMMIT_ACKED',{batchId:op.id,
-    changedSizes:d.result.changed_sizes});
+    items,changedSizes:d.result.changed_sizes});
   }catch(_){return answer('BATCH_SYNC_UNVERIFIED_KEEP_QUEUE');}
   finally{busy=false;}
  }
@@ -3866,7 +4457,8 @@ const DOC_TYPES={quotes:'quote.upsert',reference:'reference.patch',
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
- cloudWritesEnabled=false}={}){
+ cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
+ allowGrowth=false,allowProfile=false,allowSettings=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
    ||!outboxFactory?.create||!contract?.createOperation
@@ -3877,6 +4469,12 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    ||!outbox?.recordResult||!outbox?.get)
   throw Error('primary_docs_outbox:outbox_incomplete');
  let busy=false;
+ const enabledKind=kind=>referenceAndQuotes===true
+  ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
+    ||(allowProfile===true&&kind==='profile')
+    ||(allowSettings===true&&kind==='settings')
+  :referenceOnly!==true||kind==='reference';
+ const strictReceipt=referenceOnly===true||referenceAndQuotes===true;
  const online=()=>host.navigator?.onLine!==false;
  const current=()=>controller.verifiedContext();
  function identity(){
@@ -3899,7 +4497,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return ans('DOCUMENT_QUEUE_BUSY');
   if(!online())return ans('DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE');
-  if(!DOC_TYPES[kind]||!UUID.test(String(requestId))
+  if(!enabledKind(kind)
+    ||!DOC_TYPES[kind]||!UUID.test(String(requestId))
     ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0
     ||!nextBody||typeof nextBody!=='object'||Array.isArray(nextBody))
    return ans('INVALID_DOCUMENT_OPERATION');
@@ -3934,6 +4533,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity(),items=await outbox.ready(scope);
+   if(items.some(op=>!enabledKind(op.payload?.kind)))
+    return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    if(!items.length){
     const counts=await outbox.stats(scope);
     return ans(counts.outstanding>0?'DOCUMENT_CONFLICT_REVIEW_REQUIRED':
@@ -3946,6 +4547,24 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     const command={...scope,kind:op.payload.kind,
      nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
      requestId:op.id,operatorApproved:true};
+    // P3 shared-document retries inspect the original request receipt
+    // before sending. No new request UUID on an ambiguous network ACK.
+    if(strictReceipt){
+     const prior=await documentsClient.checkRequest({
+      ...scope,requestId:op.id,readEnabled:true
+     });
+     if(prior.status==='REQUEST_COMMITTED_VERIFIED'){
+      if(prior.kind!==op.payload.kind
+        ||prior.revision!==op.expectedRevision+1)
+       return ans('DOCUMENT_RECEIPT_CONFLICT_KEEP_ID',{requestId:op.id});
+      await outbox.recordResult(scope,op.id,{
+       kind:'accepted',receiptId:op.id
+      });
+      continue;
+     }
+     if(prior.status!=='REQUEST_NOT_YET_RECEIPTED_SAME_ID_ONLY')
+      return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',{requestId:op.id});
+    }
     const result=await documentsClient.put(command);
     let acknowledged=result.status==='PRIMARY_DOCUMENT_COMMITTED';
     if(!acknowledged &&
@@ -3965,6 +4584,16 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     }
     if(!acknowledged)return ans('DOCUMENT_ACK_NOT_VERIFIED',
      {requestId:op.id});
+    if(strictReceipt){
+     const verified=await documentsClient.checkRequest({
+      ...scope,requestId:op.id,readEnabled:true
+     });
+     if(verified.status!=='REQUEST_COMMITTED_VERIFIED'
+        ||verified.kind!==op.payload.kind
+        ||verified.revision!==op.expectedRevision+1)
+      return ans('DOCUMENT_RECEIPT_READBACK_REQUIRED_KEEP_ID',
+       {requestId:op.id});
+    }
     await outbox.recordResult(scope,op.id,{
      kind:'accepted',receiptId:op.id
     });
@@ -3980,11 +4609,15 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity(),op=await outbox.get(scope,requestId);
    if(!op)return ans('ORIGINAL_REQUEST_ID_NOT_FOUND');
+   if(!enabledKind(op.payload?.kind))
+    return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    const status=await documentsClient.checkRequest({
     ...scope,requestId,readEnabled:true
    });
    if(status.status!=='REQUEST_COMMITTED_VERIFIED'
-     ||status.kind!==op.payload?.kind)
+     ||status.kind!==op.payload?.kind
+     ||(strictReceipt
+       &&status.revision!==op.expectedRevision+1))
     return ans('REQUEST_NOT_VERIFIED_KEEP_PENDING');
    await outbox.recordResult(scope,requestId,{
     kind:'accepted',receiptId:requestId
@@ -4054,19 +4687,22 @@ function create({client,queue,uuid}={}){
    if(action!=='patch'||!object(record))throw Error('invalid_settings');
    const editable=new Set(['currentSize','sizeMode','autoSize','replenishPolicy',
     'preset','goalPrice','plannedBudget','target','daily']);
-   for(const [k,v] of Object.entries(record)){
-    if(!editable.has(k))throw Error('unknown_edit_field');
-    if((k==='target'||k==='daily')&&!object(v))
-     throw Error('invalid_settings');
-    next[k]=clone(v);
-   }
    if(!object(next.target)||!object(next.daily))
     throw Error('invalid_settings');
-   for(const k of ['target','daily']){
-    for(const [sz,val] of Object.entries(next[k])){
-     if(!sizeSet.has(sz)||!Number.isSafeInteger(val)||val<0
-       ||(k==='daily'&&val<1))throw Error('invalid_settings');
-    }
+   for(const [k,v] of Object.entries(record)){
+    if(!editable.has(k))throw Error('unknown_edit_field');
+    if(k==='target'||k==='daily'){
+     if(!object(v))throw Error('invalid_settings');
+     for(const [sz,val] of Object.entries(v)){
+      if(!sizeSet.has(sz)||!Number.isSafeInteger(val)||val<0
+        ||(k==='daily'&&val<1))throw Error('invalid_settings');
+     }
+     // Presets patch NB/S only. Preserve every other size and
+     // historical extension nested in an existing map.
+     next[k]={...next[k],...clone(v)};
+    }else if(k==='replenishPolicy'&&object(v)){
+     next[k]={...(object(next[k])?next[k]:{}),...clone(v)};
+    }else next[k]=clone(v);
    }
   }else if(kind==='profile'){
    if(action!=='patch'||!object(record))throw Error('invalid_profile');
@@ -4082,7 +4718,7 @@ function create({client,queue,uuid}={}){
   return next;
  }
  async function submit({familyId,actorUid,kind,action,record,
-  operatorApproved=false}={}){
+  expectedRevision=null,operatorApproved=false}={}){
   if(queue.cloudWritesEnabled!==true||operatorApproved!==true)
    return reply('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return reply('BUSY');
@@ -4096,6 +4732,18 @@ function create({client,queue,uuid}={}){
    const read=await client.read({familyId,actorUid,kind,readEnabled:true});
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
+   // For on-screen reference/quote/growth/profile edits, use the revision that was
+   // actually displayed; never substitute a newly advanced revision.
+   if((kind==='reference'||kind==='quotes'||kind==='growth'||kind==='profile'||kind==='settings')
+    &&(expectedRevision===null
+     ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0))
+    return reply(kind==='quotes'?'QUOTES_DISPLAYED_BASELINE_REQUIRED':
+     kind==='growth'?'GROWTH_DISPLAYED_BASELINE_REQUIRED':
+     kind==='profile'?'PROFILE_DISPLAYED_BASELINE_REQUIRED':
+     kind==='settings'?'SETTINGS_DISPLAYED_BASELINE_REQUIRED':
+     'REFERENCE_DISPLAYED_BASELINE_REQUIRED');
+   if(expectedRevision!==null&&read.revision!==expectedRevision)
+    return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
    const body=transform(kind,action,read.body,record);
    const requestId=uuid();
    const saved=await queue.queue({kind,nextBody:body,
@@ -4275,7 +4923,7 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
-<script src="./formal-controller.js?v=0f7e50b" defer></script>
+<script src="./formal-controller.js?v=79d39a4" defer></script>
 
 </body>
 </html>

@@ -1,4 +1,4 @@
-name: XiaoBao P1-01 Chrome CloudBase package
+name: XiaoBao P4-02B CloudBase READ-ONLY package
 on:
   push:
     branches:
@@ -13,31 +13,44 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify source parity and Chrome compatible formal data chain
+      - name: Verify exact Feature source parity, flat path and read-only gates
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          head='79d39a4dc718ebae0f561914afb50f139a473153'
           base=Path('deploy/xb-test/formal')
           html=(base/'index.html').read_text('utf-8')
-          assert 'src="./m1-controller.js?v=0f7e50b"' in html
-          assert 'src="./formal-controller.js?v=0f7e50b"' in html
-          assert 'name="xiaobao-p1-source-sha" content="0f7e50b365ab6f7b23e699f5ee78c00981d627f3"' in html
-          assert 'Object.hasOwn(' not in html
+          original=Path('preview/v1.2.0/formal/index.html').read_text('utf-8')
+          original=original.replace(
+            '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />',
+            '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />\n'
+            '<meta name="xiaobao-p4-02b-source-sha" content="'+head+'" />')
+          original=original.replace(
+            '<script src="../m1-controller.js" defer></script>',
+            '<script src="./m1-controller.js?v=79d39a4" defer></script>')
+          original=original.replace(
+            '<script src="../formal-controller.js" defer></script>',
+            '<script src="./formal-controller.js?v=79d39a4" defer></script>')
+          assert html==original,'HTML must equal current source after exactly 3 packaging edits'
           assert (base/'m1-controller.js').read_bytes()==Path('preview/v1.2.0/m1-controller.js').read_bytes()
           assert (base/'formal-controller.js').read_bytes()==Path('preview/v1.2.0/formal-controller.js').read_bytes()
+          assert 'const FORMAL_WRITE_ENABLED=false' in (base/'formal-controller.js').read_text('utf-8')
+          assert 'const FORMAL_PURCHASE_ENABLED=false' in (base/'formal-controller.js').read_text('utf-8')
+          assert "const ENV_ID='f495637659-d2gnuzz2jf5657da8'" in (base/'m1-controller.js').read_text('utf-8')
+          assert 'Object.hasOwn(' not in html
           for name in ['inventory-reconciler','primary-cloud-read-model',
                        'primary-ui-projection','primary-cloud-operations',
-                       'primary-documents-overlay']:
+                       'primary-documents-client','primary-documents-overlay',
+                       'primary-documents-operations',
+                       'primary-documents-business-commands',
+                       'primary-formal-ui-actions','primary-stocktake-batch-client']:
             source=Path('sync/'+name+'.js').read_text('utf-8').strip()
-            assert source in html, name+' inline version mismatch'
-            assert 'Object.hasOwn(' not in source
-          assert 'const FORMAL_WRITE_ENABLED=false' in (base/'formal-controller.js').read_text('utf-8')
-          assert "const ENV_ID='f495637659-d2gnuzz2jf5657da8'" in (base/'m1-controller.js').read_text('utf-8')
-          print('P1_01_CHROME_COMPAT_PACKAGE_PASS')
+            assert source in html,name+' inline version mismatch'
+          print('P4_02B_SOURCE_PARITY_READONLY_PACKAGE_PASS')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoBao-P1-01-Chrome-0f7e50b
+          name: XiaoBao-P4-02B-READONLY-79d39a4
           path: |
             deploy/xb-test/formal/index.html
             deploy/xb-test/formal/m1-controller.js
