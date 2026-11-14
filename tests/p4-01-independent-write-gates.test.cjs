@@ -139,6 +139,7 @@ function fixture({purchase=false,documents=false,approvePurchase=true,
   get reads(){return reads;},get docSends(){return docSends;},
   get uploads(){return uploads;},get primaryOps(){return primaryOps;},
   get primaryFlushes(){return primaryFlushes;},get uuidCalls(){return uuid;}
+ };
 }
 test('P4-01 both OFF: all five document writes and all inventory actions fail closed',async()=>{
  const f=fixture();
