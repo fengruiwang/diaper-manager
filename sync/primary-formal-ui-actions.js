@@ -24,6 +24,7 @@
   confirmQuoteClear=()=>false,prepareQuoteEdit=null,
   allowGrowth=false,readGrowthBaseline=null,onGrowthReadback=null,
   confirmGrowthDelete=()=>false,
+  allowProfile=false,readProfileBaseline=null,onProfileReadback=null,
   batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
   allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
@@ -32,7 +33,7 @@
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
     ||typeof operatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
-  let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,attached=null;
+  let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,profileBusy=false,attached=null;
   async function invoke(action,value){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -335,6 +336,59 @@
    }catch(_){return result('GROWTH_OPERATION_REVIEW_REQUIRED');}
    finally{growthBusy=false;}
   }
+  async function invokeProfile(el,doc){
+   if(allowProfile!==true||!documentCommands?.submit
+     ||!documentQueue?.send||typeof readDocumentInput!=='function')
+    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
+   if(profileBusy)return result('BUSY');
+   profileBusy=true;
+   try{
+    // Match the exact document revision visible in the settings editor.
+    const baseline=typeof readProfileBaseline==='function'
+     ?readProfileBaseline():null;
+    if(!baseline||typeof baseline.familyId!=='string'
+      ||typeof baseline.actorUid!=='string'
+      ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
+      ||!baseline.body?.babyProfile
+      ||typeof baseline.body.babyProfile!=='object')
+     return result('PROFILE_DISPLAYED_BASELINE_REQUIRED');
+    const input=readDocumentInput(el,doc);
+    if(input?.kind!=='profile'||input.action!=='patch'
+       ||!input.record?.babyProfile)
+     return result('PROFILE_FORM_INVALID');
+    const saved=await documentCommands.submit({
+     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true
+    });
+    if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
+     return saved||result('PROFILE_COMMAND_UNVERIFIED');
+    const requestId=saved.requestId;
+    let synced;
+    try{synced=await documentQueue.send({operatorApproved:true});}
+    catch(_){return Object.freeze({
+     status:'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId,
+     cloudWriteCommitted:false
+    });}
+    if(synced?.status!=='DOCUMENT_SYNC_CONFIRMED')
+     return Object.freeze({
+      status:synced?.status||'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',
+      requestId,cloudWriteCommitted:false
+     });
+    try{
+     const visible=typeof onProfileReadback==='function'
+      ?await onProfileReadback({
+       requestId,record:input.record,expectedRevision:baseline.revision
+      }):null;
+     if(visible==='ready')return Object.freeze({
+      status:'PROFILE_CLOUD_READBACK_VERIFIED',
+      requestId,cloudWriteCommitted:true
+     });
+    }catch(_){}
+    return Object.freeze({status:'PROFILE_COMMITTED_READBACK_REQUIRED',
+     requestId,cloudWriteCommitted:true});
+   }catch(_){return result('PROFILE_OPERATION_REVIEW_REQUIRED');}
+   finally{profileBusy=false;}
+  }
   async function handle(el,doc){
    if(buildAllowsWrites!==true||operatorApproved()!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
@@ -345,13 +399,15 @@
     ||action==='deletequote';
    const quoteEditEvent=action==='editquote';
    const growthWriteEvent=el.id==='saveWeight'||action==='deleteweight';
+   const profileWriteEvent=el.id==='saveProfile';
    if(purchaseOnly===true&&el.id!=='buyNow'&&action!=='buyquote'
      &&!(allowConsume===true&&action==='consume')
      &&!(allowReverse===true&&action==='deletetx')
      &&!(allowStocktake===true&&el.id==='saveStocks')
      &&!(allowReference===true&&referenceEvent)
      &&!(allowQuotes===true&&(quoteWriteEvent||quoteEditEvent))
-     &&!(allowGrowth===true&&growthWriteEvent))
+     &&!(allowGrowth===true&&growthWriteEvent)
+     &&!(allowProfile===true&&profileWriteEvent))
     return result('FORMAL_PURCHASE_ONLY');
    if(el.id==='buyNow')
     return invoke('purchase',readPurchase());
@@ -366,6 +422,7 @@
    if(referenceEvent)return invokeReference(el,doc);
    if(quoteWriteEvent)return invokeQuotes(el,doc);
    if(growthWriteEvent)return invokeGrowth(el,doc);
+   if(profileWriteEvent)return invokeProfile(el,doc);
    if(quoteEditEvent&&typeof prepareQuoteEdit==='function'){
     return prepareQuoteEdit(el.dataset?.id);
    }

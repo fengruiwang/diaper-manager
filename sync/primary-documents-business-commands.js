@@ -94,13 +94,14 @@ function create({client,queue,uuid}={}){
    const read=await client.read({familyId,actorUid,kind,readEnabled:true});
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
-   // For on-screen reference/quote/growth edits, use the revision that was
+   // For on-screen reference/quote/growth/profile edits, use the revision that was
    // actually displayed; never substitute a newly advanced revision.
-   if((kind==='reference'||kind==='quotes'||kind==='growth')
+   if((kind==='reference'||kind==='quotes'||kind==='growth'||kind==='profile')
     &&(expectedRevision===null
      ||!Number.isSafeInteger(expectedRevision)||expectedRevision<0))
     return reply(kind==='quotes'?'QUOTES_DISPLAYED_BASELINE_REQUIRED':
      kind==='growth'?'GROWTH_DISPLAYED_BASELINE_REQUIRED':
+     kind==='profile'?'PROFILE_DISPLAYED_BASELINE_REQUIRED':
      'REFERENCE_DISPLAYED_BASELINE_REQUIRED');
    if(expectedRevision!==null&&read.revision!==expectedRevision)
     return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
