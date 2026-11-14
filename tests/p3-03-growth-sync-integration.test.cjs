@@ -158,7 +158,7 @@ function fixture({enabled=true,lostAck=false,hiddenReceipts=0,
  const readAs=actor=>client(actor).read({
   familyId:F,actorUid:actor,kind:'growth',readEnabled:true});
  return {click,readAs,domain,queue,createQueue,client,body,queued,receipts,rpc,p2,
-  rendered,profile,reference,quotes,inventory,purchases,settings,audit,immutable,events,
+  get rendered(){return rendered;},profile,reference,quotes,inventory,purchases,settings,audit,immutable,events,
   get revision(){return revision;},get uuidCount(){return uuidCount;},
   get putCount(){return puts;},get shown(){return shown;},
   get editingId(){return editingId;},
