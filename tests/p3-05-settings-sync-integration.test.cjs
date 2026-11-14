@@ -368,14 +368,16 @@ test('P3-05 resetAll is still blocked; original localStorage handlers captured',
   removeEventListener(){},
   getElementById(){return null}
  };
- const attached=f.actions.attach(d);
+ const denied=fixture({enabled:false});
+ const attached=denied.actions.attach(d);
  let stopped=false;
  handlers.get('click')({target:el,
   preventDefault(){stopped=true;},stopImmediatePropagation(){stopped=true;}
  });
  await new Promise(done=>setImmediate(done));
  assert.equal(stopped,true);
- assert.equal(f.puts,0);
+ assert.equal(denied.puts,0);
+ assert.equal(denied.outbox.size,0);
  const source=fs.readFileSync(path.join(__dirname,
   '../sync/primary-formal-ui-actions.js'),'utf8');
  assert.match(source,/event\.preventDefault\(\);event\.stopImmediatePropagation\(\)/);
