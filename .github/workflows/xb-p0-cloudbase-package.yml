@@ -1,4 +1,4 @@
-name: XiaoBao P4-02B CloudBase READ-ONLY package
+name: XiaoBao P4-02B CloudBase READ-ONLY UI fix package
 on:
   push:
     branches:
@@ -17,7 +17,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          head='79d39a4dc718ebae0f561914afb50f139a473153'
+          head='c5293a56c5ff4a9f59e82b53da15f84c0908a28b'
           base=Path('deploy/xb-test/formal')
           html=(base/'index.html').read_text('utf-8')
           original=Path('preview/v1.2.0/formal/index.html').read_text('utf-8')
@@ -27,10 +27,10 @@ jobs:
             '<meta name="xiaobao-p4-02b-source-sha" content="'+head+'" />')
           original=original.replace(
             '<script src="../m1-controller.js" defer></script>',
-            '<script src="./m1-controller.js?v=79d39a4" defer></script>')
+            '<script src="./m1-controller.js?v=c5293a5" defer></script>')
           original=original.replace(
             '<script src="../formal-controller.js" defer></script>',
-            '<script src="./formal-controller.js?v=79d39a4" defer></script>')
+            '<script src="./formal-controller.js?v=c5293a5" defer></script>')
           assert html==original,'HTML must equal current source after exactly 3 packaging edits'
           assert (base/'m1-controller.js').read_bytes()==Path('preview/v1.2.0/m1-controller.js').read_bytes()
           assert (base/'formal-controller.js').read_bytes()==Path('preview/v1.2.0/formal-controller.js').read_bytes()
@@ -50,7 +50,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoBao-P4-02B-READONLY-79d39a4
+          name: XiaoBao-P4-02B-UI-FIX-c5293a5
           path: |
             deploy/xb-test/formal/index.html
             deploy/xb-test/formal/m1-controller.js

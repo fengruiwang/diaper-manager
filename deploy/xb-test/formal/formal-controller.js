@@ -10,6 +10,8 @@ const FORMAL_WRITE_ENABLED=false;
 const FORMAL_PURCHASE_ENABLED=false;
 const SIZES=['NB','S','M','L','XL','XXL'];
 const OTP_COOLDOWN_MS=60000;
+// readAll performs two sequential passes over five documents, each with scope checks.
+const DOCUMENT_READ_TIMEOUT_MS=60000;
 const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
 const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED','FORMAL_FAMILY_VERIFIED']);
 const notes={
@@ -94,8 +96,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
- let documentSnapshot=null,documentScope='',documentAttempt='',documentPending='';
- let documentEpoch=0;
+ let documentSnapshot=null,documentScope='',documentPending='';
+ let documentEpoch=0,documentReadSerial=0;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
  function restoreOtpCooldown(){
   try{
@@ -181,8 +183,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  function clear(){
   ui.clear();actor=null;family=null;primary=null;shownStock=null;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
-  documentSnapshot=null;documentScope='';documentAttempt='';documentPending='';
-  documentEpoch++;
+  documentSnapshot=null;documentScope='';documentPending='';
+  documentEpoch++;documentReadSerial++;
   if(attached){attached.detach();attached=null;}
   $('formalCurrentAccount').textContent='—';
   $('formalCurrentFamily').textContent='—';
@@ -204,27 +206,33 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  function optionalRead(client,ctx,scopeKey,base,epoch){
   if(!client||typeof client.readAll!=='function'
-    ||documentPending===scopeKey||documentAttempt===scopeKey)return;
-  documentPending=scopeKey;documentAttempt=scopeKey;
-  // Do not await: documents are not a prerequisite for the receipt-backed
-  // primary inventory and historical read-only UI.
+    ||documentPending===scopeKey)return;
+  documentPending=scopeKey;
+  const serial=++documentReadSerial;
+  const current=()=>serial===documentReadSerial
+   &&epoch===documentEpoch&&mode==='ready'
+   &&actor===ctx.actorUid&&family===ctx.familyId;
+  // Keep the verified primary view responsive. The full double-pass
+  // readAll runs independently and is not equivalent to five single reads.
   void bounded(()=>client.readAll({
    familyId:ctx.familyId,actorUid:ctx.actorUid
-  }),12000).then(snapshot=>{
-   if(epoch!==documentEpoch||mode!=='ready'||actor!==ctx.actorUid
-     ||family!==ctx.familyId||snapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ')
-    return;
+  }),DOCUMENT_READ_TIMEOUT_MS).then(snapshot=>{
+   if(!current())return;
+   if(snapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ')
+    throw Error('formal_entry:five_documents_incomplete');
    const merged=documentsOverlay.apply(base,snapshot);
    if(merged?.canWrite!==false||merged.sharedBusinessDocumentsVerified!==true)
-    return;
-   documentSnapshot=snapshot;documentScope=scopeKey;
+    throw Error('formal_entry:five_documents_unverified');
    ui.show(merged);
+   documentSnapshot=snapshot;documentScope=scopeKey;
    $('formalSyncState').textContent=
     '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。';
   }).catch(()=>{
-   // A failed optional read must not hide or sign out a verified primary.
+   if(current())$('formalSyncState').textContent=
+    '正式宝宝及库存已验证，但五类共享文档读取失败或超时；当前仅显示历史迁移快照，不能视为实时同步。请点击“刷新云端数据”重试；正式写入关闭。';
   }).finally(()=>{
-   if(documentPending===scopeKey)documentPending='';
+   if(serial===documentReadSerial&&documentPending===scopeKey)
+    documentPending='';
   });
  }
  async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null,
@@ -334,7 +342,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      documentsVerified=data.sharedBusinessDocumentsVerified===true;
     }else{
      // Never render stale shared documents after failed refresh.
-     documentSnapshot=null;documentScope='';documentAttempt='';
+     documentSnapshot=null;documentScope='';
     }
    }
    // An authenticated, receipt-backed primary is required for outbox setup.
@@ -605,7 +613,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    screen('ready');
    $('formalSyncState').textContent=documentsVerified?
     '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。':
-    '已验证正式宝宝、历史记录和六尺码库存。候选价、参考价、成长、资料及设置来自历史迁移快照（参考价目录为软件内置）；五类共享文档尚未全部核验，不能视为实时双端同步；正式写入关闭。';
+    documentsClient?
+    '已验证正式宝宝及库存；正在核验五类共享文档（双轮读取），当前暂显示历史迁移快照，不代表实时同步；正式写入关闭。':
+    '已验证正式宝宝及库存；共享文档读取组件不可用，当前仅显示历史迁移快照，不代表实时同步；正式写入关闭。';
    // Enrich the account label only; cannot gate UI readiness or leak across
    // actor switches. SDK continues to own all session and refresh tokens.
    void bounded(()=>ctx.app.auth.getSession(),6000).then(session=>{
