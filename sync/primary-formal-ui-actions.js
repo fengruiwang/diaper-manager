@@ -16,7 +16,7 @@
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
-  notify,formalModeSelected,onReferenceProgress=()=>{},buildAllowsWrites=false,
+  notify,formalModeSelected,onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
   documentOperatorApproved=operatorApproved,
@@ -57,6 +57,36 @@
     button.textContent=waiting?REFERENCE_STAGES[phase]:referenceButtonLabel;
    }
    if(typeof onReferenceProgress==='function')onReferenceProgress(phase,timing);
+  }
+  // P4-03E: profile/settings share P4-03D's feedback behavior, not a new queue.
+  const activeDocumentButton={profile:null,settings:null};
+  const pendingDocumentReview={profile:null,settings:null};
+  const originalLabels=new Map();
+  const DOCUMENT_STAGES=Object.freeze({
+   checking:'正在检查数据与版本…',
+   queued:'已加入本地队列，准备提交…',
+   submitting:'正在核验原请求并提交云端…',
+   readback:'云端回执已确认，正在刷新页面…',
+   pending:'待确认，请勿重复保存'
+  });
+  function documentProgress(kind,phase,timing={}){
+   const dom=attached?.doc;
+   const controls=kind==='profile'?[dom?.getElementById('saveProfile')]:
+    [dom?.getElementById('saveSizePreferences'),
+     dom?.getElementById('savePlans'),
+     ...(dom?.querySelectorAll?.('[data-preset]')||[])];
+   if(activeDocumentButton[kind]&&!controls.includes(activeDocumentButton[kind]))
+    controls.push(activeDocumentButton[kind]);
+   const waiting=Object.prototype.hasOwnProperty.call(DOCUMENT_STAGES,phase);
+   for(const el of controls){
+    if(!el)continue;
+    if(!originalLabels.has(el))originalLabels.set(el,el.textContent||'保存');
+    el.disabled=waiting;
+    el.textContent=el===activeDocumentButton[kind]&&waiting
+     ?DOCUMENT_STAGES[phase]:originalLabels.get(el);
+   }
+   onDocumentProgress(kind,phase,timing);
+   if(!waiting)activeDocumentButton[kind]=null;
   }
   const purchaseAuthorized=()=>buildAllowsWrites===true
    &&operatorApproved()===true;
@@ -383,6 +413,7 @@
     return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
    if(profileBusy)return result('BUSY');
    profileBusy=true;
+   const startedAt=Date.now();let queuedAt=startedAt,committedAt=startedAt;
    try{
     // Match the exact document revision visible in the settings editor.
     const baseline=typeof readProfileBaseline==='function'
@@ -404,6 +435,9 @@
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('PROFILE_COMMAND_UNVERIFIED');
     const requestId=saved.requestId;
+    queuedAt=Date.now();
+    documentProgress('profile','queued',{checkAndQueueMs:queuedAt-startedAt});
+    documentProgress('profile','submitting');
     let synced;
     try{synced=await documentQueue.send({operatorApproved:true});}
     catch(_){return Object.freeze({
@@ -415,6 +449,10 @@
       status:synced?.status||'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',
       requestId,cloudWriteCommitted:false
      });
+    committedAt=Date.now();
+    documentProgress('profile','readback',{
+     checkAndQueueMs:queuedAt-startedAt,receiptAndCommitMs:committedAt-queuedAt
+    });
     try{
      const visible=typeof onProfileReadback==='function'
       ?await onProfileReadback({
@@ -422,7 +460,12 @@
       }):null;
      if(visible==='ready')return Object.freeze({
       status:'PROFILE_CLOUD_READBACK_VERIFIED',
-      requestId,cloudWriteCommitted:true
+      requestId,cloudWriteCommitted:true,
+      timings:Object.freeze({
+       checkAndQueueMs:queuedAt-startedAt,
+       receiptAndCommitMs:committedAt-queuedAt,
+       readbackMs:Date.now()-committedAt
+      })
      });
     }catch(_){}
     return Object.freeze({status:'PROFILE_COMMITTED_READBACK_REQUIRED',
@@ -436,6 +479,7 @@
     return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
    if(settingsBusy)return result('BUSY');
    settingsBusy=true;
+   const startedAt=Date.now();let queuedAt=startedAt,committedAt=startedAt;
    try{
     // Bind all settings edits to the revision actually displayed in UI.
     const baseline=typeof readSettingsBaseline==='function'
@@ -457,6 +501,9 @@
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('SETTINGS_COMMAND_UNVERIFIED');
     const requestId=saved.requestId;
+    queuedAt=Date.now();
+    documentProgress('settings','queued',{checkAndQueueMs:queuedAt-startedAt});
+    documentProgress('settings','submitting');
     let synced;
     try{synced=await documentQueue.send({operatorApproved:true});}
     catch(_){return Object.freeze({
@@ -468,6 +515,10 @@
       status:synced?.status||'SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',
       requestId,cloudWriteCommitted:false
      });
+    committedAt=Date.now();
+    documentProgress('settings','readback',{
+     checkAndQueueMs:queuedAt-startedAt,receiptAndCommitMs:committedAt-queuedAt
+    });
     try{
      const visible=typeof onSettingsReadback==='function'
       ?await onSettingsReadback({
@@ -475,7 +526,12 @@
       }):null;
      if(visible==='ready')return Object.freeze({
       status:'SETTINGS_CLOUD_READBACK_VERIFIED',
-      requestId,cloudWriteCommitted:true
+      requestId,cloudWriteCommitted:true,
+      timings:Object.freeze({
+       checkAndQueueMs:queuedAt-startedAt,
+       receiptAndCommitMs:committedAt-queuedAt,
+       readbackMs:Date.now()-committedAt
+      })
      });
     }catch(_){}
     return Object.freeze({status:'SETTINGS_COMMITTED_READBACK_REQUIRED',
@@ -576,6 +632,50 @@
      notify(result('REFERENCE_OPERATION_REVIEW_REQUIRED'));
     });
   }
+  function dispatchDocumentSave(el,doc,kind){
+   if(kind!=='profile'&&kind!=='settings')return;
+   // Immediate call uses the existing per-document busy flag before its first await.
+   if(kind==='profile'?profileBusy:settingsBusy)return;
+   if(pendingDocumentReview[kind]){
+    notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
+   }
+   if(!documentsAuthorized()||!(kind==='profile'?allowProfile:allowSettings)){
+    void handle(el,doc).then(notify,
+     ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
+    return;
+   }
+   activeDocumentButton[kind]=el;
+   documentProgress(kind,'checking');
+   void handle(el,doc).then(answer=>{
+    const ok=answer?.status===(kind==='profile'
+     ?'PROFILE_CLOUD_READBACK_VERIFIED':'SETTINGS_CLOUD_READBACK_VERIFIED');
+    if(answer?.requestId&&!ok)pendingDocumentReview[kind]=answer.requestId;
+    documentProgress(kind,pendingDocumentReview[kind]?'pending':
+     ok?'success':'failed',answer?.timings||{});
+    notify(answer);
+   },()=>{
+    documentProgress(kind,'failed');
+    notify(result('FORMAL_OPERATION_REVIEW_REQUIRED'));
+   });
+  }
+  // Manual "重新核验待确认操作" is the only recovery path for
+  // ambiguous UUIDs. Require both a verified cloud read and original receipt.
+  async function recoverDocumentButtons({verified=false}={}){
+   if(verified!==true||typeof documentQueue?.checkSavedRequest!=='function')
+    return false;
+   let recovered=false;
+   for(const kind of ['profile','settings']){
+    const requestId=pendingDocumentReview[kind];
+    if(!requestId)continue;
+    let receipt=null;
+    try{receipt=await documentQueue.checkSavedRequest(requestId);}catch(_){}
+    if(receipt?.status!=='REQUEST_ACK_RECOVERED')continue;
+    pendingDocumentReview[kind]=null;
+    documentProgress(kind,'idle');
+    recovered=true;
+   }
+   return recovered;
+  }
   function attach(doc){
    if(!doc?.addEventListener||!doc?.removeEventListener
      ||typeof doc.getElementById!=='function')
@@ -600,6 +700,12 @@
       ||action==='resetref'){
      dispatchReference(el,doc);return;
     }
+    if(el.id==='saveProfile'){
+     dispatchDocumentSave(el,doc,'profile');return;
+    }
+    if(el.id==='saveSizePreferences'||el.id==='savePlans'||el.dataset?.preset){
+     dispatchDocumentSave(el,doc,'settings');return;
+    }
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
@@ -613,7 +719,9 @@
    doc.addEventListener('click',handler,true);
    doc.addEventListener('submit',formHandler,true);
    attached={doc,handler,formHandler};
-   return Object.freeze({detach(){
+   return Object.freeze({
+    hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.profile||pendingDocumentReview.settings),
+    recoverDocumentButtons,detach(){
     if(!attached)return;
     attached.doc.removeEventListener('click',attached.handler,true);
     attached.doc.removeEventListener('submit',attached.formHandler,true);

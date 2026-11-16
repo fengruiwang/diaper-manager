@@ -14,17 +14,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Verify exact source + read-only production + reference-only test gates + rollback
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib
+          import hashlib,subprocess
+          # P4-03D deployed test package remains a FROZEN snapshot: new
+          # P4-03E source changes must not silently rewrite that artifact.
+          FROZEN='d6ecd9ac803742e2962c011a18be99255fb938db'
+          def frozen(path):
+            return subprocess.check_output(['git','show',FROZEN+':'+path]).decode('utf-8')
           SHA='38af54df8b381a30598967f9b5a4061d01a456cb';V='38af54d'
           base=Path('deploy/xb-test/formal')
           def change_once(s,a,b):
             assert s.count(a)==1,(s.count(a),a[:80])
             return s.replace(a,b)
-          html=Path('preview/v1.2.0/formal/index.html').read_text('utf-8')
+          html=frozen('preview/v1.2.0/formal/index.html')
           html=change_once(html,
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />',
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />\n'
@@ -42,7 +49,7 @@ jobs:
             '<script src="../formal-controller.js" defer></script>',
             '<script src="./formal-controller.js?v='+V+'" defer></script>')
           assert html==(base/'index.html').read_text('utf-8')
-          source=Path('preview/v1.2.0/formal-controller.js').read_text('utf-8')
+          source=frozen('preview/v1.2.0/formal-controller.js')
           assert 'const FORMAL_WRITE_ENABLED=false;' in source
           assert 'const FORMAL_PURCHASE_ENABLED=false;' in source
           derived=change_once(source,'const FORMAL_WRITE_ENABLED=false;',
@@ -66,7 +73,7 @@ jobs:
           assert derived==(base/'formal-controller.js').read_text('utf-8')
           assert 'const FORMAL_WRITE_ENABLED=true;' in derived
           assert 'const FORMAL_PURCHASE_ENABLED=false;' in derived
-          assert (base/'m1-controller.js').read_bytes()==Path('preview/v1.2.0/m1-controller.js').read_bytes()
+          assert (base/'m1-controller.js').read_text('utf-8')==frozen('preview/v1.2.0/m1-controller.js')
           assert "const ENV_ID='f495637659-d2gnuzz2jf5657da8'" in (base/'m1-controller.js').read_text('utf-8')
           assert 'Object.hasOwn(' not in html
           for name in ['inventory-reconciler','primary-cloud-read-model',
@@ -74,7 +81,7 @@ jobs:
             'primary-documents-overlay','primary-documents-operations',
             'primary-documents-business-commands','primary-formal-ui-actions',
             'primary-stocktake-batch-client']:
-            assert Path('sync/'+name+'.js').read_text('utf-8').strip() in html,name
+            assert frozen('sync/'+name+'.js').strip() in html,name
           backup=Path('deploy/xb-test/p4-02b-readonly-rollback')
           expected={
             'index.html':'232f79f1d8b268af79133ffed9811d6d148e7353',

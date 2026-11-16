@@ -380,6 +380,20 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       primary:p,commands,documentCommands,documentQueue:documentsGuard,
       allowReference:true,allowQuotes:true,allowGrowth:true,allowProfile:true,
       allowSettings:true,
+      onDocumentProgress:(kind,phase,timing={})=>{
+       if(mode!=='ready'||actor!==ctx.actorUid||family!==ctx.familyId)return;
+       const what=kind==='profile'?'宝宝资料':'设置';
+       const messages={
+        checking:'正在检查'+what+'及云端版本，请勿重复点击…',
+        queued:what+'已加入本地持久队列，正在准备提交…',
+        submitting:'正在核验原请求回执并提交'+what+'，请勿重复保存…',
+        readback:what+'云端提交及回执已确认，正在重新读取页面…',
+        pending:what+'请求尚待核实，原 UUID 已保留；请使用“重新核验待确认操作”，不要重复保存。'
+       };
+       if(messages[phase])$('formalSyncState').textContent=messages[phase];
+       if(phase==='success'&&typeof host.console?.info==='function')
+        host.console.info('P4-03E '+what+'保存耗时(ms)，本次浏览器观测值',timing);
+      },
       readSettingsBaseline:()=>mode==='ready'
        &&documentSnapshot&&documentScope===actor+'\x00'+family
        ?{...documentSnapshot.documents?.settings,actorUid:actor}:null,
@@ -573,12 +587,19 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'设置回执已确认，但页面尚未核实最新值；请刷新，不要重复提交。'
          :answer?.status==='SETTINGS_FORM_INVALID'
          ?'设置未保存：请检查尺码、单片目标、备货目标和每日用量。'
+         :answer?.status==='SETTINGS_DISPLAYED_BASELINE_REQUIRED'
+         ?'设置尚无云端已验证基线，请刷新后重试；输入不应被清除。'
          :answer?.status==='PROFILE_CLOUD_READBACK_VERIFIED'
          ?'宝宝基本资料已保存并从云端核验；成长统计和页面已更新。'
          :answer?.status==='PROFILE_COMMITTED_READBACK_REQUIRED'
          ?'资料回执已确认，但页面读回尚待核验；请刷新，不要重复保存。'
          :answer?.status==='PROFILE_FORM_INVALID'
          ?'宝宝资料未保存：请检查日期、出生时分秒、体重及身长。'
+         :answer?.status==='PROFILE_DISPLAYED_BASELINE_REQUIRED'
+         ?'宝宝资料尚无云端已验证基线，请刷新后重试；输入不应被清除。'
+         :['PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID','SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',
+           'DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID'].includes(answer?.status)
+         ?'原宝宝资料或设置请求尚未确认，已保留 UUID；请核验待确认操作，不要再次保存。'
          :answer?.status==='GROWTH_CLOUD_READBACK_VERIFIED'
          ?'体重记录已保存并从云端读回，成长曲线与统计已更新。'
          :answer?.status==='GROWTH_COMMITTED_READBACK_REQUIRED'
@@ -796,12 +817,32 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      const sent=await documentsGuard.send({operatorApproved:true});
      if(sent?.status==='DOCUMENT_SYNC_CONFIRMED'){
       const next=await restore();
+      const verified=next==='ready'
+       &&documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
+       &&documentScope===actor+'\x00'+family;
+      const released=await attached?.recoverDocumentButtons?.({verified});
       $('formalSyncState').textContent=next==='ready'
-       ?'原共享文档请求已确认，云端内容已重新读取。'
+       ?released
+        ?'原资料或设置请求已确认，页面已重新读取，可以继续保存。'
+        :'原共享文档请求已确认，云端内容已重新读取。'
        :'文档回执已确认，请刷新云端数据。';
      }else $('formalSyncState').textContent=
       '共享文档待确认：'+String(sent?.status||'UNVERIFIED')
        +'；保留原 request UUID，请勿再次保存。';
+     return;
+    }
+    // A request may be already ACKed while its page readback was ambiguous.
+    // Reverify cloud and the ORIGINAL UUID before enabling another save.
+    if(docPending?.status==='DOCUMENT_QUEUE_COUNTS_VERIFIED'
+      &&docPending.outstanding===0&&attached?.hasPendingDocumentReview?.()){
+     const next=await restore();
+     const verified=next==='ready'
+      &&documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
+      &&documentScope===actor+'\x00'+family;
+     const released=await attached.recoverDocumentButtons({verified});
+     $('formalSyncState').textContent=released
+      ?'原宝宝资料或设置请求的回执已确认，页面已重新读取，可以继续保存。'
+      :'原操作还未完成回执及页面核验，保留 UUID，请勿重复保存。';
      return;
     }
    }
