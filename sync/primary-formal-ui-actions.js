@@ -40,7 +40,7 @@
    throw Error('formal_ui:dependencies_required');
   let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,profileBusy=false,settingsBusy=false,attached=null;
   // UI-only hold for a reference UUID pending authoritative readback.
-  let referenceNeedsReview=false,referenceButtonLabel='';
+  let referenceNeedsReview=null,referenceButtonLabel='';
   const REFERENCE_STAGES=Object.freeze({
    checking:'正在检查价格与版本…',
    queued:'已加入本地队列，准备提交…',
@@ -617,12 +617,24 @@
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
      return;
     }
+    // Capture the exact edit and displayed CAS baseline BEFORE any awaits.
+    // It is metadata for restoring the ORIGINAL UUID, never a new command.
+    let intent=null,baseline=null;
+    try{
+     intent=readDocumentInput?.(el,doc);
+     baseline=readReferenceBaseline?.();
+    }catch(_){}
     referenceProgress('checking');
     void handle(el,doc).then(answer=>{
-     // Once an ID exists, do not create another until the first save
-     // has a verified cloud readback. The original UUID stays in IndexedDB.
+     // A committed/ambiguous request stays locked until its own receipt
+     // and the same account's rendered reference are verified together.
      if(answer?.requestId&&answer.status!=='REFERENCE_CLOUD_READBACK_VERIFIED')
-      referenceNeedsReview=true;
+      referenceNeedsReview=Object.freeze({
+       requestId:answer.requestId,action:intent?.action,
+       record:intent?.record?Object.freeze({...intent.record}):null,
+       expectedRevision:baseline?.revision,
+       actorUid:baseline?.actorUid,familyId:baseline?.familyId
+      });
      referenceProgress(referenceNeedsReview?'pending':
       answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'?'success':'failed',
       answer?.timings||{});
@@ -631,6 +643,34 @@
      referenceProgress('failed');
      notify(result('REFERENCE_OPERATION_REVIEW_REQUIRED'));
     });
+  }
+  async function recoverReferenceButton({displayedReference=null}={}){
+   const pending=referenceNeedsReview;
+   if(!pending||referenceBusy||!displayedReference
+     ||displayedReference.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+     ||displayedReference.kind!=='reference'
+     ||displayedReference.actorUid!==pending.actorUid
+     ||displayedReference.familyId!==pending.familyId
+     ||!Number.isSafeInteger(displayedReference.revision)
+     ||!Number.isSafeInteger(pending.expectedRevision)
+     ||displayedReference.revision<=pending.expectedRevision
+     ||typeof pending.record?.key!=='string'
+     ||!displayedReference.body?.referenceOverrides
+     ||typeof documentQueue?.checkSavedRequest!=='function')return false;
+   const values=displayedReference.body.referenceOverrides;
+   const match=pending.action==='reset'
+    ?!Object.prototype.hasOwnProperty.call(values,pending.record.key)
+    :pending.action==='set'
+     &&values[pending.record.key]===pending.record.value;
+   if(!match)return false;
+   let receipt=null;
+   try{receipt=await documentQueue.checkSavedRequest(pending.requestId);}catch(_){}
+   if(receipt?.status!=='REQUEST_ACK_RECOVERED'
+     ||receipt.requestId!==undefined&&receipt.requestId!==pending.requestId
+     ||referenceNeedsReview!==pending)return false;
+   referenceNeedsReview=null;
+   referenceProgress('idle');
+   return true;
   }
   function dispatchDocumentSave(el,doc,kind){
    if(kind!=='profile'&&kind!=='settings')return;
@@ -720,6 +760,8 @@
    doc.addEventListener('submit',formHandler,true);
    attached={doc,handler,formHandler};
    return Object.freeze({
+    hasPendingReferenceReview:()=>Boolean(referenceNeedsReview),
+    recoverReferenceButton,
     hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.profile||pendingDocumentReview.settings),
     recoverDocumentButtons,detach(){
     if(!attached)return;

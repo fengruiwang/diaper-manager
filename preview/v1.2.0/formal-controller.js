@@ -40,6 +40,22 @@ function quoteChangeVisible(document,expected){
  return (action==='add'||action==='edit')&&current
    &&Object.entries(record).every(([key,value])=>current[key]===value);
 }
+// A reference write is visible only after the fully verified five-document
+// overlay was rendered, never merely because the formal page is "ready".
+function referenceChangeVisible(document,expected){
+ if(!expected||document?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+   ||document.kind!=='reference'
+   ||document.familyId!==expected.familyId
+   ||document.actorUid!==expected.actorUid
+   ||!Number.isSafeInteger(document.revision)
+   ||document.revision<=expected.expectedRevision
+   ||!document.body?.referenceOverrides
+   ||typeof expected.record?.key!=='string')return false;
+ const overrides=document.body.referenceOverrides,key=expected.record.key;
+ if(expected.action==='reset')
+  return !Object.prototype.hasOwnProperty.call(overrides,key);
+ return expected.action==='set'&&overrides[key]===expected.record.value;
+}
 function growthChangeVisible(document,expected){
  if(!expected||!Array.isArray(document?.body?.items)
    ||!Number.isSafeInteger(document.revision)
@@ -96,7 +112,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
- let documentSnapshot=null,documentScope='',documentPending='';
+ let documentSnapshot=null,documentScope='',documentPending='',renderedReference=null;
  let documentEpoch=0,documentReadSerial=0;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
  function restoreOtpCooldown(){
@@ -183,7 +199,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  function clear(){
   ui.clear();actor=null;family=null;primary=null;shownStock=null;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
-  documentSnapshot=null;documentScope='';documentPending='';
+  documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
   documentEpoch++;documentReadSerial++;
   if(attached){attached.detach();attached=null;}
   $('formalCurrentAccount').textContent='—';
@@ -204,6 +220,25 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   try{return await Promise.race([Promise.resolve().then(task),expire]);}
   finally{(host.clearTimeout||clearTimeout)(timer);}
  }
+ function showCloudView(data,ctx){
+  ui.show(data);
+  // A verified RPC response alone is not proof that the UI rendered it.
+  const scope=data?.cloudDocumentsActorScope;
+  renderedReference=data?.sharedBusinessDocumentsVerified===true
+   &&scope?.familyId===ctx.familyId
+   &&scope?.childId===data.childId
+   &&data.actorUid===ctx.actorUid
+   &&Number.isSafeInteger(data.documentRevisions?.reference)
+   &&data.state?.referenceOverrides
+   ?Object.freeze({
+     status:'PRIMARY_DOCUMENT_READ_VERIFIED',kind:'reference',
+     familyId:ctx.familyId,actorUid:ctx.actorUid,childId:scope.childId,
+     revision:data.documentRevisions.reference,
+     body:Object.freeze({referenceOverrides:Object.freeze({
+      ...data.state.referenceOverrides
+     })})
+    }):null;
+ }
  function optionalRead(client,ctx,scopeKey,base,epoch){
   if(!client||typeof client.readAll!=='function'
     ||documentPending===scopeKey)return;
@@ -223,7 +258,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const merged=documentsOverlay.apply(base,snapshot);
    if(merged?.canWrite!==false||merged.sharedBusinessDocumentsVerified!==true)
     throw Error('formal_entry:five_documents_unverified');
-   ui.show(merged);
+   showCloudView(merged,ctx);
    documentSnapshot=snapshot;documentScope=scopeKey;
    $('formalSyncState').textContent=
     '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。';
@@ -238,12 +273,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null,
   expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null,
   expectedBatch=null,expectedQuotes=null,expectedGrowth=null,
-  expectedProfile=null,expectedSettings=null}={}){
+  expectedProfile=null,expectedSettings=null,expectedReference=null}={}){
   if(busy)return expectedBatch!==null?'BATCH_READBACK_PENDING':
    expectedQuotes!==null?'QUOTES_READBACK_PENDING':
    expectedGrowth!==null?'GROWTH_READBACK_PENDING':
    expectedProfile!==null?'PROFILE_READBACK_PENDING':
-   expectedSettings!==null?'SETTINGS_READBACK_PENDING':mode;
+   expectedSettings!==null?'SETTINGS_READBACK_PENDING':
+   expectedReference!==null?'REFERENCE_READBACK_PENDING':mode;
   busy=true;const token=++revision;
   // Retain the verified same-account view during visibility/online rechecks.
   // A real identity, permission or primary failure still clears it below.
@@ -541,7 +577,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          documents:Object.freeze({...documentSnapshot.documents,
           reference:fresh})});
        }
-       return await restore()==='ready'?'ready':'pending';
+       const expected={requestId,record,action,expectedRevision,
+        actorUid:current.actorUid,familyId:current.familyId};
+       return await restore({expectedReference:expected})==='ready'
+        &&referenceChangeVisible(renderedReference,expected)?'ready':'pending';
       },
       batchStocktake:batchGuard,
       createBatchId:()=>host.crypto.randomUUID(),
@@ -654,7 +693,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     }
    }
    // Do not wait for an additional getSession() call after showing UI.
-   ui.show(data);
+   showCloudView(data,ctx);
    shownStock=Object.freeze({
     inventory:Object.freeze({...verified.inventory}),
     revisions:Object.freeze({...verified.revisions})
@@ -692,6 +731,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const quotesAppear=expectedQuotes===null||
     (documentsVerified&&quoteChangeVisible(
      documentSnapshot?.documents?.quotes,expectedQuotes));
+   const referenceAppears=expectedReference===null||
+    (documentsVerified&&referenceChangeVisible(renderedReference,expectedReference));
    return !purchaseAppears?'PRIMARY_PURCHASE_READBACK_PENDING':
     !useAppears?'PRIMARY_USE_READBACK_PENDING':
     !reversedAppears?'PRIMARY_REVERSE_READBACK_PENDING':
@@ -700,7 +741,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     !quotesAppear?'QUOTES_READBACK_PENDING':
     !growthAppears?'GROWTH_READBACK_PENDING':
     !profileAppears?'PROFILE_READBACK_PENDING':
-    !settingsAppear?'SETTINGS_READBACK_PENDING':mode;
+    !settingsAppear?'SETTINGS_READBACK_PENDING':
+    !referenceAppears?'REFERENCE_READBACK_PENDING':mode;
   }catch(_){
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
@@ -820,11 +862,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       const verified=next==='ready'
        &&documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
        &&documentScope===actor+'\x00'+family;
-      const released=await attached?.recoverDocumentButtons?.({verified});
+      const releasedRef=verified
+       &&await attached?.recoverReferenceButton?.({displayedReference:renderedReference});
+      const releasedDocs=await attached?.recoverDocumentButtons?.({verified});
       $('formalSyncState').textContent=next==='ready'
-       ?released
-        ?'原资料或设置请求已确认，页面已重新读取，可以继续保存。'
-        :'原共享文档请求已确认，云端内容已重新读取。'
+       ?releasedRef
+        ?'原参考价 UUID 回执与实际页面价格均已确认，可以继续保存。'
+        :releasedDocs
+         ?'原资料或设置请求已确认，页面已重新读取，可以继续保存。'
+         :'原共享文档请求已确认，但未确认参考价显示时仍不可重复保存。'
        :'文档回执已确认，请刷新云端数据。';
      }else $('formalSyncState').textContent=
       '共享文档待确认：'+String(sent?.status||'UNVERIFIED')
@@ -834,15 +880,21 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     // A request may be already ACKed while its page readback was ambiguous.
     // Reverify cloud and the ORIGINAL UUID before enabling another save.
     if(docPending?.status==='DOCUMENT_QUEUE_COUNTS_VERIFIED'
-      &&docPending.outstanding===0&&attached?.hasPendingDocumentReview?.()){
+      &&docPending.outstanding===0
+      &&(attached?.hasPendingDocumentReview?.()
+       ||attached?.hasPendingReferenceReview?.())){
      const next=await restore();
      const verified=next==='ready'
       &&documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
       &&documentScope===actor+'\x00'+family;
-     const released=await attached.recoverDocumentButtons({verified});
-     $('formalSyncState').textContent=released
-      ?'原宝宝资料或设置请求的回执已确认，页面已重新读取，可以继续保存。'
-      :'原操作还未完成回执及页面核验，保留 UUID，请勿重复保存。';
+     const releasedRef=verified
+      &&await attached.recoverReferenceButton?.({displayedReference:renderedReference});
+     const releasedDocs=await attached.recoverDocumentButtons({verified});
+     $('formalSyncState').textContent=releasedRef
+      ?'原参考价 UUID 回执与实际显示价格均已核验，可以继续保存。'
+      :releasedDocs
+       ?'原宝宝资料或设置请求的回执已确认，页面已重新读取，可以继续保存。'
+       :'原操作还未完成回执及实际页面核验，保留 UUID，请勿重复保存。';
      return;
     }
    }
