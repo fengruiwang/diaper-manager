@@ -16,7 +16,7 @@
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
-  notify,formalModeSelected,buildAllowsWrites=false,
+  notify,formalModeSelected,onReferenceProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
   documentOperatorApproved=operatorApproved,
@@ -39,6 +39,25 @@
     ||typeof documentOperatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
   let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,profileBusy=false,settingsBusy=false,attached=null;
+  // UI-only hold for a reference UUID pending authoritative readback.
+  let referenceNeedsReview=false,referenceButtonLabel='';
+  const REFERENCE_STAGES=Object.freeze({
+   checking:'正在检查价格与版本…',
+   queued:'已加入本地队列，准备提交…',
+   submitting:'正在核验原请求并提交云端…',
+   readback:'云端回执已确认，正在刷新页面…',
+   pending:'待确认，请勿重复保存'
+  });
+  function referenceProgress(phase,timing={}){
+   const button=attached?.doc.getElementById('saveEditedReference');
+   if(button){
+    if(!referenceButtonLabel)referenceButtonLabel=button.textContent||'保存新价格';
+    const waiting=Object.prototype.hasOwnProperty.call(REFERENCE_STAGES,phase);
+    button.disabled=waiting;
+    button.textContent=waiting?REFERENCE_STAGES[phase]:referenceButtonLabel;
+   }
+   if(typeof onReferenceProgress==='function')onReferenceProgress(phase,timing);
+  }
   const purchaseAuthorized=()=>buildAllowsWrites===true
    &&operatorApproved()===true;
   const documentsAuthorized=()=>buildAllowsDocumentWrites===true
@@ -176,6 +195,7 @@
     return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
    if(referenceBusy)return result('BUSY');
    referenceBusy=true;
+   const t0=Date.now();let queuedAt=t0,committedAt=t0;
    try{
     // A change must be tied to the reference document actually rendered
     // on this account. Never silently use a newly advanced revision.
@@ -197,6 +217,9 @@
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('REFERENCE_COMMAND_UNVERIFIED');
     const requestId=saved.requestId;
+    queuedAt=Date.now();
+    referenceProgress('queued',{checkAndQueueMs:queuedAt-t0});
+    referenceProgress('submitting');
     let sync;
     try{sync=await documentQueue.send({operatorApproved:true});}
     catch(_){return Object.freeze({
@@ -206,6 +229,10 @@
      return Object.freeze({status:sync?.status||
        'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',
       requestId,cloudWriteCommitted:false});
+    committedAt=Date.now();
+    referenceProgress('readback',{
+     checkAndQueueMs:queuedAt-t0,receiptAndCommitMs:committedAt-queuedAt
+    });
     try{
      const visible=typeof onReferenceReadback==='function'
       ?await onReferenceReadback({requestId,
@@ -213,7 +240,12 @@
        expectedRevision:baseline.revision}):null;
      if(visible==='ready')return Object.freeze({
       status:'REFERENCE_CLOUD_READBACK_VERIFIED',
-      requestId,cloudWriteCommitted:true
+      requestId,cloudWriteCommitted:true,
+      timings:Object.freeze({
+       checkAndQueueMs:queuedAt-t0,
+       receiptAndCommitMs:committedAt-queuedAt,
+       readbackMs:Date.now()-committedAt
+      })
      });
     }catch(_){}
     return Object.freeze({status:'REFERENCE_COMMITTED_READBACK_REQUIRED',
@@ -517,6 +549,33 @@
    }
    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
   }
+  function dispatchReference(el,doc){
+    // Run synchronously from both capture handlers. invokeReference sets
+    // referenceBusy before its first await: click + submit cannot race IDs.
+    if(referenceBusy)return;
+    if(referenceNeedsReview){
+     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
+    }
+    if(!documentsAuthorized()||allowReference!==true){
+     void handle(el,doc).then(notify,
+      ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
+     return;
+    }
+    referenceProgress('checking');
+    void handle(el,doc).then(answer=>{
+     // Once an ID exists, do not create another until the first save
+     // has a verified cloud readback. The original UUID stays in IndexedDB.
+     if(answer?.requestId&&answer.status!=='REFERENCE_CLOUD_READBACK_VERIFIED')
+      referenceNeedsReview=true;
+     referenceProgress(referenceNeedsReview?'pending':
+      answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'?'success':'failed',
+      answer?.timings||{});
+     notify(answer);
+    },()=>{
+     referenceProgress('failed');
+     notify(result('REFERENCE_OPERATION_REVIEW_REQUIRED'));
+    });
+  }
   function attach(doc){
    if(!doc?.addEventListener||!doc?.removeEventListener
      ||typeof doc.getElementById!=='function')
@@ -537,6 +596,10 @@
     // Any unrecognized business button is also blocked: it must not fall
     // through to the old localStorage-only V1.1.2 handler by accident.
     event.preventDefault();event.stopImmediatePropagation();
+    if(el.id==='saveEditedReference'||el.id==='restoreDefaultReference'
+      ||action==='resetref'){
+     dispatchReference(el,doc);return;
+    }
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
@@ -545,8 +608,7 @@
     event.preventDefault();event.stopImmediatePropagation();
     if(event.target?.id!=='priceEditForm')return;
     const el={id:'saveEditedReference',dataset:{}};
-    Promise.resolve().then(()=>handle(el,doc)).then(notify,
-      ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
+    dispatchReference(el,doc);
    };
    doc.addEventListener('click',handler,true);
    doc.addEventListener('submit',formHandler,true);

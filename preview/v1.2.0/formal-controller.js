@@ -487,6 +487,19 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        }
        return 'pending';
       },
+      onReferenceProgress:(phase,timing={})=>{
+       if(mode!=='ready'||actor!==ctx.actorUid||family!==ctx.familyId)return;
+       const messages={
+        checking:'正在检查参考价和云端版本，请勿重复点击…',
+        queued:'参考价已加入本地持久队列，正在准备云端提交…',
+        submitting:'正在核验原请求回执并提交参考价，请勿重复保存…',
+        readback:'云端提交及回执已确认，正在重新读取参考价…',
+        pending:'这笔参考价请求尚待核实，请使用“重新核验待确认操作”，不要重复保存。'
+       };
+       if(messages[phase])$('formalSyncState').textContent=messages[phase];
+       if(phase==='success'&&typeof host.console?.info==='function')
+        host.console.info('P4-03D 参考价保存耗时(ms)，本次浏览器观测值',timing);
+      },
       readReferenceBaseline:()=>mode==='ready'
        &&documentSnapshot&&documentScope===actor+'\x00'+family
        ?{...documentSnapshot.documents?.reference,
@@ -553,7 +566,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          :answer?.status==='PRIMARY_STOCK_REVISION_CONFLICT'
          ?'库存版本已更新，请刷新后重新盘点；未覆盖另一设备的库存。'
          :answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'
-         ?'自定义参考价已同步至云端，页面已刷新；家庭账号可读取同一价格。'
+         ?'参考价保存成功：云端回执及实际页面读回均已核验，家庭账号刷新后可看到新值。'
          :answer?.status==='SETTINGS_CLOUD_READBACK_VERIFIED'
          ?'设置已保存并从云端重新读取；首页及补货计划已更新。'
          :answer?.status==='SETTINGS_COMMITTED_READBACK_REQUIRED'
@@ -585,7 +598,17 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          :answer?.status==='QUOTE_FIELDS_READY_TO_EDIT'
          ?'已载入候选价，请修改后点击“保存本次修改”。'
          :answer?.status==='REFERENCE_COMMITTED_READBACK_REQUIRED'
-         ?'参考价回执已确认，但页面尚待重新读取；请刷新，不要重复保存。'
+         ?'参考价已经提交且回执确认，页面读回尚待核验；请勿再次保存，请刷新核实。'
+         :answer?.status==='REFERENCE_FORM_INVALID'
+         ?'参考价未保存：请检查价格输入与当前品牌、系列和尺码。'
+         :answer?.status==='DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW'
+         ?'参考价版本冲突，原请求已保留；请先核验冲突，不要重复提交。'
+         :['DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',
+           'DOCUMENT_SYNC_UNKNOWN_QUEUE_PRESERVED',
+           'DOCUMENT_RECEIPT_READBACK_REQUIRED_KEEP_ID',
+           'DOCUMENT_ACK_NOT_VERIFIED',
+           'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID'].includes(answer?.status)
+         ?'参考价请求回执尚待确认，原 UUID 已保留，请使用待确认操作核验，不要重复保存。'
          :answer?.status==='DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED'
          ?'共享文档已有其他设备更新，请刷新后重新编辑；未覆盖新数据。'
          :answer?.status==='DOCUMENT_PENDING_REVIEW_REQUIRED'
