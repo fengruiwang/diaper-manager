@@ -308,7 +308,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      '正式云端数据尚未核实；不显示演示数据。');
     return mode;
    }
-   const scopeKey=ctx.actorUid+'\\x00'+ctx.familyId;
+   const scopeKey=ctx.actorUid+'\x00'+ctx.familyId;
    const identityEpoch=documentEpoch;
    let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
