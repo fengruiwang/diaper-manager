@@ -1,10 +1,11 @@
-name: XiaoBao P4-02B CloudBase READ-ONLY UI fix package
+name: XiaoBao P4-03B REFONLY test bundle (PRE-APPROVAL)
 on:
   push:
     branches:
       - feature/cloudbase-sync-v1.2.0
     paths:
       - 'deploy/xb-test/formal/**'
+      - 'deploy/xb-test/p4-02b-readonly-rollback/**'
       - '.github/workflows/xb-p0-cloudbase-package.yml'
 permissions:
   contents: read
@@ -13,48 +14,97 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify exact Feature source parity, flat path and read-only gates
+      - name: Verify exact source + read-only production + reference-only test gates + rollback
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          head='c5293a56c5ff4a9f59e82b53da15f84c0908a28b'
+          import hashlib
+          SHA='18813363df77cde76a83929cc2ef55df7f97dda7';V='1881336'
           base=Path('deploy/xb-test/formal')
-          html=(base/'index.html').read_text('utf-8')
-          original=Path('preview/v1.2.0/formal/index.html').read_text('utf-8')
-          original=original.replace(
+          def change_once(s,a,b):
+            assert s.count(a)==1,(s.count(a),a[:80])
+            return s.replace(a,b)
+          html=Path('preview/v1.2.0/formal/index.html').read_text('utf-8')
+          html=change_once(html,
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />',
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />\n'
-            '<meta name="xiaobao-p4-02b-source-sha" content="'+head+'" />')
-          original=original.replace(
+            '<meta name="xiaobao-p4-03b-source-sha" content="'+SHA+'" />')
+          html=change_once(html,
+            '<strong>小宝管家 V1.2.0 · 正式业务测试入口</strong>',
+            '<strong>小宝管家 V1.2.0 · 参考价写入验收包（仅供单独批准后测试）</strong>')
+          html=change_once(html,
+            '<div id="formalSyncState" class="fine">等待正式 primary；目前不允许真实云端业务写入。</div>',
+            '<div id="formalSyncState" class="fine">等待正式 primary；仅供获批准后测试一项真实参考价，其余云端写入均关闭。</div>')
+          html=change_once(html,
             '<script src="../m1-controller.js" defer></script>',
-            '<script src="./m1-controller.js?v=c5293a5" defer></script>')
-          original=original.replace(
+            '<script src="./m1-controller.js?v='+V+'" defer></script>')
+          html=change_once(html,
             '<script src="../formal-controller.js" defer></script>',
-            '<script src="./formal-controller.js?v=c5293a5" defer></script>')
-          assert html==original,'HTML must equal current source after exactly 3 packaging edits'
+            '<script src="./formal-controller.js?v='+V+'" defer></script>')
+          assert html==(base/'index.html').read_text('utf-8')
+          source=Path('preview/v1.2.0/formal-controller.js').read_text('utf-8')
+          assert 'const FORMAL_WRITE_ENABLED=false;' in source
+          assert 'const FORMAL_PURCHASE_ENABLED=false;' in source
+          derived=change_once(source,'const FORMAL_WRITE_ENABLED=false;',
+            'const FORMAL_WRITE_ENABLED=true;')
+          derived=change_once(derived,
+            '    referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true',
+            '    referenceOnly:true,referenceAndQuotes:false,allowGrowth:false,allowProfile:false,allowSettings:false')
+          derived=change_once(derived,
+            '      allowReference:true,allowQuotes:true,allowGrowth:true,allowProfile:true,\n      allowSettings:true,',
+            '      allowReference:true,allowQuotes:false,allowGrowth:false,allowProfile:false,\n      allowSettings:false,')
+          derived=change_once(derived,
+            '      purchaseOnly:true,allowConsume:true,allowReverse:true,\n      allowStocktake:true,readStocktakeBaseline:',
+            '      purchaseOnly:true,allowConsume:false,allowReverse:false,\n      allowStocktake:false,readStocktakeBaseline:')
+          derived=change_once(derived,
+            '   purchaseOnly:true,allowConsume:true,allowReverse:true,\n    allowStocktake:true\n',
+            '   purchaseOnly:true,allowConsume:false,allowReverse:false,\n    allowStocktake:false\n')
+          old='正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。'
+          assert derived.count(old)==2
+          derived=derived.replace(old,
+            '正式宝宝及五类共享文档已验证；仅参考价写入验收可用，其他业务写入关闭。')
+          assert derived==(base/'formal-controller.js').read_text('utf-8')
+          assert 'const FORMAL_WRITE_ENABLED=true;' in derived
+          assert 'const FORMAL_PURCHASE_ENABLED=false;' in derived
           assert (base/'m1-controller.js').read_bytes()==Path('preview/v1.2.0/m1-controller.js').read_bytes()
-          assert (base/'formal-controller.js').read_bytes()==Path('preview/v1.2.0/formal-controller.js').read_bytes()
-          assert 'const FORMAL_WRITE_ENABLED=false' in (base/'formal-controller.js').read_text('utf-8')
-          assert 'const FORMAL_PURCHASE_ENABLED=false' in (base/'formal-controller.js').read_text('utf-8')
           assert "const ENV_ID='f495637659-d2gnuzz2jf5657da8'" in (base/'m1-controller.js').read_text('utf-8')
           assert 'Object.hasOwn(' not in html
           for name in ['inventory-reconciler','primary-cloud-read-model',
-                       'primary-ui-projection','primary-cloud-operations',
-                       'primary-documents-client','primary-documents-overlay',
-                       'primary-documents-operations',
-                       'primary-documents-business-commands',
-                       'primary-formal-ui-actions','primary-stocktake-batch-client']:
-            source=Path('sync/'+name+'.js').read_text('utf-8').strip()
-            assert source in html,name+' inline version mismatch'
-          print('P4_02B_SOURCE_PARITY_READONLY_PACKAGE_PASS')
+            'primary-ui-projection','primary-cloud-operations','primary-documents-client',
+            'primary-documents-overlay','primary-documents-operations',
+            'primary-documents-business-commands','primary-formal-ui-actions',
+            'primary-stocktake-batch-client']:
+            assert Path('sync/'+name+'.js').read_text('utf-8').strip() in html,name
+          backup=Path('deploy/xb-test/p4-02b-readonly-rollback')
+          expected={
+            'index.html':'232f79f1d8b268af79133ffed9811d6d148e7353',
+            'formal-controller.js':'772ed34d9f5d00b663d99cf22cea7bc758269f73',
+            'm1-controller.js':'542d0a9a1b01b4ec44fde4a26b873835f66d0043'
+          }
+          for file,blob_sha in expected.items():
+            data=(backup/file).read_bytes()
+            digest=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+            assert digest==blob_sha,(file,digest)
+          assert 'const FORMAL_WRITE_ENABLED=false;' in (backup/'formal-controller.js').read_text('utf-8')
+          assert 'const FORMAL_PURCHASE_ENABLED=false;' in (backup/'formal-controller.js').read_text('utf-8')
+          print('P4_03B_REFERENCE_ONLY_TEST_PACKAGE_AND_READONLY_ROLLBACK_PASS')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoBao-P4-02B-UI-FIX-c5293a5
+          name: XiaoBao-P4-03B-REFONLY-1881336
           path: |
             deploy/xb-test/formal/index.html
             deploy/xb-test/formal/m1-controller.js
             deploy/xb-test/formal/formal-controller.js
             deploy/xb-test/formal/README_UPLOAD.txt
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-P4-02B-READONLY-ROLLBACK
+          path: |
+            deploy/xb-test/p4-02b-readonly-rollback/index.html
+            deploy/xb-test/p4-02b-readonly-rollback/m1-controller.js
+            deploy/xb-test/p4-02b-readonly-rollback/formal-controller.js
           if-no-files-found: error
           retention-days: 30

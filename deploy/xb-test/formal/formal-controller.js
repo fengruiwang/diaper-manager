@@ -5,7 +5,7 @@
  */
 (function(root){
 'use strict';
-const FORMAL_WRITE_ENABLED=false;
+const FORMAL_WRITE_ENABLED=true;
 // Purchase release is prepared but OFF until separate operator authorization.
 const FORMAL_PURCHASE_ENABLED=false;
 const SIZES=['NB','S','M','L','XL','XXL'];
@@ -226,7 +226,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    ui.show(merged);
    documentSnapshot=snapshot;documentScope=scopeKey;
    $('formalSyncState').textContent=
-    '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。';
+    '正式宝宝及五类共享文档已验证；仅参考价写入验收可用，其他业务写入关闭。';
   }).catch(()=>{
    if(current())$('formalSyncState').textContent=
     '正式宝宝及库存已验证，但五类共享文档读取失败或超时；当前仅显示历史迁移快照，不能视为实时同步。请点击“刷新云端数据”重试；正式写入关闭。';
@@ -308,7 +308,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      '正式云端数据尚未核实；不显示演示数据。');
     return mode;
    }
-   const scopeKey=ctx.actorUid+'\\x00'+ctx.familyId;
+   const scopeKey=ctx.actorUid+'\x00'+ctx.familyId;
    const identityEpoch=documentEpoch;
    let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
@@ -378,8 +378,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      }
      attached=actionsFactory.create({
       primary:p,commands,documentCommands,documentQueue:documentsGuard,
-      allowReference:true,allowQuotes:true,allowGrowth:true,allowProfile:true,
-      allowSettings:true,
+      allowReference:true,allowQuotes:false,allowGrowth:false,allowProfile:false,
+      allowSettings:false,
       readSettingsBaseline:()=>mode==='ready'
        &&documentSnapshot&&documentScope===actor+'\x00'+family
        ?{...documentSnapshot.documents?.settings,actorUid:actor}:null,
@@ -526,8 +526,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        &&purchaseOperatorApproved()===true,
       buildAllowsDocumentWrites:documentWritesEnabled===true,
       documentOperatorApproved:()=>documentWritesEnabled===true,
-      purchaseOnly:true,allowConsume:true,allowReverse:true,
-      allowStocktake:true,readStocktakeBaseline:()=>mode==='ready'?shownStock:null,
+      purchaseOnly:true,allowConsume:false,allowReverse:false,
+      allowStocktake:false,readStocktakeBaseline:()=>mode==='ready'?shownStock:null,
       onPurchaseReadback:({operationId,kind,reversesOperationId,
        size,count,expectedRevision})=>restore({
        expectedPurchaseId:kind==='buy'?operationId:null,
@@ -612,7 +612,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    $('formalCurrentFamily').textContent=ctx.familyId;
    screen('ready');
    $('formalSyncState').textContent=documentsVerified?
-    '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。':
+    '正式宝宝及五类共享文档已验证；仅参考价写入验收可用，其他业务写入关闭。':
     documentsClient?
     '已验证正式宝宝及库存；正在核验五类共享文档（双轮读取），当前暂显示历史迁移快照，不代表实时同步；正式写入关闭。':
     '已验证正式宝宝及库存；共享文档读取组件不可用，当前仅显示历史迁移快照，不代表实时同步；正式写入关闭。';
@@ -854,7 +854,7 @@ function browserStart(){
     outboxFactory:root.XBDurableOutbox,
     contract:root.XBOutboxContract,
     cloudWritesEnabled:FORMAL_WRITE_ENABLED,
-    referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true
+    referenceOnly:true,referenceAndQuotes:false,allowGrowth:false,allowProfile:false,allowSettings:false
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,
   batchStocktakeFactory:({controller,host,primary})=>
@@ -885,8 +885,8 @@ function browserStart(){
    runnerFactory:root.XBInventoryOutboxRunner,
    syncFactory:root.XBInventorySyncReader,
    cloudWritesEnabled:cloudWritesEnabled===true,
-   purchaseOnly:true,allowConsume:true,allowReverse:true,
-    allowStocktake:true
+   purchaseOnly:true,allowConsume:false,allowReverse:false,
+    allowStocktake:false
   }),
   commandsFactory:root.XBPrimaryBusinessCommands,
   actionsFactory:root.XBPrimaryFormalUIActions
