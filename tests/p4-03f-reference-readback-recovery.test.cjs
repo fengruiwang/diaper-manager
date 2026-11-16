@@ -104,7 +104,8 @@ function fixture({ambiguous=false}={}){
  };
  const app=Formal.create({
   host,doc,loginController:login,documentWritesEnabled:true,
-  primaryFactory:()=>({activate:async()=>({status:'PRIMARY_OUTBOX_READ_ONLY_READY'}),
+  primaryFactory:()=>({read:async()=>({status:'PRIMARY_CLOUD_READ_VERIFIED'}),
+   activate:async()=>({status:'PRIMARY_OUTBOX_READ_ONLY_READY'}),
    pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',outstanding:0})}),
   commandsFactory:{create:()=>({submit:async()=>({status:'DENIED'})})},
   readModelFactory:()=>({read:async()=>({status:'PRIMARY_READ_ONLY_READY',canWrite:false})}),
