@@ -1,6 +1,6 @@
 小宝管家 V1.2.0｜P4-03D 参考价保存即时反馈测试包（仅供审核，禁止直接上传）
-源码基线 SHA：788f1e8bbfb3cdc6a54c8448e722987a800f5c6e
-最新 Feature 打包提交见 GitHub Actions。脚本版本：788f1e8
+源码基线 SHA：38af54df8b381a30598967f9b5a4061d01a456cb
+最新 Feature 打包提交见 GitHub Actions。脚本版本：38af54d
 
 本轮仅准备代码/测试包，未执行 CloudBase GRANT、REVOKE、PUT，也未上传腾讯云。
 真实 P4-03C 参考价已恢复默认，revision 已为 3；数据库 document_put_allowed=false。
@@ -16,10 +16,10 @@ SQL 026 文档 PUT 共用五类，不会因前端 referenceOnly 限制而自动�
 README 不需要上传。只有用户和独立审核明确批准后才可三文件覆盖原
 腾讯云 /xb-test/formal/。不要把不同版本的 index.html/JS 混用。
 
-获批部署后访问 /xb-test/formal/?p4=788f1e8，
+获批部署后访问 /xb-test/formal/?p4=38af54d，
 浏览器 F12 / Network 勾选 Disable cache，Ctrl+Shift+R 强制刷新。
 确认两个 JS 均 HTTP 200。meta[name="xiaobao-p4-03d-source-sha"]
-应为 788f1e8bbfb3cdc6a54c8448e722987a800f5c6e。
+应为 38af54df8b381a30598967f9b5a4061d01a456cb。
 此次关注：点保存后立即显示「正在检查价格与版本」，按钮被禁用；
 保存中可看见「本地持久队列」「回执/云端提交」「云端读回」阶段提示；
 只有保存结果 REFERENCE_CLOUD_READBACK_VERIFIED 才显示成功；

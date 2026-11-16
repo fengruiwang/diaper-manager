@@ -601,13 +601,19 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'参考价已经提交且回执确认，页面读回尚待核验；请勿再次保存，请刷新核实。'
          :answer?.status==='REFERENCE_FORM_INVALID'
          ?'参考价未保存：请检查价格输入与当前品牌、系列和尺码。'
+         :answer?.status==='REFERENCE_DISPLAYED_BASELINE_REQUIRED'
+         ?'参考价尚无已验证云端显示基线，请刷新页面，待共享文档读取完成后重试。'
+         :['REFERENCE_OPERATION_REVIEW_REQUIRED','DOCUMENT_COMMAND_REJECTED'].includes(answer?.status)
+         ?'参考价保存结果未核实，输入已保留；请检查网络和待确认操作，暂勿重复保存。'
          :answer?.status==='DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW'
          ?'参考价版本冲突，原请求已保留；请先核验冲突，不要重复提交。'
          :['DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',
            'DOCUMENT_SYNC_UNKNOWN_QUEUE_PRESERVED',
            'DOCUMENT_RECEIPT_READBACK_REQUIRED_KEEP_ID',
            'DOCUMENT_ACK_NOT_VERIFIED',
-           'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID'].includes(answer?.status)
+           'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',
+           'DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID',
+           'DOCUMENT_RECEIPT_CONFLICT_KEEP_ID'].includes(answer?.status)
          ?'参考价请求回执尚待确认，原 UUID 已保留，请使用待确认操作核验，不要重复保存。'
          :answer?.status==='DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED'
          ?'共享文档已有其他设备更新，请刷新后重新编辑；未覆盖新数据。'
@@ -618,8 +624,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
           'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
          ?'云端采购、消耗或撤销已确认，正式库存及记录已重新读取。'
          :'云端操作状态：'+String(answer?.status||'UNVERIFIED')
-          +(purchaseReleaseEnabled===true?'；请核查原操作 ID。':
-           '；正式写入尚未授权。');
+          +(documentWritesEnabled===true
+           ?'；请核验原参考价请求状态，未确认前不要重复保存。'
+           :purchaseReleaseEnabled===true
+            ?'；请核查原操作 ID。':'；正式写入尚未授权。');
       }
      }).attach(doc);
     }

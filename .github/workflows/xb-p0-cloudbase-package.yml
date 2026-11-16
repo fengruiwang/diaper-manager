@@ -19,7 +19,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import hashlib
-          SHA='788f1e8bbfb3cdc6a54c8448e722987a800f5c6e';V='788f1e8'
+          SHA='38af54df8b381a30598967f9b5a4061d01a456cb';V='38af54d'
           base=Path('deploy/xb-test/formal')
           def change_once(s,a,b):
             assert s.count(a)==1,(s.count(a),a[:80])
@@ -91,7 +91,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoBao-P4-03D-REFONLY-788f1e8
+          name: XiaoBao-P4-03D-REFONLY-38af54d
           path: |
             deploy/xb-test/formal/index.html
             deploy/xb-test/formal/m1-controller.js
