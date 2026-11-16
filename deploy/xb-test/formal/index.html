@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="xiaobao-p4-03b-source-sha" content="18813363df77cde76a83929cc2ef55df7f97dda7" />
+<meta name="xiaobao-p4-03d-source-sha" content="788f1e8bbfb3cdc6a54c8448e722987a800f5c6e" />
 <meta name="theme-color" content="#f6f7fb" />
 <meta name="description" content="纸尿裤备货计划、库存管理、采购记录、参考好价提醒和单片比价。" />
 <title>M3 独立预览 · 小宝管家 V1.2.0 · 独立联网测试版 M1-01</title>
@@ -154,8 +154,8 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
   </div>
   
   <div class="card" id="formalNotice" role="status" aria-live="polite">
-   <strong>小宝管家 V1.2.0 · 参考价写入验收包（仅供单独批准后测试）</strong>
-   <div id="formalSyncState" class="fine">等待正式 primary；仅供获批准后测试一项真实参考价，其余云端写入均关闭。</div>
+   <strong>小宝管家 V1.2.0 · P4-03D 参考价保存反馈验收包（未经批准禁止上传）</strong>
+   <div id="formalSyncState" class="fine">等待正式 primary；本测试包仅用于获批后的参考价保存反馈验证，其他业务写入关闭。</div>
    <button id="formalRefresh" class="btn secondary sm" type="button">刷新云端数据</button>
    <button id="formalSyncNow" class="btn sm" type="button" disabled title="等待独立数据库部署和业务写入授权">提交待同步操作（尚未授权）</button>
   </div>
@@ -3186,7 +3186,7 @@ restoreActiveTab();
 })(typeof window!=='undefined'?window:null);
 
 </script>
-<script src="./m1-controller.js?v=1881336" defer></script>
+<script src="./m1-controller.js?v=788f1e8" defer></script>
 <script>/* M3 formal PRIMARY inventory/transaction bridge, using P2/P3 modules.
  * NOT imported by M1-02, M3 synthetic preview, V1.1.2 or live PWA.
  * No auto network calls on import/create. This is NOT an authorization.
@@ -3622,7 +3622,7 @@ restoreActiveTab();
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
-  notify,formalModeSelected,buildAllowsWrites=false,
+  notify,formalModeSelected,onReferenceProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
   documentOperatorApproved=operatorApproved,
@@ -3645,6 +3645,25 @@ restoreActiveTab();
     ||typeof documentOperatorApproved!=='function')
    throw Error('formal_ui:dependencies_required');
   let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,profileBusy=false,settingsBusy=false,attached=null;
+  // UI-only hold for a reference UUID pending authoritative readback.
+  let referenceNeedsReview=false,referenceButtonLabel='';
+  const REFERENCE_STAGES=Object.freeze({
+   checking:'正在检查价格与版本…',
+   queued:'已加入本地队列，准备提交…',
+   submitting:'正在核验原请求并提交云端…',
+   readback:'云端回执已确认，正在刷新页面…',
+   pending:'待确认，请勿重复保存'
+  });
+  function referenceProgress(phase,timing={}){
+   const button=attached?.doc.getElementById('saveEditedReference');
+   if(button){
+    if(!referenceButtonLabel)referenceButtonLabel=button.textContent||'保存新价格';
+    const waiting=Object.prototype.hasOwnProperty.call(REFERENCE_STAGES,phase);
+    button.disabled=waiting;
+    button.textContent=waiting?REFERENCE_STAGES[phase]:referenceButtonLabel;
+   }
+   if(typeof onReferenceProgress==='function')onReferenceProgress(phase,timing);
+  }
   const purchaseAuthorized=()=>buildAllowsWrites===true
    &&operatorApproved()===true;
   const documentsAuthorized=()=>buildAllowsDocumentWrites===true
@@ -3782,6 +3801,7 @@ restoreActiveTab();
     return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
    if(referenceBusy)return result('BUSY');
    referenceBusy=true;
+   const t0=Date.now();let queuedAt=t0,committedAt=t0;
    try{
     // A change must be tied to the reference document actually rendered
     // on this account. Never silently use a newly advanced revision.
@@ -3803,6 +3823,9 @@ restoreActiveTab();
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('REFERENCE_COMMAND_UNVERIFIED');
     const requestId=saved.requestId;
+    queuedAt=Date.now();
+    referenceProgress('queued',{checkAndQueueMs:queuedAt-t0});
+    referenceProgress('submitting');
     let sync;
     try{sync=await documentQueue.send({operatorApproved:true});}
     catch(_){return Object.freeze({
@@ -3812,6 +3835,10 @@ restoreActiveTab();
      return Object.freeze({status:sync?.status||
        'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',
       requestId,cloudWriteCommitted:false});
+    committedAt=Date.now();
+    referenceProgress('readback',{
+     checkAndQueueMs:queuedAt-t0,receiptAndCommitMs:committedAt-queuedAt
+    });
     try{
      const visible=typeof onReferenceReadback==='function'
       ?await onReferenceReadback({requestId,
@@ -3819,7 +3846,12 @@ restoreActiveTab();
        expectedRevision:baseline.revision}):null;
      if(visible==='ready')return Object.freeze({
       status:'REFERENCE_CLOUD_READBACK_VERIFIED',
-      requestId,cloudWriteCommitted:true
+      requestId,cloudWriteCommitted:true,
+      timings:Object.freeze({
+       checkAndQueueMs:queuedAt-t0,
+       receiptAndCommitMs:committedAt-queuedAt,
+       readbackMs:Date.now()-committedAt
+      })
      });
     }catch(_){}
     return Object.freeze({status:'REFERENCE_COMMITTED_READBACK_REQUIRED',
@@ -4123,6 +4155,33 @@ restoreActiveTab();
    }
    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
   }
+  function dispatchReference(el,doc){
+    // Run synchronously from both capture handlers. invokeReference sets
+    // referenceBusy before its first await: click + submit cannot race IDs.
+    if(referenceBusy)return;
+    if(referenceNeedsReview){
+     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
+    }
+    if(!documentsAuthorized()||allowReference!==true){
+     void handle(el,doc).then(notify,
+      ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
+     return;
+    }
+    referenceProgress('checking');
+    void handle(el,doc).then(answer=>{
+     // Once an ID exists, do not create another until the first save
+     // has a verified cloud readback. The original UUID stays in IndexedDB.
+     if(answer?.requestId&&answer.status!=='REFERENCE_CLOUD_READBACK_VERIFIED')
+      referenceNeedsReview=true;
+     referenceProgress(referenceNeedsReview?'pending':
+      answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'?'success':'failed',
+      answer?.timings||{});
+     notify(answer);
+    },()=>{
+     referenceProgress('failed');
+     notify(result('REFERENCE_OPERATION_REVIEW_REQUIRED'));
+    });
+  }
   function attach(doc){
    if(!doc?.addEventListener||!doc?.removeEventListener
      ||typeof doc.getElementById!=='function')
@@ -4143,6 +4202,10 @@ restoreActiveTab();
     // Any unrecognized business button is also blocked: it must not fall
     // through to the old localStorage-only V1.1.2 handler by accident.
     event.preventDefault();event.stopImmediatePropagation();
+    if(el.id==='saveEditedReference'||el.id==='restoreDefaultReference'
+      ||action==='resetref'){
+     dispatchReference(el,doc);return;
+    }
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
@@ -4151,8 +4214,7 @@ restoreActiveTab();
     event.preventDefault();event.stopImmediatePropagation();
     if(event.target?.id!=='priceEditForm')return;
     const el={id:'saveEditedReference',dataset:{}};
-    Promise.resolve().then(()=>handle(el,doc)).then(notify,
-      ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
+    dispatchReference(el,doc);
    };
    doc.addEventListener('click',handler,true);
    doc.addEventListener('submit',formHandler,true);
@@ -4923,7 +4985,7 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
-<script src="./formal-controller.js?v=1881336" defer></script>
+<script src="./formal-controller.js?v=788f1e8" defer></script>
 
 </body>
 </html>

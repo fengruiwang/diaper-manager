@@ -1,4 +1,4 @@
-name: XiaoBao P4-03B REFONLY test bundle (PRE-APPROVAL)
+name: XiaoBao P4-03D REFONLY test bundle (PRE-APPROVAL)
 on:
   push:
     branches:
@@ -19,7 +19,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import hashlib
-          SHA='18813363df77cde76a83929cc2ef55df7f97dda7';V='1881336'
+          SHA='788f1e8bbfb3cdc6a54c8448e722987a800f5c6e';V='788f1e8'
           base=Path('deploy/xb-test/formal')
           def change_once(s,a,b):
             assert s.count(a)==1,(s.count(a),a[:80])
@@ -28,13 +28,13 @@ jobs:
           html=change_once(html,
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />',
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />\n'
-            '<meta name="xiaobao-p4-03b-source-sha" content="'+SHA+'" />')
+            '<meta name="xiaobao-p4-03d-source-sha" content="'+SHA+'" />')
           html=change_once(html,
             '<strong>小宝管家 V1.2.0 · 正式业务测试入口</strong>',
-            '<strong>小宝管家 V1.2.0 · 参考价写入验收包（仅供单独批准后测试）</strong>')
+            '<strong>小宝管家 V1.2.0 · P4-03D 参考价保存反馈验收包（未经批准禁止上传）</strong>')
           html=change_once(html,
             '<div id="formalSyncState" class="fine">等待正式 primary；目前不允许真实云端业务写入。</div>',
-            '<div id="formalSyncState" class="fine">等待正式 primary；仅供获批准后测试一项真实参考价，其余云端写入均关闭。</div>')
+            '<div id="formalSyncState" class="fine">等待正式 primary；本测试包仅用于获批后的参考价保存反馈验证，其他业务写入关闭。</div>')
           html=change_once(html,
             '<script src="../m1-controller.js" defer></script>',
             '<script src="./m1-controller.js?v='+V+'" defer></script>')
@@ -62,7 +62,7 @@ jobs:
           old='正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。'
           assert derived.count(old)==2
           derived=derived.replace(old,
-            '正式宝宝及五类共享文档已验证；仅参考价写入验收可用，其他业务写入关闭。')
+            '正式宝宝及五类共享文档已验证；仅参考价保存反馈验收可用，其他业务写入关闭。')
           assert derived==(base/'formal-controller.js').read_text('utf-8')
           assert 'const FORMAL_WRITE_ENABLED=true;' in derived
           assert 'const FORMAL_PURCHASE_ENABLED=false;' in derived
@@ -87,11 +87,11 @@ jobs:
             assert digest==blob_sha,(file,digest)
           assert 'const FORMAL_WRITE_ENABLED=false;' in (backup/'formal-controller.js').read_text('utf-8')
           assert 'const FORMAL_PURCHASE_ENABLED=false;' in (backup/'formal-controller.js').read_text('utf-8')
-          print('P4_03B_REFERENCE_ONLY_TEST_PACKAGE_AND_READONLY_ROLLBACK_PASS')
+          print('P4_03D_REFERENCE_ONLY_TEST_PACKAGE_AND_READONLY_ROLLBACK_PASS')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoBao-P4-03B-REFONLY-1881336
+          name: XiaoBao-P4-03D-REFONLY-788f1e8
           path: |
             deploy/xb-test/formal/index.html
             deploy/xb-test/formal/m1-controller.js
