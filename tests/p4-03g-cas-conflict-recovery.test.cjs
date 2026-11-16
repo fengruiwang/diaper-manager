@@ -5,6 +5,8 @@ const Durable=require('../sync/idb-outbox.js');
 const Ops=require('../sync/primary-documents-operations.js');
 const Business=require('../sync/primary-documents-business-commands.js');
 const Formal=require('../preview/v1.2.0/formal-controller.js');
+const Actions=require('../sync/primary-formal-ui-actions.js');
+const Overlay=require('../sync/primary-documents-overlay.js');
 const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
 const IDS=['04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2',
@@ -81,7 +83,7 @@ function fixture(){
   assert.equal((await a.send({operatorApproved:true})).status,
    'DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW');
  }
- return {a,b,storage,commands,docs,receipts,calls,
+ return {a,b,storage,commands,client,docs,receipts,calls,
   createConflict,scopeA,scopeB,
   setCheckMode:x=>checkMode=x,setReadMode:x=>readMode=x,
   setPutMode:x=>putMode=x};
@@ -199,4 +201,85 @@ test('P4-03G formal source keeps both write flags off and other domain interface
  assert.match(text,/releaseAbandonedDocumentConflict/);
  assert.match(text,/recoverReferenceButton/);
  assert.match(text,/recoverDocumentButtons/);
+});
+
+test('P4-03G real formal controller: user cancel keeps conflict; confirmed UI action archives and refreshes',async()=>{
+ const f=fixture();await f.createConflict();
+ const handlers=new Map(),nodes=new Map();
+ let approved=false,rendered=null;
+ const element=id=>{
+  if(!nodes.has(id))nodes.set(id,{
+   id,dataset:{},textContent:'',value:'',disabled:true,hidden:true,
+   classList:{contains:()=>false},closest(){return this;},
+   addEventListener(type,fn){handlers.set(id+':'+type,fn);}
+  });
+  return nodes.get(id);
+ };
+ const doc={
+  body:{dataset:{}},visibilityState:'visible',
+  getElementById:element,querySelectorAll:()=>[],
+  addEventListener(type,fn){handlers.set('doc:'+type,fn);},
+  removeEventListener(){}
+ };
+ const host={navigator:{onLine:true},crypto:{randomUUID:()=>IDS[2]},
+  setTimeout,clearTimeout,confirm:()=>approved,addEventListener(){}};
+ const context=()=>({actorUid:'A',familyId:F,app:{
+  auth:{getSession:async()=>({data:{user:{id:'A'}}})}
+ }});
+ const readModel=async()=>({
+  status:'PRIMARY_READ_ONLY_READY',canWrite:false,
+  inventory:{NB:0,S:0,M:0,L:0,XL:0,XXL:0},
+  revisions:{NB:0,S:0,M:0,L:0,XL:0,XXL:0}
+ });
+ const documentClient={
+  ...f.client,
+  async readAll(){
+   const documents={};
+   for(const kind of ['reference','quotes','growth','profile','settings'])
+    documents[kind]=await f.client.read({kind,familyId:F,actorUid:'A'});
+   return {status:'PRIMARY_DOCUMENTS_FULLY_READ',canWrite:false,documents};
+  }
+ };
+ const app=Formal.create({
+  host,doc,documentWritesEnabled:true,
+  loginController:{create:()=>({
+   connect:async()=> 'CLOUD_READ_ONLY_CONNECTED',verifiedContext:context
+  })},
+  readModelFactory:()=>({read:readModel}),
+  primaryFactory:()=>({
+   activate:async()=>({status:'PRIMARY_OUTBOX_READ_ONLY_READY'}),
+   pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',outstanding:0})
+  }),
+  commandsFactory:{create:()=>({submit:async()=>({status:'UNAUTHORIZED'})})},
+  documentOpsFactory:()=>f.a,documentCommandsFactory:{create:()=>f.commands},
+  actionsFactory:{create:options=>Actions.create(options)},
+  documentsFactory:()=>documentClient,documentsOverlay:Overlay,
+  projection:{project:()=>({
+   status:'PRIMARY_READ_ONLY_READY',source:'cloudbase-primary-receipt-verified',
+   familyId:F,childId:CHILD,actorUid:'A',canWrite:false,
+   revisions:{NB:0,S:0,M:0,L:0,XL:0,XXL:0},
+   state:{inventory:{NB:0,S:0,M:0,L:0,XL:0,XXL:0},
+    transactions:[],quotes:[],weightRecords:[],babyProfile:{}}
+  })},
+  ui:{defaults:()=>({}),show:next=>{rendered=next;},clear:()=>{rendered=null}},
+  scriptLoader:async()=>{}
+ });
+ assert.equal(await app.start(),'ready');
+ await new Promise(resolve=>setTimeout(resolve,45));
+ const btn=element('formalResolveDocumentConflict');
+ assert.equal(btn.hidden,false,'authenticated conflict should reveal explicit action');
+ assert.equal(btn.disabled,false);
+ assert.equal(rendered?.state?.referenceOverrides?.['好奇|小森林|NB'],1.22);
+ const click=handlers.get('formalResolveDocumentConflict:click');
+ assert.equal(typeof click,'function');
+ click();await new Promise(resolve=>setTimeout(resolve,25));
+ assert.equal((await f.storage.get(scopeA,IDS[0])).status,'conflict',
+  'user cancellation must not alter the conflict');
+ approved=true;
+ click();await new Promise(resolve=>setTimeout(resolve,110));
+ assert.equal((await f.storage.get(scopeA,IDS[0])).status,'abandoned');
+ assert.equal((await f.storage.stats(scopeA)).outstanding,0);
+ assert.equal(btn.hidden,true);
+ assert.match(element('formalSyncState').textContent,/已确认未提交/);
+ assert.equal(rendered.state.referenceOverrides['好奇|小森林|NB'],1.22);
 });
