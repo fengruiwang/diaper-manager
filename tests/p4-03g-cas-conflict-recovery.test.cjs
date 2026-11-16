@@ -247,6 +247,7 @@ test('P4-03G real formal controller: user cancel keeps conflict; confirmed UI ac
   })},
   readModelFactory:()=>({read:readModel}),
   primaryFactory:()=>({
+   read:async()=>({status:'PRIMARY_CLOUD_READ_VERIFIED'}),
    activate:async()=>({status:'PRIMARY_OUTBOX_READ_ONLY_READY'}),
    pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',outstanding:0})
   }),
