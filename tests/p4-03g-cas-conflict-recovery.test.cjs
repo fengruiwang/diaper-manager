@@ -11,7 +11,7 @@ const IDS=['04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2',
  '79192488-bd70-4b88-8c66-3c5b5fb29ef5',
  '29b28c1b-9acb-4dad-a1d2-b63b9c69e3a6'];
 const scopeA={familyId:F,actorUid:'A'},scopeB={familyId:F,actorUid:'B'};
-const clone=x=>JSON.parse(JSON.stringify(x));
+const clone=x=>x===undefined?undefined:JSON.parse(JSON.stringify(x));
 const source=fs.readFileSync(path.join(__dirname,'idb-outbox.test.cjs'),'utf8');
 const begin=source.indexOf('function fakeIndexedDB(){'),end=source.indexOf('function make(',begin);
 assert.ok(begin>=0&&end>begin);
