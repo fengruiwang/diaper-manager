@@ -158,6 +158,72 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   }catch(_){return ans('DOCUMENT_SYNC_UNKNOWN_QUEUE_PRESERVED');}
   finally{busy=false;}
  }
+ // Read-only discovery; scoped by the same actor/family as the original IDB
+ // entries. A conflict is never an ACK, and it is never automatically resent.
+ async function conflicts(){
+  if(cloudWritesEnabled!==true)return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
+  try{
+   if(typeof outbox.list!=='function')return ans('DOCUMENT_CONFLICT_LIST_UNAVAILABLE');
+   const rows=await outbox.list(identity(),{includeAcked:true});
+   const items=rows.filter(op=>op.status==='conflict'
+     &&op.error==='conflict'&&enabledKind(op.payload?.kind))
+    .map(op=>({requestId:op.id,kind:op.payload.kind,
+     expectedRevision:op.expectedRevision}));
+   return ans('DOCUMENT_CONFLICTS_VERIFIED',{items});
+  }catch(_){return ans('DOCUMENT_CONFLICT_LIST_UNVERIFIED');}
+ }
+ // Only an explicit user-confirmed, DEFINITELY NOT committed CAS conflict
+ // can become a non-outstanding terminal record. Never release an uncertain
+ // ACK, timeout, forbidden, or any successful PUT via this path.
+ async function abandonConflict({requestId,operatorApproved=false,
+  userConfirmed=false}={}){
+  if(cloudWritesEnabled!==true||operatorApproved!==true)
+   return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
+  if(userConfirmed!==true)return ans('DOCUMENT_CONFLICT_USER_CONFIRMATION_REQUIRED');
+  if(!online())return ans('DOCUMENT_CONFLICT_OFFLINE_KEEP_ID');
+  if(busy)return ans('DOCUMENT_QUEUE_BUSY');
+  if(!UUID.test(String(requestId)))return ans('INVALID_REQUEST_ID');
+  busy=true;
+  try{
+   if(typeof outbox.abandonDocumentConflict!=='function')
+    return ans('DOCUMENT_CONFLICT_ABANDON_UNSUPPORTED');
+   const scope=identity(),op=await outbox.get(scope,requestId);
+   if(!op||op.status!=='conflict'||op.error!=='conflict'
+     ||op.receipt!==null||!enabledKind(op.payload?.kind)
+     ||!DOC_TYPES[op.payload?.kind]
+     ||!Number.isSafeInteger(op.expectedRevision)
+     ||!UUID.test(op.payload?.childId))
+    return ans('DOCUMENT_NOT_DEFINITE_CONFLICT_KEEP_ID');
+   const check=()=>documentsClient.checkRequest({
+    ...scope,requestId,readEnabled:true
+   });
+   // Re-check the original receipt both before and after the remote read.
+   // Unknown, permission errors, and confirmed receipts all remain blocked.
+   const before=await check();
+   if(before?.status!=='REQUEST_NOT_YET_RECEIPTED_SAME_ID_ONLY')
+    return ans('DOCUMENT_CONFLICT_RECEIPT_UNVERIFIED_KEEP_ID');
+   const currentDoc=await documentsClient.read({
+    ...scope,kind:op.payload.kind,readEnabled:true
+   });
+   if(currentDoc?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+     ||currentDoc.kind!==op.payload.kind
+     ||currentDoc.familyId!==scope.familyId
+     ||currentDoc.childId!==op.payload.childId
+     ||!Number.isSafeInteger(currentDoc.revision)
+     ||currentDoc.revision<=op.expectedRevision)
+    return ans('DOCUMENT_CONFLICT_LATEST_REVISION_UNVERIFIED_KEEP_ID');
+   const after=await check();
+   if(after?.status!=='REQUEST_NOT_YET_RECEIPTED_SAME_ID_ONLY')
+    return ans('DOCUMENT_CONFLICT_RECEIPT_UNVERIFIED_KEEP_ID');
+   const discarded=await outbox.abandonDocumentConflict(scope,requestId);
+   if(discarded?.status!=='abandoned'||discarded.id!==requestId)
+    return ans('DOCUMENT_CONFLICT_ABANDON_UNVERIFIED_KEEP_ID');
+   return ans('DOCUMENT_CONFLICT_ABANDONED',{
+    requestId,kind:op.payload.kind,latestRevision:currentDoc.revision
+   });
+  }catch(_){return ans('DOCUMENT_CONFLICT_RESOLUTION_UNVERIFIED_KEEP_ID');}
+  finally{busy=false;}
+ }
  async function checkSavedRequest(requestId){
   if(!UUID.test(String(requestId)))return ans('INVALID_REQUEST_ID');
   try{
@@ -179,7 +245,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    return ans('REQUEST_ACK_RECOVERED',{requestId});
   }catch(_){return ans('REQUEST_ACK_RECOVERY_UNVERIFIED');}
  }
- return Object.freeze({queue,send,pending,checkSavedRequest,
+ return Object.freeze({queue,send,pending,checkSavedRequest,conflicts,abandonConflict,
   get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
 }
 const api=Object.freeze({create,DB_NAME});

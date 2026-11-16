@@ -157,6 +157,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
    <div id="formalSyncState" class="fine">等待正式 primary；目前不允许真实云端业务写入。</div>
    <button id="formalRefresh" class="btn secondary sm" type="button">刷新云端数据</button>
    <button id="formalSyncNow" class="btn sm" type="button" disabled title="等待独立数据库部署和业务写入授权">提交待同步操作（尚未授权）</button>
+   <button id="formalResolveDocumentConflict" class="btn secondary sm" type="button" hidden disabled>放弃本次修改并刷新</button>
   </div>
   <nav class="tabs" role="tablist" aria-label="功能导航">
     <button class="tab active" data-tab="overview">🏠 备货总览</button>
@@ -4277,6 +4278,25 @@ restoreActiveTab();
    referenceProgress('idle');
    return true;
   }
+  // Only an explicitly abandoned, receipt-absent CAS conflict may release a
+  // local pending button after the current account's cloud view is verified.
+  function releaseAbandonedDocumentConflict({kind,requestId,
+   actorUid,familyId}={}){
+   if(kind==='reference'&&referenceNeedsReview?.requestId===requestId
+     &&referenceNeedsReview.actorUid===actorUid
+     &&referenceNeedsReview.familyId===familyId){
+    referenceNeedsReview=null;
+    referenceProgress('idle');
+    return true;
+   }
+   if((kind==='profile'||kind==='settings')
+     &&pendingDocumentReview[kind]===requestId){
+    pendingDocumentReview[kind]=null;
+    documentProgress(kind,'idle');
+    return true;
+   }
+   return false;
+  }
   function dispatchDocumentSave(el,doc,kind){
    if(kind!=='profile'&&kind!=='settings')return;
    // Immediate call uses the existing per-document busy flag before its first await.
@@ -4333,7 +4353,7 @@ restoreActiveTab();
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
-      'formalConfirmOtp','formalSyncNow','closeRefEditor','cancelEditedReference',
+      'formalConfirmOtp','formalSyncNow','formalResolveDocumentConflict','closeRefEditor','cancelEditedReference',
       'cancelWeight']);
     const allowedActions=new Set(['go','editstock','series','pickref','editref','editweight']);
     if(el.classList?.contains('tab')||allowedIds.has(el.id)
@@ -4366,7 +4386,7 @@ restoreActiveTab();
    attached={doc,handler,formHandler};
    return Object.freeze({
     hasPendingReferenceReview:()=>Boolean(referenceNeedsReview),
-    recoverReferenceButton,
+    recoverReferenceButton,releaseAbandonedDocumentConflict,
     hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.profile||pendingDocumentReview.settings),
     recoverDocumentButtons,detach(){
     if(!attached)return;

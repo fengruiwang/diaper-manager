@@ -196,7 +196,23 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   $('formalGateMessage').textContent=message;
   $('formalAccountState').textContent=next;
  }
+ function conflictButton(visible){
+  const button=$('formalResolveDocumentConflict');
+  if(!button)return;
+  button.hidden=!visible;button.disabled=!visible;
+ }
+ async function refreshConflictButton(){
+  if(documentWritesEnabled!==true||!documentsGuard?.conflicts
+    ||mode!=='ready'||!actor||!family)return;
+  const scopeKey=actor+'\x00'+family,epoch=documentEpoch;
+  const found=await documentsGuard.conflicts();
+  if(scopeKey!==actor+'\x00'+family||epoch!==documentEpoch
+    ||mode!=='ready')return;
+  conflictButton(found?.status==='DOCUMENT_CONFLICTS_VERIFIED'
+    &&found.items.length>0);
+ }
  function clear(){
+  conflictButton(false);
   ui.clear();actor=null;family=null;primary=null;shownStock=null;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
@@ -607,6 +623,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       readQuote:id=>root.XBFormalUIData.quote(id),
       readTransaction:id=>root.XBFormalUIData.transaction(id),
       notify:answer=>{
+       if(documentWritesEnabled===true
+         &&answer?.status==='DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW')
+        conflictButton(true);
        $('formalSyncState').textContent=
         answer?.status==='PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'
          ?'单尺码盘点已保存，六尺码云端库存已重新读取。'
@@ -666,7 +685,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          :['REFERENCE_OPERATION_REVIEW_REQUIRED','DOCUMENT_COMMAND_REJECTED'].includes(answer?.status)
          ?'参考价保存结果未核实，输入已保留；请检查网络和待确认操作，暂勿重复保存。'
          :answer?.status==='DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW'
-         ?'参考价版本冲突，原请求已保留；请先核验冲突，不要重复提交。'
+         ?'数据已被其他设备更新，本次修改未保存；请点击“放弃本次修改并刷新”确认后再编辑。'
          :['DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',
            'DOCUMENT_SYNC_UNKNOWN_QUEUE_PRESERVED',
            'DOCUMENT_RECEIPT_READBACK_REQUIRED_KEEP_ID',
@@ -719,6 +738,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }).catch(()=>{});
    if(!documentsVerified)
     optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
+   if(documentWritesEnabled===true)
+    void refreshConflictButton().catch(()=>{});
    const settingsAppear=expectedSettings===null||
     (documentsVerified&&settingsChangeVisible(
      documentSnapshot?.documents?.settings,expectedSettings));
@@ -837,6 +858,69 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   on('formalRefresh',restore);
+  // Explicit confirmation is required. No retry/ACK-unknown record may be discarded.
+  on('formalResolveDocumentConflict',async()=>{
+   if(documentWritesEnabled!==true||!documentsGuard?.conflicts
+     ||!documentsGuard?.abandonConflict){
+    $('formalSyncState').textContent='文档冲突处理尚未授权。';return;
+   }
+   const who=controller.verifiedContext();
+   const found=await documentsGuard.conflicts();
+   if(found?.status!=='DOCUMENT_CONFLICTS_VERIFIED'
+     ||!found.items?.length){
+    $('formalSyncState').textContent='没有已核实的确定冲突，请先核验原请求。';
+    conflictButton(false);return;
+   }
+   const item=found.items[0];
+   if(host.confirm?.('“'+item.kind+'”有一笔确定版本冲突，旧修改未保存。'
+      +'是否放弃本次修改并刷新云端最新数据？'
+      +'原 UUID 和冲突证据会保留，不会覆盖另一设备的数据。')!==true)
+    return;
+   const button=$('formalResolveDocumentConflict');
+   if(button)button.disabled=true;
+   try{
+    if(busy){
+     $('formalSyncState').textContent='页面正在刷新，请完成后再核验冲突。';return;
+    }
+    const next=await restore();
+    const current=controller.verifiedContext();
+    const scopeOk=next==='ready'&&current
+     &&current.actorUid===who?.actorUid
+     &&current.familyId===who?.familyId
+     &&actor===who.actorUid&&family===who.familyId
+     &&documentScope===actor+'\x00'+family
+     &&documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
+     &&renderedReference?.familyId===family
+     &&renderedReference?.actorUid===actor;
+    const latest=documentSnapshot?.documents?.[item.kind];
+    if(!scopeOk||latest?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+      ||!Number.isSafeInteger(latest.revision)
+      ||latest.revision<=item.expectedRevision){
+     $('formalSyncState').textContent=
+      '冲突仍待核实：未读到完整最新云端数据，原 UUID 保留，请刷新重试。';
+     return;
+    }
+    const changed=await documentsGuard.abandonConflict({
+     requestId:item.requestId,operatorApproved:true,userConfirmed:true
+    });
+    if(changed?.status!=='DOCUMENT_CONFLICT_ABANDONED'
+      ||changed.requestId!==item.requestId){
+     $('formalSyncState').textContent=
+      '未放弃原修改：'+String(changed?.status||'UNVERIFIED')
+       +'；网络/回执不明时不可按确定冲突处理。';
+     return;
+    }
+    attached?.releaseAbandonedDocumentConflict?.({
+     kind:item.kind,requestId:item.requestId,
+     actorUid:actor,familyId:family
+    });
+    $('formalSyncState').textContent='原 '+item.kind
+     +' 修改已确认未提交，并由用户放弃。原 UUID 与冲突历史保留；'
+     +'当前已显示云端最新版本，请重新编辑。';
+   }finally{
+    await refreshConflictButton();
+   }
+  });
   // Retry each domain's ORIGINAL UUIDs under its own authorization.
   const documentsApproved=()=>documentWritesEnabled===true;
   const purchasesApproved=()=>purchaseReleaseEnabled===true
@@ -872,9 +956,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'原资料或设置请求已确认，页面已重新读取，可以继续保存。'
          :'原共享文档请求已确认，但未确认参考价显示时仍不可重复保存。'
        :'文档回执已确认，请刷新云端数据。';
-     }else $('formalSyncState').textContent=
-      '共享文档待确认：'+String(sent?.status||'UNVERIFIED')
-       +'；保留原 request UUID，请勿再次保存。';
+     }else{
+      if(['DOCUMENT_CONFLICT_REVIEW_REQUIRED',
+        'DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW'].includes(sent?.status))
+       conflictButton(true);
+      $('formalSyncState').textContent=
+       '共享文档待确认：'+String(sent?.status||'UNVERIFIED')
+        +'；确定冲突请使用单独放弃入口；其他结果保留原 UUID。';
+     }
      return;
     }
     // A request may be already ACKed while its page readback was ambiguous.

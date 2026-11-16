@@ -672,6 +672,25 @@
    referenceProgress('idle');
    return true;
   }
+  // Only an explicitly abandoned, receipt-absent CAS conflict may release a
+  // local pending button after the current account's cloud view is verified.
+  function releaseAbandonedDocumentConflict({kind,requestId,
+   actorUid,familyId}={}){
+   if(kind==='reference'&&referenceNeedsReview?.requestId===requestId
+     &&referenceNeedsReview.actorUid===actorUid
+     &&referenceNeedsReview.familyId===familyId){
+    referenceNeedsReview=null;
+    referenceProgress('idle');
+    return true;
+   }
+   if((kind==='profile'||kind==='settings')
+     &&pendingDocumentReview[kind]===requestId){
+    pendingDocumentReview[kind]=null;
+    documentProgress(kind,'idle');
+    return true;
+   }
+   return false;
+  }
   function dispatchDocumentSave(el,doc,kind){
    if(kind!=='profile'&&kind!=='settings')return;
    // Immediate call uses the existing per-document busy flag before its first await.
@@ -728,7 +747,7 @@
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
-      'formalConfirmOtp','formalSyncNow','closeRefEditor','cancelEditedReference',
+      'formalConfirmOtp','formalSyncNow','formalResolveDocumentConflict','closeRefEditor','cancelEditedReference',
       'cancelWeight']);
     const allowedActions=new Set(['go','editstock','series','pickref','editref','editweight']);
     if(el.classList?.contains('tab')||allowedIds.has(el.id)
@@ -761,7 +780,7 @@
    attached={doc,handler,formHandler};
    return Object.freeze({
     hasPendingReferenceReview:()=>Boolean(referenceNeedsReview),
-    recoverReferenceButton,
+    recoverReferenceButton,releaseAbandonedDocumentConflict,
     hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.profile||pendingDocumentReview.settings),
     recoverDocumentButtons,detach(){
     if(!attached)return;

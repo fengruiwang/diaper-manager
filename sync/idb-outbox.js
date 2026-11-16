@@ -17,6 +17,10 @@
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const SENDABLE=new Set(['pending','retry']);
  const OUTSTANDING=new Set(['pending','retry','conflict','blocked']);
+ // Only confirmed, abandoned shared-document CAS conflicts may use this
+ // terminal state; inventory and batch queues retain their original rules.
+ const DOCUMENT_TYPES=new Set(['reference.patch','quote.upsert','quote.delete',
+  'weight.upsert','weight.delete','profile.patch','settings.patch']);
  function fail(code){throw new Error('outbox_store:'+code);}
  function id(v,name){if(typeof v!=='string'||!UUID.test(v))fail('invalid_'+name);return v;}
  function actor(v){if(typeof v!=='string'||!v||v.length>128)fail('invalid_actor');return v;}
@@ -174,6 +178,7 @@
      try{
       current=req.result;
       checkIdentity(current,scope);
+      if(current.status==='abandoned')fail('abandoned_operation_immutable');
       const updated=contract.applyResult(current,result);
       if(updated.id!==current.id||updated.familyId!==current.familyId
         ||updated.actorUid!==current.actorUid||updated._signature!==current._signature)
@@ -185,14 +190,37 @@
     };
    });
   }
+  async function abandonDocumentConflict(scopeInput,operationId){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   return run('readwrite',(store,complete,abort)=>{
+    const req=store.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     try{
+      const current=req.result;
+      checkIdentity(current,scope);
+      if(!DOCUMENT_TYPES.has(current.type)||current.status!=='conflict'
+        ||current.error!=='conflict'||current.receipt!==null)
+       fail('not_uncommitted_document_conflict');
+      // Keep the immutable request, payload, original UUID, CAS revision,
+      // error and timestamp. It is NOT an ACK or a deletion.
+      const updated={...current,status:'abandoned',
+       abandonedAt:new Date().toISOString(),error:'conflict_abandoned'};
+      const put=store.put(updated);
+      put.onerror=()=>abort(new Error('outbox_store:write_failed'));
+      put.onsuccess=()=>complete(updated);
+     }catch(e){abort(e);}
+    };
+   });
+  }
   async function stats(scopeInput){
    const rows=await list(scopeInput,{includeAcked:true});
-   const counts={pending:0,retry:0,conflict:0,blocked:0,acked:0};
+   const counts={pending:0,retry:0,conflict:0,blocked:0,acked:0,abandoned:0};
    for(const row of rows){
     if(!Object.prototype.hasOwnProperty.call(counts,row.status))fail('unknown_status');
     counts[row.status]++;
    }
-   return {...counts,total:rows.length,outstanding:rows.length-counts.acked};
+   return {...counts,total:rows.length,outstanding:rows.length-counts.acked-counts.abandoned};
   }
 
   function identityKey(scope,childId){
@@ -369,7 +397,7 @@
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
+  return Object.freeze({enqueue,get,list,ready,recordResult,abandonDocumentConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;
