@@ -103,6 +103,9 @@ padding:30px 26px;box-shadow:0 12px 60px #263b5222}
 .formal-spinner{height:28px;width:28px;border:3px solid #dce9e3;
 border-top-color:#428a72;border-radius:50%;margin:22px auto;animation:formalspin 1s linear infinite}
 @keyframes formalspin{to{transform:rotate(360deg)}}
+#formalNotice.sync-line{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;padding:3px 4px;margin:0 0 5px;border:0;background:transparent;box-shadow:none}
+#formalNotice .fine{font-size:12px;color:var(--muted);line-height:1.4}
+#formalNotice .btn{font-size:12px;padding:4px 8px}
 body:not([data-formal-state="ready"]) .wrap{display:none!important}
 body[data-formal-state="ready"] #formalGate{display:none!important}
 [hidden]{display:none!important}
@@ -152,14 +155,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
     <button class="btn ghost sm" type="button" id="pwaMigrationDismiss">我知道了</button>
   </div>
   
-  <div class="card" id="formalNotice" role="status" aria-live="polite">
-   <strong>小宝管家 V1.2.0 · 正式业务测试入口</strong>
-   <div id="formalSyncState" class="fine">等待正式 primary；目前不允许真实云端业务写入。</div>
-   <button id="formalRefresh" class="btn secondary sm" type="button">刷新云端数据</button>
-   <button id="formalSyncNow" class="btn sm" type="button" disabled title="等待独立数据库部署和业务写入授权">提交待同步操作（尚未授权）</button>
-   <button id="formalResolveDocumentConflict" class="btn secondary sm" type="button" hidden disabled>放弃本次修改并刷新</button>
-   <button id="formalResolveBatchConflict" class="btn secondary sm" type="button" hidden disabled>处理盘点冲突</button>
-  </div>
+
   <nav class="tabs" role="tablist" aria-label="功能导航">
     <button class="tab active" data-tab="overview">🏠 备货总览</button>
     <button class="tab" data-tab="compare">🏷️ 好价比对</button>
@@ -167,6 +163,13 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
     <button class="tab" data-tab="growth">📈 成长</button>
     <button class="tab" data-tab="settings">⚙️ 个性设置</button>
   </nav>
+  <div class="sync-line" id="formalNotice" role="status" aria-live="polite">
+   <span id="formalSyncState" class="fine">正在检查…</span>
+   <button id="formalRefresh" class="btn ghost sm" type="button">刷新</button>
+   <button id="formalSyncNow" class="btn secondary sm" type="button" hidden disabled>核验待处理</button>
+   <button id="formalResolveDocumentConflict" class="btn secondary sm" type="button" hidden disabled>放弃本次修改并刷新</button>
+   <button id="formalResolveBatchConflict" class="btn secondary sm" type="button" hidden disabled>处理盘点冲突</button>
+  </div>
   <main>
     <section class="panel active" id="overview">
       <div class="kpi-grid" id="kpiGrid"></div>
@@ -253,7 +256,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
   <div class="form-grid">
    <div class="field"><label>当前账号</label><strong id="formalCurrentAccount">—</strong></div>
    <div class="field"><label>家庭 ID</label><strong id="formalCurrentFamily">—</strong></div>
-   <div class="field"><label>云端验证</label><strong id="formalAccountState">boot</strong></div>
+   <div class="field"><label>连接状态</label><strong id="formalAccountState">检查中</strong></div>
   </div>
   <div class="action-row"><button id="formalSignOut" class="btn ghost sm" type="button">退出登录 / 切换账号</button></div>
   <p class="fine">退出前检查未同步队列，原有 operation ID 不会被清空。</p>

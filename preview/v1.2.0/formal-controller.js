@@ -114,7 +114,51 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  // Optional documents never gate primary readiness; scope is account-specific.
  let documentSnapshot=null,documentScope='',documentPending='',renderedReference=null;
  let documentEpoch=0,documentReadSerial=0;
+ let documentReadTask=null,fullyReadAt=null,fullReadVerified=false;
+ let refreshBusy=false,pendingReviewSerial=0;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
+ const syncTime=()=>new Intl.DateTimeFormat('zh-CN',{
+  timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',
+  hour:'2-digit',minute:'2-digit',hour12:false
+ }).format(fullyReadAt);
+ function showSync(message,phase='checking'){
+  const el=$('formalSyncState');
+  if(el)el.textContent=message;
+  const bar=$('formalNotice');
+  if(bar?.dataset)bar.dataset.syncPhase=phase;
+ }
+ async function checkPending(){
+  if(mode!=='ready'||!actor||!family)return;
+  const key=actor+'\x00'+family,epoch=documentEpoch,serial=++pendingReviewSerial;
+  const domains=[
+   {enabled:purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true,
+    guard:pendingGuard,expected:'PRIMARY_QUEUE_COUNTS_VERIFIED'},
+   {enabled:documentWritesEnabled===true,
+    guard:documentsGuard,expected:'DOCUMENT_QUEUE_COUNTS_VERIFIED'},
+   {enabled:purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true,
+    guard:batchGuard,expected:'BATCH_QUEUE_VERIFIED'}
+  ].filter(x=>x.enabled);
+  const results=await Promise.all(domains.map(async x=>{
+   try{return x.guard?.pending?await x.guard.pending():null;}catch(_){return null;}
+  }));
+  if(mode!=='ready'||documentEpoch!==epoch||serial!==pendingReviewSerial
+    ||key!==actor+'\x00'+family)return;
+  const uncertain=results.some((x,i)=>x?.status!==domains[i].expected
+    ||!Number.isSafeInteger(x.outstanding)||x.outstanding<0);
+  const outstanding=results.some(x=>Number.isSafeInteger(x?.outstanding)
+    &&x.outstanding>0);
+  const needsReview=uncertain||outstanding;
+  const btn=$('formalSyncNow');
+  if(btn){btn.hidden=!needsReview;btn.disabled=!needsReview;}
+  if(outstanding)showSync('有操作待确认，请点击“核验待处理”。','pending');
+  else if(uncertain)showSync('同步状态暂未核实，请点击“核验待处理”。','partial');
+  else if(fullReadVerified&&fullyReadAt)showSync('已同步 · '+syncTime(),'synced');
+ }
+ function confirmedFullRead(){
+  fullyReadAt=new Date();fullReadVerified=true;
+  showSync('正在核对待处理操作…','checking');
+  void checkPending().catch(()=>showSync('同步状态暂未核实，请点击刷新。','partial'));
+ }
  function restoreOtpCooldown(){
   try{
    const raw=host.localStorage?.getItem(OTP_STORAGE_KEY);
@@ -194,7 +238,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   $('formalLoadingCard').hidden=next!=='boot';
   $('formalGateActions').hidden=next==='boot'||next==='login'||next==='ready';
   $('formalGateMessage').textContent=message;
-  $('formalAccountState').textContent=next;
+  $('formalAccountState').textContent=next==='ready'?'已连接':next==='boot'?'检查中':next==='login'?'未登录':next==='offline'?'离线':'需检查';
  }
  function conflictButton(visible){
   const button=$('formalResolveDocumentConflict');
@@ -231,7 +275,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   ui.clear();actor=null;family=null;primary=null;shownStock=null;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
-  documentEpoch++;documentReadSerial++;
+  documentEpoch++;documentReadSerial++;pendingReviewSerial++;
+  documentReadTask=null;fullyReadAt=null;fullReadVerified=false;
   if(attached){attached.detach();attached=null;}
   $('formalCurrentAccount').textContent='—';
   $('formalCurrentFamily').textContent='—';
@@ -271,19 +316,19 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     }):null;
  }
  function optionalRead(client,ctx,scopeKey,base,epoch){
-  if(!client||typeof client.readAll!=='function'
-    ||documentPending===scopeKey)return;
+  if(!client||typeof client.readAll!=='function')return Promise.resolve(false);
+  if(documentPending===scopeKey)
+   return documentReadTask||Promise.resolve(false);
   documentPending=scopeKey;
   const serial=++documentReadSerial;
   const current=()=>serial===documentReadSerial
    &&epoch===documentEpoch&&mode==='ready'
    &&actor===ctx.actorUid&&family===ctx.familyId;
-  // Keep the verified primary view responsive. The full double-pass
-  // readAll runs independently and is not equivalent to five single reads.
-  void bounded(()=>client.readAll({
+  // Only the complete, identity-scoped five-document overlay marks sync success.
+  const task=bounded(()=>client.readAll({
    familyId:ctx.familyId,actorUid:ctx.actorUid
   }),DOCUMENT_READ_TIMEOUT_MS).then(snapshot=>{
-   if(!current())return;
+   if(!current())return false;
    if(snapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ')
     throw Error('formal_entry:five_documents_incomplete');
    const merged=documentsOverlay.apply(base,snapshot);
@@ -291,20 +336,27 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     throw Error('formal_entry:five_documents_unverified');
    showCloudView(merged,ctx);
    documentSnapshot=snapshot;documentScope=scopeKey;
-   $('formalSyncState').textContent=
-    '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。';
+   confirmedFullRead();
+   return true;
   }).catch(()=>{
-   if(current())$('formalSyncState').textContent=
-    '正式宝宝及库存已验证，但五类共享文档读取失败或超时；当前仅显示历史迁移快照，不能视为实时同步。请点击“刷新云端数据”重试；正式写入关闭。';
+   if(current()){
+    fullReadVerified=false;
+    showSync('部分数据读取失败或超时，未完全同步；请点击刷新重试。','partial');
+   }
+   return false;
   }).finally(()=>{
-   if(serial===documentReadSerial&&documentPending===scopeKey)
-    documentPending='';
+   if(serial===documentReadSerial&&documentPending===scopeKey){
+    documentPending='';documentReadTask=null;
+   }
   });
+  documentReadTask=task;
+  return task;
  }
  async function restore({verifiedStatus=null,expectedPurchaseId=null,expectedUseId=null,
   expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null,
   expectedBatch=null,expectedQuotes=null,expectedGrowth=null,
-  expectedProfile=null,expectedSettings=null,expectedReference=null}={}){
+  expectedProfile=null,expectedSettings=null,expectedReference=null,
+  requireComplete=false}={}){
   if(busy)return expectedBatch!==null?'BATCH_READBACK_PENDING':
    expectedQuotes!==null?'QUOTES_READBACK_PENDING':
    expectedGrowth!==null?'GROWTH_READBACK_PENDING':
@@ -312,6 +364,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    expectedSettings!==null?'SETTINGS_READBACK_PENDING':
    expectedReference!==null?'REFERENCE_READBACK_PENDING':mode;
   busy=true;const token=++revision;
+  fullReadVerified=false;
   // Retain the verified same-account view during visibility/online rechecks.
   // A real identity, permission or primary failure still clears it below.
   if(mode!=='ready'&&mode!=='boot')screen('boot','正在打开小宝管家…');
@@ -742,11 +795,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    $('formalCurrentAccount').textContent=ctx.actorUid;
    $('formalCurrentFamily').textContent=ctx.familyId;
    screen('ready');
-   $('formalSyncState').textContent=documentsVerified?
-    '正式宝宝及五类共享文档已验证；本测试版本关闭云端写入。':
-    documentsClient?
-    '已验证正式宝宝及库存；正在核验五类共享文档（双轮读取），当前暂显示历史迁移快照，不代表实时同步；正式写入关闭。':
-    '已验证正式宝宝及库存；共享文档读取组件不可用，当前仅显示历史迁移快照，不代表实时同步；正式写入关闭。';
+   if(documentsVerified)confirmedFullRead();
+   else showSync(documentsClient?'库存已更新，正在核验共享数据…':
+    '库存已更新，共享数据暂不可用；请点击刷新重试。','partial');
    // Enrich the account label only; cannot gate UI readiness or leak across
    // actor switches. SDK continues to own all session and refresh tokens.
    void bounded(()=>ctx.app.auth.getSession(),6000).then(session=>{
@@ -757,8 +808,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if(typeof email==='string'&&email)
      $('formalCurrentAccount').textContent=email;
    }).catch(()=>{});
-   if(!documentsVerified)
-    optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
+   if(!documentsVerified){
+    const reading=optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
+    if(requireComplete===true&&await reading!==true)
+     return 'SYNC_PARTIAL';
+   }
    if(documentWritesEnabled===true)
     void refreshConflictButton().catch(()=>{});
     if(purchaseReleaseEnabled===true)
@@ -880,7 +934,20 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalSendOtp',sendOtp);
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
-  on('formalRefresh',restore);
+  on('formalRefresh',async()=>{
+   if(busy||refreshBusy)return;
+   refreshBusy=true;fullReadVerified=false;
+   const button=$('formalRefresh');
+   if(button)button.disabled=true;
+   showSync('正在刷新…','refreshing');
+   try{
+    const next=await restore({requireComplete:true});
+    if(next!=='ready'&&next!=='SYNC_PARTIAL'&&mode==='ready')
+     showSync('读取尚未完成，请稍后刷新。','partial');
+   }finally{
+    refreshBusy=false;if(button)button.disabled=false;
+   }
+  });
    // The 027 conflict must be proven uncommitted before user-confirmed archival.
    if($('formalResolveBatchConflict'))on('formalResolveBatchConflict',async()=>{
     if(mode!=='ready'||purchaseReleaseEnabled!==true
@@ -987,9 +1054,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   const documentsApproved=()=>documentWritesEnabled===true;
   const purchasesApproved=()=>purchaseReleaseEnabled===true
     &&purchaseOperatorApproved()===true;
+  $('formalSyncNow').hidden=true;
   if(documentsApproved()||purchasesApproved()){
    $('formalSyncNow').disabled=false;
-   $('formalSyncNow').textContent='重新核验待确认操作';
+   $('formalSyncNow').textContent='核验待处理';
   }
   on('formalSyncNow',async()=>{
    if(!documentsApproved()&&!purchasesApproved()){
