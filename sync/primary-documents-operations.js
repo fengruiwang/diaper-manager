@@ -12,7 +12,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
  cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
- fastReferenceEnabled=false,
+ fastReferenceEnabled=false,fastQuotesEnabled=false,
  allowGrowth=false,allowProfile=false,allowSettings=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
@@ -25,7 +25,9 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   throw Error('primary_docs_outbox:outbox_incomplete');
  let busy=false;
  // Volatile proof of a fresh IDB enqueue, never persisted or reused after reload.
- const freshReferenceIds=new Map();
+ const freshReferenceIds=new Map(); // scoped, volatile first-send proof
+ const fastKind=kind=>kind==='reference'?fastReferenceEnabled===true:
+  kind==='quotes'&&fastQuotesEnabled===true;
  const enabledKind=kind=>referenceAndQuotes===true
   ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
     ||(allowProfile===true&&kind==='profile')
@@ -63,7 +65,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity();
    let state;
-   if(kind==='reference'&&verifiedBaseline!==null){
+   if((kind==='reference'||kind==='quotes')&&verifiedBaseline!==null){
     if(verifiedBaseline.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
       ||verifiedBaseline.kind!==kind||verifiedBaseline.familyId!==scope.familyId
       ||verifiedBaseline.actorUid!==scope.actorUid
@@ -71,9 +73,11 @@ function create({controller,host,documentsClient,outboxFactory,contract,
       ||verifiedBaseline.revision!==expectedRevision
       ||!verifiedBaseline.body||typeof verifiedBaseline.body!=='object'
       ||Array.isArray(verifiedBaseline.body)
-      ||!verifiedBaseline.body.referenceOverrides
-      ||typeof verifiedBaseline.body.referenceOverrides!=='object'
-      ||Array.isArray(verifiedBaseline.body.referenceOverrides))
+      ||(kind==='reference'
+       ?(!verifiedBaseline.body.referenceOverrides
+         ||typeof verifiedBaseline.body.referenceOverrides!=='object'
+         ||Array.isArray(verifiedBaseline.body.referenceOverrides))
+       :!Array.isArray(verifiedBaseline.body.items)))
      return ans('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
     state=verifiedBaseline;
    }else state=await documentsClient.read({...scope,kind,readEnabled:true});
@@ -88,12 +92,14 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     payload:{childId:state.childId,kind,nextBody}
    });
    // An old queued operation or a reused UUID is never a "first send".
-   const previous=kind==='reference'&&verifiedBaseline!==null
+   const previous=fastKind(kind)&&verifiedBaseline!==null
     ?await outbox.get(scope,requestId):null;
    const inserted=await outbox.enqueue(op);
-   if(fastReferenceEnabled===true&&kind==='reference'
-      &&verifiedBaseline!==null&&!previous&&inserted?.duplicate!==true)
-    freshReferenceIds.set(op.id,scope.familyId+'\\x00'+scope.actorUid);
+   if(fastKind(kind)&&verifiedBaseline!==null&&!previous
+      &&inserted?.duplicate!==true)
+    freshReferenceIds.set(op.id,Object.freeze({
+     scope:scope.familyId+'\\x00'+scope.actorUid,kind
+    }));
    return ans('DOCUMENT_OPERATION_DURABLY_QUEUED',{
     requestId:op.id,duplicate:Boolean(previous)||inserted?.duplicate===true,
     cloudWriteCommitted:false
@@ -102,7 +108,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    {requestId});}
   finally{busy=false;}
  }
- async function send({operatorApproved=false,fastReferenceId=null}={}){
+ async function send({operatorApproved=false,fastReferenceId=null,
+  fastDocumentId=null}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(!online())return ans('DOCUMENT_OFFLINE_QUEUE_PRESERVED');
@@ -110,16 +117,19 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity(),items=await outbox.ready(scope);
-   const fastReference=fastReferenceEnabled===true
-    &&typeof fastReferenceId==='string'
-    &&freshReferenceIds.get(fastReferenceId)===
-     scope.familyId+'\\x00'+scope.actorUid
-    &&items.length===1&&items[0].id===fastReferenceId
-    &&items[0].payload?.kind==='reference';
-   if(fastReferenceEnabled===true&&fastReferenceId!==null&&!fastReference)
-    return ans('DOCUMENT_PENDING_REVIEW_REQUIRED',{requestId:fastReferenceId});
-   // A second send or later session reverts to the receipt-checking path.
-   if(fastReference)freshReferenceIds.delete(fastReferenceId);
+   const fastId=fastDocumentId??fastReferenceId;
+   const wantedKind=fastDocumentId!==null?'quotes':'reference';
+   const fastAllowed=fastKind(wantedKind);
+   const candidate=freshReferenceIds.get(fastId);
+   const fastReference=fastAllowed&&typeof fastId==='string'
+    &&candidate?.scope===scope.familyId+'\\x00'+scope.actorUid
+    &&candidate.kind===wantedKind
+    &&items.length===1&&items[0].id===fastId
+    &&items[0].payload?.kind===wantedKind;
+   if(fastAllowed&&fastId!==null&&!fastReference)
+    return ans('DOCUMENT_PENDING_REVIEW_REQUIRED',{requestId:fastId});
+   // A second send or later session uses existing receipt-first recovery.
+   if(fastReference)freshReferenceIds.delete(fastId);
    if(items.some(op=>!enabledKind(op.payload?.kind)))
     return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    if(!items.length){
@@ -134,7 +144,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     const command={...scope,kind:op.payload.kind,
      nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
      requestId:op.id,operatorApproved:true,
-     fastReference:fastReference&&op.id===fastReferenceId};
+     fastReference:fastReference&&op.id===fastId};
     // P3 shared-document retries inspect the original request receipt
     // before sending. No new request UUID on an ambiguous network ACK.
     if(strictReceipt&&!fastReference){
@@ -168,8 +178,11 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      if(!acknowledged)return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',
       {requestId:op.id});
     }
-    if(fastReference&&result.status==='PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED')
-     return ans('DOCUMENT_REFERENCE_PERMISSION_DENIED_KEEP_ID',{requestId:op.id});
+    if(fastReference&&['PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED',
+      'PRIMARY_DOCUMENT_QUOTES_PERMISSION_DENIED'].includes(result.status))
+     return ans(op.payload.kind==='quotes'
+      ?'DOCUMENT_QUOTES_PERMISSION_DENIED_KEEP_ID'
+      :'DOCUMENT_REFERENCE_PERMISSION_DENIED_KEEP_ID',{requestId:op.id});
     if(result.status==='PRIMARY_DOCUMENT_VERSION_CONFLICT'){
      await outbox.recordResult(scope,op.id,{kind:'conflict'});
      return ans('DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW',
@@ -192,7 +205,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      // expected CAS revision. An ambiguous or duplicate ACK does not show
      // potentially stale document content as the newest local version.
      const exact=result.status==='PRIMARY_DOCUMENT_COMMITTED'
-      &&result.kind==='reference'&&result.requestId===op.id
+      &&result.kind===op.payload.kind&&result.requestId===op.id
       &&result.familyId===scope.familyId
       &&result.childId===op.payload.childId
       &&result.revision===op.expectedRevision+1;
@@ -201,14 +214,17 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      try{await outbox.recordResult(scope,op.id,{
       kind:'accepted',receiptId:op.id
      });}catch(_){
-      return ans('DOCUMENT_REFERENCE_ACK_LOCAL_PENDING',{requestId:op.id});
+      return ans(op.payload.kind==='quotes'
+       ?'DOCUMENT_QUOTES_ACK_LOCAL_PENDING':'DOCUMENT_REFERENCE_ACK_LOCAL_PENDING',
+       {requestId:op.id});
      }
      if(!exact||result.duplicate===true||recoveredFromReceipt)
-      return ans('DOCUMENT_REFERENCE_ACK_RECOVERED_NEEDS_REFRESH',{
-       requestId:op.id
-      });
-     return ans('DOCUMENT_REFERENCE_ACK_CONFIRMED',{
-      requestId:op.id,kind:'reference',familyId:scope.familyId,
+      return ans(op.payload.kind==='quotes'
+       ?'DOCUMENT_QUOTES_ACK_RECOVERED_NEEDS_REFRESH'
+       :'DOCUMENT_REFERENCE_ACK_RECOVERED_NEEDS_REFRESH',{requestId:op.id});
+     return ans(op.payload.kind==='quotes'
+      ?'DOCUMENT_QUOTES_ACK_CONFIRMED':'DOCUMENT_REFERENCE_ACK_CONFIRMED',{
+      requestId:op.id,kind:op.payload.kind,familyId:scope.familyId,
       actorUid:scope.actorUid,childId:op.payload.childId,
       revision:result.revision,expectedRevision:op.expectedRevision,
       nextBody:op.payload.nextBody

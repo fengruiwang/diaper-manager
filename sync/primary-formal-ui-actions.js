@@ -24,7 +24,8 @@
   readDocumentInput=null,readReferenceBaseline=null,
   onReferenceReadback=null,onReferenceAck=null,allowReference=false,
   allowQuotes=false,readQuotesBaseline=null,onQuotesReadback=null,
-  confirmQuoteClear=()=>false,prepareQuoteEdit=null,
+  onQuotesAck=null,confirmQuoteClear=()=>false,confirmQuoteDelete=()=>true,
+  prepareQuoteEdit=null,
   allowGrowth=false,readGrowthBaseline=null,onGrowthReadback=null,
   confirmGrowthDelete=()=>false,
   allowProfile=false,readProfileBaseline=null,onProfileReadback=null,
@@ -46,7 +47,50 @@
   const minimalBusy={purchase:false,quotes:false};
   const minimalReview={purchase:null,quotes:null};
   const minimalLabels={purchase:null,quotes:null};
-  let minimalQuoteIntent=null;
+  let minimalQuoteIntent=null,quoteButton=null,quoteButtonLabel='',quoteAction='add';
+  function quoteFeedback(phase,answer=null){
+   const doc=attached?.doc;
+   const action=minimalQuoteIntent?.action||quoteAction;
+   const list=action==='delete'||action==='clear';
+   const node=doc?.getElementById(list
+    ?'formalQuoteListFeedback':'formalCompareActionFeedback');
+   const words={
+    add:['正在保存候选价…','候选价保存成功'],
+    edit:['正在保存修改…','候选价修改成功'],
+    delete:['正在删除…','候选价已删除'],
+    clear:['正在清空…','候选价已清空']
+   }[action]||['正在保存候选价…','候选价已保存'];
+   const status=String(answer?.status||'');
+   if(node)node.textContent=phase==='working'?words[0]
+    :phase==='success'?words[1]+'，云端 ACK 已确认，当前列表已更新。'
+    :phase==='pending'
+     ?(/CONFLICT|REVISION/.test(status)
+       ?'云端数据版本已变化，请处理原请求冲突后刷新；请勿重复提交。'
+       :'正在核验，请勿重复提交；原 UUID 已保留。')
+    :phase==='recovered'?'原候选价操作已核验，可继续操作。'
+    :phase==='cancelled'?'已取消操作，未提交云端请求。'
+    :/FORM_INVALID|RECORD_NOT|ALREADY_EMPTY|BASELINE/.test(status)
+     ?'未保存：请检查输入或刷新候选价后再试。'
+    :/PERMISSION|NOT_AUTHORIZED/.test(status)
+     ?'服务器拒绝保存：请检查账号和家庭权限，原请求保留。'
+     :errorText(status,'quotes');
+   const waiting=phase==='working'||phase==='pending';
+   const save=doc?.getElementById('saveQuote');
+   const clear=doc?.getElementById('clearQuotes');
+   const controls=[save,clear,...(doc?.getElementById('quoteList')
+    ?.querySelectorAll?.('[data-action="deletequote"],[data-action="editquote"]')||[])];
+   for(const button of controls)if(button)button.disabled=waiting;
+   if(quoteButton&&waiting)quoteButton.disabled=true;
+   if(quoteButton&&waiting)quoteButton.textContent=
+    phase==='pending'?'等待核验…':words[0];
+   if(!waiting){
+    if(quoteButton&&quoteButton!==save)
+     quoteButton.textContent=quoteButtonLabel;
+    if(save&&quoteButton===save)
+     save.textContent=phase==='success'?'加入候选价':quoteButtonLabel;
+    quoteButton=null;quoteButtonLabel='';
+   }
+  }
   function errorText(status,kind){
    const name=kind==='purchase'?'采购':kind==='quotes'?'候选价':'默认价';
    if(/NOT_AUTHORIZED|CONTRACT_NOT_READY|FORMAL_PURCHASE_ONLY/.test(status))
@@ -58,6 +102,7 @@
    return name+'保存未完成，请检查网络及同步状态后再操作。';
   }
   function minimalFeedback(kind,phase,answer=null){
+   if(kind==='quotes')return quoteFeedback(phase,answer);
    const dom=attached?.doc;
    const button=dom?.getElementById(kind==='purchase'?'buyNow':'saveQuote');
    const text=dom?.getElementById('formalCompareActionFeedback');
@@ -83,7 +128,13 @@
     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
    }
    minimalBusy[kind]=true;
-   if(kind==='quotes')minimalQuoteIntent=null;
+   if(kind==='quotes'){
+    minimalQuoteIntent=null;quoteButton=el;
+    quoteButtonLabel=el.textContent||'加入候选价';
+    quoteAction=el.id==='clearQuotes'?'clear':
+     el.dataset?.action==='deletequote'?'delete':
+     /修改/.test(quoteButtonLabel)?'edit':'add';
+   }
    minimalFeedback(kind,'working');
    // Set the existing invoke busy guard synchronously before a second click.
    let promise;
@@ -92,7 +143,8 @@
    void Promise.resolve(promise).then(answer=>{
     const success=answer?.status===(kind==='purchase'
      ?'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED':
-      'QUOTES_CLOUD_READBACK_VERIFIED');
+      'QUOTES_CLOUD_READBACK_VERIFIED')
+     ||kind==='quotes'&&answer?.status==='QUOTES_CLOUD_ACK_APPLIED';
     if(!success){
      const id=kind==='purchase'?answer?.operationId:answer?.requestId;
      if(typeof id==='string'&&id)
@@ -102,7 +154,9 @@
          expectedRevision:minimalQuoteIntent?.expectedRevision});
     }
     minimalFeedback(kind,success?'success':
-     minimalReview[kind]?'pending':'failed',answer);
+     minimalReview[kind]?'pending':
+     ['QUOTES_CLEAR_CANCELLED','QUOTES_DELETE_CANCELLED'].includes(answer?.status)
+      ?'cancelled':'failed',answer);
     notify(answer);
    },()=>{
     minimalFeedback(kind,'failed',result('FORMAL_OPERATION_REVIEW_REQUIRED'));
@@ -429,6 +483,9 @@
        ||!baseline.body.items.some(row=>row.id===input.record.id))
       return result('QUOTES_RECORD_NOT_IN_DISPLAYED_LIST');
     }
+    if(input.action==='delete'
+      &&confirmQuoteDelete(input.record.id)!==true)
+     return result('QUOTES_DELETE_CANCELLED');
     if(input.action==='add'&&(!input.record?.id
       ||baseline.body.items.some(row=>row.id===input.record.id)))
      return result('QUOTES_FORM_INVALID');
@@ -437,16 +494,29 @@
      record:input.record?Object.freeze({...input.record}):null});
     const saved=await documentCommands.submit({
      ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
-     expectedRevision:baseline.revision,operatorApproved:true
+     expectedRevision:baseline.revision,operatorApproved:true,
+     verifiedBaseline:baseline
     });
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('QUOTES_COMMAND_UNVERIFIED');
     const requestId=saved.requestId;
     let sync;
-    try{sync=await documentQueue.send({operatorApproved:true});}
+    try{sync=await documentQueue.send({operatorApproved:true,
+     fastDocumentId:requestId});}
     catch(_){return Object.freeze({
      status:'QUOTES_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
     });}
+    if(sync?.status==='DOCUMENT_QUOTES_ACK_CONFIRMED'){
+     let applied='pending';
+     try{applied=typeof onQuotesAck==='function'
+      ?await onQuotesAck({...sync,action:input.action,
+       record:input.record}):'pending';}catch(_){}
+     return Object.freeze({
+      status:applied==='ready'?'QUOTES_CLOUD_ACK_APPLIED':
+       'QUOTES_COMMITTED_READBACK_REQUIRED',
+      requestId,action:input.action,cloudWriteCommitted:true
+     });
+    }
     if(sync?.status!=='DOCUMENT_SYNC_CONFIRMED')
      return Object.freeze({
       status:sync?.status||'QUOTES_ACK_UNKNOWN_KEEP_REQUEST_ID',
@@ -896,7 +966,8 @@
     if(el.id==='buyNow'){
      dispatchMinimal(el,doc,'purchase');return;
     }
-    if(el.id==='saveQuote'){
+    if(el.id==='saveQuote'||el.id==='clearQuotes'
+      ||action==='deletequote'){
      dispatchMinimal(el,doc,'quotes');return;
     }
     Promise.resolve().then(()=>handle(el,doc)).then(notify,

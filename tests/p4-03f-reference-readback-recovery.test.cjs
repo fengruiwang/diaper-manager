@@ -301,3 +301,46 @@ test('B2-01 confirmed ACK updates reference overlay without reading any other do
  }), 'pending','A callback cannot mutate B account');
  assert.equal(f.view.state.referenceOverrides[KEY],1.21);
 });
+
+test('B2-02 quotes ACK updates only local full-document projection for add/edit/delete/clear',async()=>{
+ const f=fixture();await f.ready();
+ const readAll=f.readAllCalls,receipt=f.receiptCalls,shows=f.shows.length;
+ let version=0;
+ const ack=async(action,record,items)=>{
+  const next={items,unexpectedRoot:{keep:'latest'}};
+  const response=await f.actionOptions.onQuotesAck({
+   kind:'quotes',familyId:FAMILY,actorUid:'A',childId:CHILD,
+   requestId:ID,expectedRevision:version,revision:version+1,
+   action,record,nextBody:next
+  });
+  assert.equal(response,'ready',action+' should apply the 026 ACK directly');
+  version++;
+  assert.equal(f.actionOptions.readQuotesBaseline().revision,version);
+  assert.deepEqual(f.actionOptions.readQuotesBaseline().body.unexpectedRoot,
+   {keep:'latest'});
+  assert.equal(f.readAllCalls,readAll,'no whole-document restore for '+action);
+  assert.equal(f.receiptCalls,receipt,'no receipt lookup for '+action);
+ };
+ const q={id:'q1',brand:'好奇',price:55};
+ await ack('add',q,[q]);
+ assert.equal(f.view.state.quotes.length,1);
+ await ack('edit',{id:'q1',price:60},[{...q,price:60}]);
+ assert.equal(f.view.state.quotes[0].price,60);
+ await ack('delete',{id:'q1'},[]);
+ assert.equal(f.view.state.quotes.length,0);
+ await ack('add',{id:'q2',brand:'大王'},[{id:'q2',brand:'大王'}]);
+ await ack('clear',null,[]);
+ assert.equal(f.view.state.quotes.length,0);
+ assert.equal(f.shows.length,shows+5);
+ assert.equal(await f.actionOptions.onQuotesAck({
+  kind:'quotes',familyId:FAMILY,actorUid:'A',childId:CHILD,
+  requestId:ID,expectedRevision:0,revision:1,
+  action:'add',record:q,nextBody:{items:[q]}}),'pending');
+ assert.equal(f.view.state.quotes.length,0,'stale ACK cannot roll back the list');
+ f.setActor('B');
+ assert.equal(await f.actionOptions.onQuotesAck({
+  kind:'quotes',familyId:FAMILY,actorUid:'A',childId:CHILD,
+  requestId:ID,expectedRevision:version,revision:version+1,
+  action:'add',record:q,nextBody:{items:[q]}}),'pending');
+ assert.equal(f.view.state.quotes.length,0,'old A response never updates B');
+});

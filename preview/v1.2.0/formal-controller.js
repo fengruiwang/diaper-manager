@@ -624,6 +624,48 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          actorUid:actor}:null,
       confirmQuoteClear:()=>host.confirm?.(
        '确定清空全部候选价格？不会影响采购记录。')===true,
+      confirmQuoteDelete:()=>host.confirm?.(
+       '确定删除这条候选价格？不会影响已购买记录。')===true,
+      onQuotesAck:async(ack)=>{
+       const current=controller.verifiedContext();
+       const key=ctx.actorUid+'\x00'+ctx.familyId;
+       const previous=documentSnapshot?.documents?.quotes;
+       if(!current||mode!=='ready'||identityEpoch!==documentEpoch
+         ||actor!==ctx.actorUid||family!==ctx.familyId
+         ||current.actorUid!==ctx.actorUid||current.familyId!==ctx.familyId
+         ||!primaryViewBase||documentScope!==key
+         ||documentSnapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ'
+         ||previous?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ||ack?.kind!=='quotes'||ack.familyId!==ctx.familyId
+         ||ack.actorUid!==ctx.actorUid||ack.childId!==previous.childId
+         ||typeof ack.requestId!=='string'||!ack.requestId
+         ||!Number.isSafeInteger(ack.expectedRevision)
+         ||!Number.isSafeInteger(ack.revision)
+         ||ack.expectedRevision!==previous.revision
+         ||ack.revision!==previous.revision+1
+         ||!ack.nextBody||typeof ack.nextBody!=='object'
+         ||Array.isArray(ack.nextBody)||!Array.isArray(ack.nextBody.items))
+        return 'pending';
+       const revised=Object.freeze({...previous,revision:ack.revision,
+        body:ack.nextBody});
+       if(!quoteChangeVisible(revised,ack))return 'pending';
+       const snapshot=Object.freeze({...documentSnapshot,
+        documents:Object.freeze({...documentSnapshot.documents,quotes:revised})});
+       let updated;
+       try{
+        updated=documentsOverlay.apply(primaryViewBase,snapshot);
+        if(updated?.sharedBusinessDocumentsVerified!==true
+          ||updated.cloudDocumentsActorScope?.childId!==ack.childId)
+         return 'pending';
+        showCloudView(updated,current);
+       }catch(_){return 'pending';}
+       documentSnapshot=snapshot;
+       root.XBFormalUIData?.finishQuoteEdit?.({
+        action:ack.action,recordId:ack.record?.id
+       });
+       // A single successful write is not a full cloud pull.
+       return 'ready';
+      },
       onQuotesReadback:async(expected)=>{
        const current=controller.verifiedContext();
        if(!current||!documentsClient||!documentsGuard
@@ -827,12 +869,18 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'已取消删除，体重记录未改变。'
          :answer?.status==='GROWTH_FORM_INVALID'
          ?'体重表单信息不完整，请核查日期、时间和体重后重试。'
+         :answer?.status==='QUOTES_CLOUD_ACK_APPLIED'
+         ?'候选价操作已由云端确认，当前列表已更新；其他家庭账号刷新后可查看。'
          :answer?.status==='QUOTES_CLOUD_READBACK_VERIFIED'
          ?'候选价已同步到云端，列表已更新；其他家庭账号刷新后可查看。'
          :answer?.status==='QUOTES_COMMITTED_READBACK_REQUIRED'
          ?'候选价回执已确认，页面尚待重新读取；请刷新，不要重复保存。'
          :answer?.status==='QUOTES_CLEAR_CANCELLED'
          ?'已取消清空候选价，云端列表保持不变。'
+         :answer?.status==='QUOTES_DELETE_CANCELLED'
+         ?'已取消删除候选价，未提交云端请求。'
+         :answer?.status==='DOCUMENT_QUOTES_PERMISSION_DENIED_KEEP_ID'
+         ?'服务器拒绝候选价写入，请检查权限；原 UUID 已保留。'
          :answer?.status==='QUOTES_ALREADY_EMPTY'
          ?'候选价列表已为空，无需清空。'
          :answer?.status==='QUOTE_FIELDS_READY_TO_EDIT'
@@ -1311,7 +1359,7 @@ function browserStart(){
     outboxFactory:root.XBDurableOutbox,
     contract:root.XBOutboxContract,
     cloudWritesEnabled:FORMAL_WRITE_ENABLED,
-    fastReferenceEnabled:true,
+    fastReferenceEnabled:true,fastQuotesEnabled:true,
     referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,

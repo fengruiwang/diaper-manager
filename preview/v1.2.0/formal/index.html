@@ -206,6 +206,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
       </div>
       <div class="head"><h2>📊 我的候选价格</h2><button class="btn ghost sm" id="clearQuotes">清空候选</button></div>
       <div class="card" id="quoteList"></div>
+      <div class="fine" id="formalQuoteListFeedback" role="status" aria-live="polite"></div>
       <p class="soft-note">输入整单实际支付总价，片数应包含实际收到的赠品片数。参考价格取自本工具的内置好价库，可以自行调整；纸尿裤与拉拉裤请核对具体商品是否一致。</p>
       <div class="head"><h2>📚 参考好价速查表</h2><span class="sub">按品牌 / 尺码查找，支持修改自己的参考价</span></div>
       <div class="card">
@@ -3723,7 +3724,8 @@ restoreActiveTab();
   readDocumentInput=null,readReferenceBaseline=null,
   onReferenceReadback=null,onReferenceAck=null,allowReference=false,
   allowQuotes=false,readQuotesBaseline=null,onQuotesReadback=null,
-  confirmQuoteClear=()=>false,prepareQuoteEdit=null,
+  onQuotesAck=null,confirmQuoteClear=()=>false,confirmQuoteDelete=()=>true,
+  prepareQuoteEdit=null,
   allowGrowth=false,readGrowthBaseline=null,onGrowthReadback=null,
   confirmGrowthDelete=()=>false,
   allowProfile=false,readProfileBaseline=null,onProfileReadback=null,
@@ -3745,7 +3747,50 @@ restoreActiveTab();
   const minimalBusy={purchase:false,quotes:false};
   const minimalReview={purchase:null,quotes:null};
   const minimalLabels={purchase:null,quotes:null};
-  let minimalQuoteIntent=null;
+  let minimalQuoteIntent=null,quoteButton=null,quoteButtonLabel='',quoteAction='add';
+  function quoteFeedback(phase,answer=null){
+   const doc=attached?.doc;
+   const action=minimalQuoteIntent?.action||quoteAction;
+   const list=action==='delete'||action==='clear';
+   const node=doc?.getElementById(list
+    ?'formalQuoteListFeedback':'formalCompareActionFeedback');
+   const words={
+    add:['正在保存候选价…','候选价保存成功'],
+    edit:['正在保存修改…','候选价修改成功'],
+    delete:['正在删除…','候选价已删除'],
+    clear:['正在清空…','候选价已清空']
+   }[action]||['正在保存候选价…','候选价已保存'];
+   const status=String(answer?.status||'');
+   if(node)node.textContent=phase==='working'?words[0]
+    :phase==='success'?words[1]+'，云端 ACK 已确认，当前列表已更新。'
+    :phase==='pending'
+     ?(/CONFLICT|REVISION/.test(status)
+       ?'云端数据版本已变化，请处理原请求冲突后刷新；请勿重复提交。'
+       :'正在核验，请勿重复提交；原 UUID 已保留。')
+    :phase==='recovered'?'原候选价操作已核验，可继续操作。'
+    :phase==='cancelled'?'已取消操作，未提交云端请求。'
+    :/FORM_INVALID|RECORD_NOT|ALREADY_EMPTY|BASELINE/.test(status)
+     ?'未保存：请检查输入或刷新候选价后再试。'
+    :/PERMISSION|NOT_AUTHORIZED/.test(status)
+     ?'服务器拒绝保存：请检查账号和家庭权限，原请求保留。'
+     :errorText(status,'quotes');
+   const waiting=phase==='working'||phase==='pending';
+   const save=doc?.getElementById('saveQuote');
+   const clear=doc?.getElementById('clearQuotes');
+   const controls=[save,clear,...(doc?.getElementById('quoteList')
+    ?.querySelectorAll?.('[data-action="deletequote"],[data-action="editquote"]')||[])];
+   for(const button of controls)if(button)button.disabled=waiting;
+   if(quoteButton&&waiting)quoteButton.disabled=true;
+   if(quoteButton&&waiting)quoteButton.textContent=
+    phase==='pending'?'等待核验…':words[0];
+   if(!waiting){
+    if(quoteButton&&quoteButton!==save)
+     quoteButton.textContent=quoteButtonLabel;
+    if(save&&quoteButton===save)
+     save.textContent=phase==='success'?'加入候选价':quoteButtonLabel;
+    quoteButton=null;quoteButtonLabel='';
+   }
+  }
   function errorText(status,kind){
    const name=kind==='purchase'?'采购':kind==='quotes'?'候选价':'默认价';
    if(/NOT_AUTHORIZED|CONTRACT_NOT_READY|FORMAL_PURCHASE_ONLY/.test(status))
@@ -3757,6 +3802,7 @@ restoreActiveTab();
    return name+'保存未完成，请检查网络及同步状态后再操作。';
   }
   function minimalFeedback(kind,phase,answer=null){
+   if(kind==='quotes')return quoteFeedback(phase,answer);
    const dom=attached?.doc;
    const button=dom?.getElementById(kind==='purchase'?'buyNow':'saveQuote');
    const text=dom?.getElementById('formalCompareActionFeedback');
@@ -3782,7 +3828,13 @@ restoreActiveTab();
     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
    }
    minimalBusy[kind]=true;
-   if(kind==='quotes')minimalQuoteIntent=null;
+   if(kind==='quotes'){
+    minimalQuoteIntent=null;quoteButton=el;
+    quoteButtonLabel=el.textContent||'加入候选价';
+    quoteAction=el.id==='clearQuotes'?'clear':
+     el.dataset?.action==='deletequote'?'delete':
+     /修改/.test(quoteButtonLabel)?'edit':'add';
+   }
    minimalFeedback(kind,'working');
    // Set the existing invoke busy guard synchronously before a second click.
    let promise;
@@ -3791,7 +3843,8 @@ restoreActiveTab();
    void Promise.resolve(promise).then(answer=>{
     const success=answer?.status===(kind==='purchase'
      ?'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED':
-      'QUOTES_CLOUD_READBACK_VERIFIED');
+      'QUOTES_CLOUD_READBACK_VERIFIED')
+     ||kind==='quotes'&&answer?.status==='QUOTES_CLOUD_ACK_APPLIED';
     if(!success){
      const id=kind==='purchase'?answer?.operationId:answer?.requestId;
      if(typeof id==='string'&&id)
@@ -3801,7 +3854,9 @@ restoreActiveTab();
          expectedRevision:minimalQuoteIntent?.expectedRevision});
     }
     minimalFeedback(kind,success?'success':
-     minimalReview[kind]?'pending':'failed',answer);
+     minimalReview[kind]?'pending':
+     ['QUOTES_CLEAR_CANCELLED','QUOTES_DELETE_CANCELLED'].includes(answer?.status)
+      ?'cancelled':'failed',answer);
     notify(answer);
    },()=>{
     minimalFeedback(kind,'failed',result('FORMAL_OPERATION_REVIEW_REQUIRED'));
@@ -4128,6 +4183,9 @@ restoreActiveTab();
        ||!baseline.body.items.some(row=>row.id===input.record.id))
       return result('QUOTES_RECORD_NOT_IN_DISPLAYED_LIST');
     }
+    if(input.action==='delete'
+      &&confirmQuoteDelete(input.record.id)!==true)
+     return result('QUOTES_DELETE_CANCELLED');
     if(input.action==='add'&&(!input.record?.id
       ||baseline.body.items.some(row=>row.id===input.record.id)))
      return result('QUOTES_FORM_INVALID');
@@ -4136,16 +4194,29 @@ restoreActiveTab();
      record:input.record?Object.freeze({...input.record}):null});
     const saved=await documentCommands.submit({
      ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
-     expectedRevision:baseline.revision,operatorApproved:true
+     expectedRevision:baseline.revision,operatorApproved:true,
+     verifiedBaseline:baseline
     });
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('QUOTES_COMMAND_UNVERIFIED');
     const requestId=saved.requestId;
     let sync;
-    try{sync=await documentQueue.send({operatorApproved:true});}
+    try{sync=await documentQueue.send({operatorApproved:true,
+     fastDocumentId:requestId});}
     catch(_){return Object.freeze({
      status:'QUOTES_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
     });}
+    if(sync?.status==='DOCUMENT_QUOTES_ACK_CONFIRMED'){
+     let applied='pending';
+     try{applied=typeof onQuotesAck==='function'
+      ?await onQuotesAck({...sync,action:input.action,
+       record:input.record}):'pending';}catch(_){}
+     return Object.freeze({
+      status:applied==='ready'?'QUOTES_CLOUD_ACK_APPLIED':
+       'QUOTES_COMMITTED_READBACK_REQUIRED',
+      requestId,action:input.action,cloudWriteCommitted:true
+     });
+    }
     if(sync?.status!=='DOCUMENT_SYNC_CONFIRMED')
      return Object.freeze({
       status:sync?.status||'QUOTES_ACK_UNKNOWN_KEEP_REQUEST_ID',
@@ -4595,7 +4666,8 @@ restoreActiveTab();
     if(el.id==='buyNow'){
      dispatchMinimal(el,doc,'purchase');return;
     }
-    if(el.id==='saveQuote'){
+    if(el.id==='saveQuote'||el.id==='clearQuotes'
+      ||action==='deletequote'){
      dispatchMinimal(el,doc,'quotes');return;
     }
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
@@ -5012,7 +5084,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
  cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
- fastReferenceEnabled=false,
+ fastReferenceEnabled=false,fastQuotesEnabled=false,
  allowGrowth=false,allowProfile=false,allowSettings=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
@@ -5025,7 +5097,9 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   throw Error('primary_docs_outbox:outbox_incomplete');
  let busy=false;
  // Volatile proof of a fresh IDB enqueue, never persisted or reused after reload.
- const freshReferenceIds=new Map();
+ const freshReferenceIds=new Map(); // scoped, volatile first-send proof
+ const fastKind=kind=>kind==='reference'?fastReferenceEnabled===true:
+  kind==='quotes'&&fastQuotesEnabled===true;
  const enabledKind=kind=>referenceAndQuotes===true
   ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
     ||(allowProfile===true&&kind==='profile')
@@ -5063,7 +5137,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity();
    let state;
-   if(kind==='reference'&&verifiedBaseline!==null){
+   if((kind==='reference'||kind==='quotes')&&verifiedBaseline!==null){
     if(verifiedBaseline.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
       ||verifiedBaseline.kind!==kind||verifiedBaseline.familyId!==scope.familyId
       ||verifiedBaseline.actorUid!==scope.actorUid
@@ -5071,9 +5145,11 @@ function create({controller,host,documentsClient,outboxFactory,contract,
       ||verifiedBaseline.revision!==expectedRevision
       ||!verifiedBaseline.body||typeof verifiedBaseline.body!=='object'
       ||Array.isArray(verifiedBaseline.body)
-      ||!verifiedBaseline.body.referenceOverrides
-      ||typeof verifiedBaseline.body.referenceOverrides!=='object'
-      ||Array.isArray(verifiedBaseline.body.referenceOverrides))
+      ||(kind==='reference'
+       ?(!verifiedBaseline.body.referenceOverrides
+         ||typeof verifiedBaseline.body.referenceOverrides!=='object'
+         ||Array.isArray(verifiedBaseline.body.referenceOverrides))
+       :!Array.isArray(verifiedBaseline.body.items)))
      return ans('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
     state=verifiedBaseline;
    }else state=await documentsClient.read({...scope,kind,readEnabled:true});
@@ -5088,12 +5164,14 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     payload:{childId:state.childId,kind,nextBody}
    });
    // An old queued operation or a reused UUID is never a "first send".
-   const previous=kind==='reference'&&verifiedBaseline!==null
+   const previous=fastKind(kind)&&verifiedBaseline!==null
     ?await outbox.get(scope,requestId):null;
    const inserted=await outbox.enqueue(op);
-   if(fastReferenceEnabled===true&&kind==='reference'
-      &&verifiedBaseline!==null&&!previous&&inserted?.duplicate!==true)
-    freshReferenceIds.set(op.id,scope.familyId+'\\x00'+scope.actorUid);
+   if(fastKind(kind)&&verifiedBaseline!==null&&!previous
+      &&inserted?.duplicate!==true)
+    freshReferenceIds.set(op.id,Object.freeze({
+     scope:scope.familyId+'\\x00'+scope.actorUid,kind
+    }));
    return ans('DOCUMENT_OPERATION_DURABLY_QUEUED',{
     requestId:op.id,duplicate:Boolean(previous)||inserted?.duplicate===true,
     cloudWriteCommitted:false
@@ -5102,7 +5180,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    {requestId});}
   finally{busy=false;}
  }
- async function send({operatorApproved=false,fastReferenceId=null}={}){
+ async function send({operatorApproved=false,fastReferenceId=null,
+  fastDocumentId=null}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(!online())return ans('DOCUMENT_OFFLINE_QUEUE_PRESERVED');
@@ -5110,16 +5189,19 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity(),items=await outbox.ready(scope);
-   const fastReference=fastReferenceEnabled===true
-    &&typeof fastReferenceId==='string'
-    &&freshReferenceIds.get(fastReferenceId)===
-     scope.familyId+'\\x00'+scope.actorUid
-    &&items.length===1&&items[0].id===fastReferenceId
-    &&items[0].payload?.kind==='reference';
-   if(fastReferenceEnabled===true&&fastReferenceId!==null&&!fastReference)
-    return ans('DOCUMENT_PENDING_REVIEW_REQUIRED',{requestId:fastReferenceId});
-   // A second send or later session reverts to the receipt-checking path.
-   if(fastReference)freshReferenceIds.delete(fastReferenceId);
+   const fastId=fastDocumentId??fastReferenceId;
+   const wantedKind=fastDocumentId!==null?'quotes':'reference';
+   const fastAllowed=fastKind(wantedKind);
+   const candidate=freshReferenceIds.get(fastId);
+   const fastReference=fastAllowed&&typeof fastId==='string'
+    &&candidate?.scope===scope.familyId+'\\x00'+scope.actorUid
+    &&candidate.kind===wantedKind
+    &&items.length===1&&items[0].id===fastId
+    &&items[0].payload?.kind===wantedKind;
+   if(fastAllowed&&fastId!==null&&!fastReference)
+    return ans('DOCUMENT_PENDING_REVIEW_REQUIRED',{requestId:fastId});
+   // A second send or later session uses existing receipt-first recovery.
+   if(fastReference)freshReferenceIds.delete(fastId);
    if(items.some(op=>!enabledKind(op.payload?.kind)))
     return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    if(!items.length){
@@ -5134,7 +5216,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     const command={...scope,kind:op.payload.kind,
      nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
      requestId:op.id,operatorApproved:true,
-     fastReference:fastReference&&op.id===fastReferenceId};
+     fastReference:fastReference&&op.id===fastId};
     // P3 shared-document retries inspect the original request receipt
     // before sending. No new request UUID on an ambiguous network ACK.
     if(strictReceipt&&!fastReference){
@@ -5168,8 +5250,11 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      if(!acknowledged)return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',
       {requestId:op.id});
     }
-    if(fastReference&&result.status==='PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED')
-     return ans('DOCUMENT_REFERENCE_PERMISSION_DENIED_KEEP_ID',{requestId:op.id});
+    if(fastReference&&['PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED',
+      'PRIMARY_DOCUMENT_QUOTES_PERMISSION_DENIED'].includes(result.status))
+     return ans(op.payload.kind==='quotes'
+      ?'DOCUMENT_QUOTES_PERMISSION_DENIED_KEEP_ID'
+      :'DOCUMENT_REFERENCE_PERMISSION_DENIED_KEEP_ID',{requestId:op.id});
     if(result.status==='PRIMARY_DOCUMENT_VERSION_CONFLICT'){
      await outbox.recordResult(scope,op.id,{kind:'conflict'});
      return ans('DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW',
@@ -5192,7 +5277,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      // expected CAS revision. An ambiguous or duplicate ACK does not show
      // potentially stale document content as the newest local version.
      const exact=result.status==='PRIMARY_DOCUMENT_COMMITTED'
-      &&result.kind==='reference'&&result.requestId===op.id
+      &&result.kind===op.payload.kind&&result.requestId===op.id
       &&result.familyId===scope.familyId
       &&result.childId===op.payload.childId
       &&result.revision===op.expectedRevision+1;
@@ -5201,14 +5286,17 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      try{await outbox.recordResult(scope,op.id,{
       kind:'accepted',receiptId:op.id
      });}catch(_){
-      return ans('DOCUMENT_REFERENCE_ACK_LOCAL_PENDING',{requestId:op.id});
+      return ans(op.payload.kind==='quotes'
+       ?'DOCUMENT_QUOTES_ACK_LOCAL_PENDING':'DOCUMENT_REFERENCE_ACK_LOCAL_PENDING',
+       {requestId:op.id});
      }
      if(!exact||result.duplicate===true||recoveredFromReceipt)
-      return ans('DOCUMENT_REFERENCE_ACK_RECOVERED_NEEDS_REFRESH',{
-       requestId:op.id
-      });
-     return ans('DOCUMENT_REFERENCE_ACK_CONFIRMED',{
-      requestId:op.id,kind:'reference',familyId:scope.familyId,
+      return ans(op.payload.kind==='quotes'
+       ?'DOCUMENT_QUOTES_ACK_RECOVERED_NEEDS_REFRESH'
+       :'DOCUMENT_REFERENCE_ACK_RECOVERED_NEEDS_REFRESH',{requestId:op.id});
+     return ans(op.payload.kind==='quotes'
+      ?'DOCUMENT_QUOTES_ACK_CONFIRMED':'DOCUMENT_REFERENCE_ACK_CONFIRMED',{
+      requestId:op.id,kind:op.payload.kind,familyId:scope.familyId,
       actorUid:scope.actorUid,childId:op.payload.childId,
       revision:result.revision,expectedRevision:op.expectedRevision,
       nextBody:op.payload.nextBody
@@ -5415,25 +5503,23 @@ function create({client,queue,uuid}={}){
    if(wait.status!=='DOCUMENT_QUEUE_COUNTS_VERIFIED'
      ||wait.outstanding>0)
     return reply('DOCUMENT_PENDING_REVIEW_REQUIRED');
-   // Reference uses the COMPLETE verified B1 document, never a rendered
-   // referenceOverrides-only projection. Other kinds keep their old read.
-   let read;
-   if(kind==='reference'&&verifiedBaseline?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
-     &&verifiedBaseline.familyId===familyId
-     &&verifiedBaseline.actorUid===actorUid
-     &&typeof verifiedBaseline.childId==='string'
-     &&Number.isSafeInteger(verifiedBaseline.revision)
-     &&object(verifiedBaseline.body?.referenceOverrides)){
-    if(verifiedBaseline?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
-      ||verifiedBaseline.kind!=='reference'
-      ||verifiedBaseline.familyId!==familyId
-      ||verifiedBaseline.actorUid!==actorUid
-      ||typeof verifiedBaseline.childId!=='string'
-      ||!Number.isSafeInteger(verifiedBaseline.revision)
-      ||!object(verifiedBaseline.body?.referenceOverrides))
-     return reply('DOCUMENT_BASELINE_UNVERIFIED');
-    read=verifiedBaseline;
-   }else read=await client.read({familyId,actorUid,kind,readEnabled:true});
+   // B2 uses the COMPLETE server-verified B1 document for reference/quotes.
+   // A partial projection is never an acceptable whole-document write source.
+   const fastKind=kind==='reference'||kind==='quotes';
+   const reusable=fastKind
+    &&verifiedBaseline?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+    &&verifiedBaseline.kind===kind
+    &&verifiedBaseline.familyId===familyId
+    &&verifiedBaseline.actorUid===actorUid
+    &&typeof verifiedBaseline.childId==='string'
+    &&Number.isSafeInteger(verifiedBaseline.revision)
+    &&verifiedBaseline.revision>=0
+    &&object(verifiedBaseline.body)
+    &&(kind==='reference'?object(verifiedBaseline.body.referenceOverrides):
+       Array.isArray(verifiedBaseline.body.items));
+   const read=reusable?verifiedBaseline:await client.read({
+    familyId,actorUid,kind,readEnabled:true
+   });
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
    // For on-screen reference/quote/growth/profile edits, use the revision that was
@@ -5452,7 +5538,7 @@ function create({client,queue,uuid}={}){
    const requestId=uuid();
    const saved=await queue.queue({kind,nextBody:body,
     expectedRevision:read.revision,requestId,operatorApproved:true,
-    action,verifiedBaseline:kind==='reference'
+    action,verifiedBaseline:fastKind
      &&read.familyId===familyId&&typeof read.childId==='string'
      ?{...read,actorUid}:null});
    return reply(saved.status,{
@@ -5541,9 +5627,9 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
     if(code==='40001')throw Error('primary_docs:revision_conflict');
     if(code==='23505')throw Error('primary_docs:duplicate_request_conflict');
     if(name.endsWith('put_primary_document_draft')
-      &&args?.p_kind==='reference'
+      &&['reference','quotes'].includes(args?.p_kind)
       &&['42501','401','403'].includes(code))
-     throw Error('primary_docs:reference_permission_denied');
+     throw Error('primary_docs:document_permission_denied');
     throw Error('primary_docs:rpc_unverified');
    }
    if(!response)throw Error('primary_docs:rpc_unverified');
@@ -5619,7 +5705,8 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
    try{
     // The current, B1-verified reference scope avoids repeated client SELECT.
     // SQL 026 still enforces authenticated family access and CAS.
-    const fast=input.kind==='reference'&&input.fastReference===true
+    const fast=['reference','quotes'].includes(input.kind)
+     &&input.fastReference===true
      &&verifiedReadScope?.familyId===input.familyId
      &&verifiedReadScope?.actorUid===input.actorUid;
     const who=fast?verifiedReadScope:await scope(input);
@@ -5646,8 +5733,10 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
      return result('PRIMARY_DOCUMENT_VERSION_CONFLICT',{requestId:input.requestId});
     if(error?.message==='primary_docs:duplicate_request_conflict')
      return result('PRIMARY_DOCUMENT_REQUEST_ID_CONFLICT',{requestId:input.requestId});
-    if(error?.message==='primary_docs:reference_permission_denied')
-     return result('PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED',
+    if(error?.message==='primary_docs:document_permission_denied')
+     return result(input.kind==='quotes'
+      ?'PRIMARY_DOCUMENT_QUOTES_PERMISSION_DENIED'
+      :'PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED',
       {requestId:input.requestId});
     // No auto re-submit with a new UUID. The next action is receipt check.
     return result('PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID',

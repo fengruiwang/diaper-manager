@@ -94,25 +94,23 @@ function create({client,queue,uuid}={}){
    if(wait.status!=='DOCUMENT_QUEUE_COUNTS_VERIFIED'
      ||wait.outstanding>0)
     return reply('DOCUMENT_PENDING_REVIEW_REQUIRED');
-   // Reference uses the COMPLETE verified B1 document, never a rendered
-   // referenceOverrides-only projection. Other kinds keep their old read.
-   let read;
-   if(kind==='reference'&&verifiedBaseline?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
-     &&verifiedBaseline.familyId===familyId
-     &&verifiedBaseline.actorUid===actorUid
-     &&typeof verifiedBaseline.childId==='string'
-     &&Number.isSafeInteger(verifiedBaseline.revision)
-     &&object(verifiedBaseline.body?.referenceOverrides)){
-    if(verifiedBaseline?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
-      ||verifiedBaseline.kind!=='reference'
-      ||verifiedBaseline.familyId!==familyId
-      ||verifiedBaseline.actorUid!==actorUid
-      ||typeof verifiedBaseline.childId!=='string'
-      ||!Number.isSafeInteger(verifiedBaseline.revision)
-      ||!object(verifiedBaseline.body?.referenceOverrides))
-     return reply('DOCUMENT_BASELINE_UNVERIFIED');
-    read=verifiedBaseline;
-   }else read=await client.read({familyId,actorUid,kind,readEnabled:true});
+   // B2 uses the COMPLETE server-verified B1 document for reference/quotes.
+   // A partial projection is never an acceptable whole-document write source.
+   const fastKind=kind==='reference'||kind==='quotes';
+   const reusable=fastKind
+    &&verifiedBaseline?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+    &&verifiedBaseline.kind===kind
+    &&verifiedBaseline.familyId===familyId
+    &&verifiedBaseline.actorUid===actorUid
+    &&typeof verifiedBaseline.childId==='string'
+    &&Number.isSafeInteger(verifiedBaseline.revision)
+    &&verifiedBaseline.revision>=0
+    &&object(verifiedBaseline.body)
+    &&(kind==='reference'?object(verifiedBaseline.body.referenceOverrides):
+       Array.isArray(verifiedBaseline.body.items));
+   const read=reusable?verifiedBaseline:await client.read({
+    familyId,actorUid,kind,readEnabled:true
+   });
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
    // For on-screen reference/quote/growth/profile edits, use the revision that was
@@ -131,7 +129,7 @@ function create({client,queue,uuid}={}){
    const requestId=uuid();
    const saved=await queue.queue({kind,nextBody:body,
     expectedRevision:read.revision,requestId,operatorApproved:true,
-    action,verifiedBaseline:kind==='reference'
+    action,verifiedBaseline:fastKind
      &&read.familyId===familyId&&typeof read.childId==='string'
      ?{...read,actorUid}:null});
    return reply(saved.status,{

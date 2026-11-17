@@ -2,13 +2,18 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const Bridge=require('../sync/primary-formal-ui-actions.js');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({purchaseSubmit,flush,quoteSubmit,send,readPurchase,readQuotes,readRef,quoteInput}={}){
+function fixture({purchaseSubmit,flush,quoteSubmit,send,readPurchase,readQuotes,readRef,quoteInput,
+ quotesBody=null,ackQuote=null,confirmClear=true,confirmDelete=true}={}){
  const events={},notifications=[],counts={purchase:0,quote:0,readQuotes:0,flush:0,send:0};
  const nodes=Object.fromEntries([
   ['buyNow','已购买 · 立即入库'],['saveQuote','加入候选价'],
+  ['clearQuotes','清空候选'],['deleteQuote','删除'],
+  ['formalQuoteListFeedback',''],['quoteList',''],
   ['restoreDefaultReference','恢复默认价'],['saveEditedReference','保存新价格'],
   ['formalCompareActionFeedback',''],['formalReferenceActionFeedback','']
  ].map(([id,textContent])=>[id,{id,dataset:{},disabled:false,textContent,closest(){return this;}}]));
+ nodes.deleteQuote.dataset={action:'deletequote',id:'q1'};
+ nodes.quoteList.querySelectorAll=()=>[nodes.deleteQuote];
  const doc={addEventListener:(type,fn)=>{events[type]=fn;},removeEventListener(){},
   getElementById:id=>nodes[id]||null};
  const ui=Bridge.create({
@@ -32,15 +37,20 @@ function fixture({purchaseSubmit,flush,quoteSubmit,send,readPurchase,readQuotes,
   documentQueue:{send:async()=>{counts.send++;return send?send():
     {status:'DOCUMENT_SYNC_CONFIRMED'};}},
   readDocumentInput:el=>{
-   if(el.id==='saveQuote'){
-    counts.readQuotes++;return quoteInput?quoteInput():{kind:'quotes',action:'add',
-     record:{id:'quote-original-id',brand:'好奇',size:'S'}};
+   if(el.id==='saveQuote'||el.id==='clearQuotes'||el.dataset?.action==='deletequote'){
+    counts.readQuotes++;return quoteInput?quoteInput(el):
+     {kind:'quotes',action:el.id==='saveQuote'?'add':
+       el.id==='clearQuotes'?'clear':'delete',
+      record:el.id==='clearQuotes'?null:{id:'quote-original-id',brand:'好奇',size:'S'}};
    }
    return {kind:'reference',action:'reset',
     record:{key:'好奇|小森林|S'}};
   },
-  readQuotesBaseline:()=>({familyId:'family-A',actorUid:'A',revision:3,body:{items:[]}}),
+  readQuotesBaseline:()=>({familyId:'family-A',actorUid:'A',revision:3,
+   body:quotesBody||{items:[]}}),
   onQuotesReadback:readQuotes||(()=> 'ready'),
+  onQuotesAck:ackQuote||(()=> 'ready'),
+  confirmQuoteClear:()=>confirmClear,confirmQuoteDelete:()=>confirmDelete,
   readReferenceBaseline:()=>({familyId:'family-A',actorUid:'A',revision:4,
    body:{referenceOverrides:{'好奇|小森林|S':1.25}}}),
   onReferenceReadback:readRef||(()=> 'ready'),
@@ -149,4 +159,60 @@ test('P4 trial: new feedback elements exist in development UI; original rc4 sour
  assert.match(ctrl,/recoverMinimalButtons.*domain:'quotes'/);
  assert.match(ctrl,/recoverMinimalButtons.*domain:'purchase'/);
  require('../scripts/verify-v120-frozen-candidates.cjs').check('rc4');
+});
+
+test('B2-02 quote fast ACK gives immediate success without document readback',async()=>{
+ let applied=0;
+ const f=fixture({send:()=>({status:'DOCUMENT_QUOTES_ACK_CONFIRMED',
+  requestId:'quote-original'}),ackQuote:async()=>{applied++;return 'ready';},
+  readQuotes:()=>{throw Error('should not read on direct ACK');}});
+ f.click('saveQuote');f.click('saveQuote');
+ assert.match(f.nodes.formalCompareActionFeedback.textContent,/正在保存候选价/);
+ assert.equal(f.nodes.saveQuote.disabled,true);
+ await tick();await tick();
+ assert.equal(f.counts.quote,1);assert.equal(applied,1);
+ assert.equal(f.notifications.at(-1).status,'QUOTES_CLOUD_ACK_APPLIED');
+ assert.match(f.nodes.formalCompareActionFeedback.textContent,/候选价保存成功/);
+ assert.equal(f.nodes.saveQuote.disabled,false);
+});
+test('B2-02 edit sends one operation, feedback near submit and restores edit button after success',async()=>{
+ const f=fixture({quotesBody:{items:[{id:'q1'}]},quoteInput:()=>({
+  kind:'quotes',action:'edit',record:{id:'q1',price:65}}),
+  send:()=>({status:'DOCUMENT_QUOTES_ACK_CONFIRMED',requestId:'quote-original'})});
+ f.nodes.saveQuote.textContent='保存本次修改';
+ f.click('saveQuote');f.click('saveQuote');
+ assert.match(f.nodes.formalCompareActionFeedback.textContent,/正在保存修改/);
+ await tick();await tick();
+ assert.equal(f.counts.quote,1);
+ assert.match(f.nodes.formalCompareActionFeedback.textContent,/候选价修改成功/);
+ assert.equal(f.nodes.saveQuote.textContent,'加入候选价');
+});
+test('B2-02 delete confirmation cancellation sends nothing; confirmed delete gives local feedback',async()=>{
+ const cancelled=fixture({quotesBody:{items:[{id:'q1'}]},
+  quoteInput:()=>({kind:'quotes',action:'delete',record:{id:'q1'}}),
+  confirmDelete:false});
+ cancelled.click('deleteQuote');await tick();
+ assert.equal(cancelled.counts.quote,0);assert.equal(cancelled.counts.send,0);
+ assert.equal(cancelled.notifications.at(-1).status,'QUOTES_DELETE_CANCELLED');
+ const yes=fixture({quotesBody:{items:[{id:'q1'}]},
+  quoteInput:()=>({kind:'quotes',action:'delete',record:{id:'q1'}}),
+  send:()=>({status:'DOCUMENT_QUOTES_ACK_CONFIRMED',requestId:'quote-original'})});
+ yes.click('deleteQuote');yes.click('deleteQuote');
+ assert.match(yes.nodes.formalQuoteListFeedback.textContent,/正在删除/);
+ await tick();await tick();
+ assert.equal(yes.counts.quote,1);
+ assert.match(yes.nodes.formalQuoteListFeedback.textContent,/候选价已删除/);
+});
+test('B2-02 clear cancellation creates no UUID; confirmed clear updates list feedback',async()=>{
+ const input=()=>({kind:'quotes',action:'clear',record:null});
+ const cancelled=fixture({quotesBody:{items:[{id:'q1'}]},quoteInput:input,confirmClear:false});
+ cancelled.click('clearQuotes');await tick();
+ assert.equal(cancelled.counts.quote,0);assert.equal(cancelled.counts.send,0);
+ const yes=fixture({quotesBody:{items:[{id:'q1'}]},quoteInput:input,
+  send:()=>({status:'DOCUMENT_QUOTES_ACK_CONFIRMED',requestId:'quote-original'})});
+ yes.click('clearQuotes');yes.click('clearQuotes');
+ assert.match(yes.nodes.formalQuoteListFeedback.textContent,/正在清空/);
+ await tick();await tick();
+ assert.equal(yes.counts.quote,1);
+ assert.match(yes.nodes.formalQuoteListFeedback.textContent,/候选价已清空/);
 });
