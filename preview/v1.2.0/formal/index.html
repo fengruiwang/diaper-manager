@@ -3066,6 +3066,26 @@ restoreActiveTab();
 
 </script>
 <script>
+/* P4-04C-01: China Standard Time calendar day; original UTC timestamps are immutable. */
+(function(root){
+ 'use strict';
+ const formatter=new Intl.DateTimeFormat('en-US',{
+  timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'
+ });
+ function fromTimestamp(timestamp){
+  const instant=new Date(timestamp);
+  if(!Number.isFinite(instant.getTime()))
+   throw Error('primary_business_date:invalid_timestamp');
+  const parts=formatter.formatToParts(instant);
+  const field=type=>parts.find(x=>x.type===type)?.value;
+  return field('year')+'-'+field('month')+'-'+field('day');
+ }
+ const api=Object.freeze({fromTimestamp});
+ if(root)root.XBPrimaryBusinessDate=api;
+ if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof window!=='undefined'?window:null);
+</script>
+<script>
 /* M3: project verified PRIMARY cloud data into the existing five-page
  * V1.1.2 read-only view. Never updates a datastore or replays history.
  * Demo data are explicitly synthetic and are never sent to CloudBase.
@@ -3073,6 +3093,11 @@ restoreActiveTab();
 (function(root){
  'use strict';
  const SIZES=['NB','S','M','L','XL','XXL'];
+ const businessDate=(root?.XBPrimaryBusinessDate
+  ||(typeof module!=='undefined'&&module.exports
+   ?require('./primary-business-date.js'):null))?.fromTimestamp;
+ if(typeof businessDate!=='function')
+  throw Error('primary_business_date:dependency_required');
  const clone=x=>JSON.parse(JSON.stringify(x));
  function fail(code){throw Error('primary_ui:'+code);}
  function object(x){return x!==null&&typeof x==='object'&&!Array.isArray(x);}
@@ -3152,7 +3177,7 @@ restoreActiveTab();
    if(seen.has('transaction:'+id))fail('duplicate_history');
    seen.add('transaction:'+id);
    state.transactions.push({
-    id,type:'use',date:row.occurredAt.slice(0,10),size:row.size,
+    id,type:'use',date:businessDate(row.occurredAt),size:row.size,
     pieces:row.pieces,price:0,operationId:row.operationId,
     reversed:row.reversed===true,
     reversedByOperationId:row.reversedByOperationId||null,
@@ -3520,6 +3545,11 @@ restoreActiveTab();
  'use strict';
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const SIZES=['NB','S','M','L','XL','XXL'];
+ const businessDate=(root?.XBPrimaryBusinessDate
+  ||(typeof module!=='undefined'&&module.exports
+   ?require('./primary-business-date.js'):null))?.fromTimestamp;
+ if(typeof businessDate!=='function')
+  throw Error('primary_business_date:dependency_required');
  function ret(status,extras={}){return Object.freeze({status,...extras});}
  function create({primary,uuid,clock}={}){
   if(!primary?.selectedScope||!primary?.read||!primary?.queue
@@ -3548,7 +3578,7 @@ restoreActiveTab();
       ||value.pieces>30000)
      throw Error('primary_commands:invalid_purchase');
     type='inventory.delta';
-    const timestamp=clock(),purchaseDate=timestamp.slice(0,10);
+    const timestamp=clock(),purchaseDate=businessDate(timestamp);
     payload={childId:scope.childId,size:value.size,kind:'buy',
       amount:value.pieces,occurredAt:timestamp,
       purchase:{brand,series,totalFen:toFen(value.price),purchaseDate}};

@@ -19,8 +19,13 @@ test('P4-04A candidate is complete and generated scripts exactly reuse existing 
  for(const icon of expected.filter(x=>x.startsWith('icons/')))
   assert.deepEqual(c(icon),load(icon));
  const html=text('index.html');
- for(const script of ['./m1-controller.js?v=e52cfdd',
-  './formal-controller.js?v=e52cfdd','./pwa.js?v=e52cfdd'])
+ for(const source of ['primary-business-date','primary-ui-projection','primary-business-commands']){
+  const body=load('sync/'+source+'.js').toString('utf8').trim();
+  assert.ok(html.includes(body),'inline source parity: '+source);
+ }
+ assert.ok(html.indexOf('XBPrimaryBusinessDate')<html.indexOf('XBPrimaryUIProjection'));
+ for(const script of ['./m1-controller.js?v=p404c01',
+  './formal-controller.js?v=p404c01','./pwa.js?v=p404c01'])
   assert.ok(html.includes('src="'+script+'"'),script);
  assert.ok(html.indexOf('src="./m1-controller')<html.indexOf('src="./formal-controller'));
  for(const name of ['primary-documents-operations','primary-documents-business-commands',
@@ -66,13 +71,13 @@ test('P4-04A Manifest retains installed PWA identity, scope, start_url and all o
  assert.match(text('index.html'),/href="\.\/manifest\.webmanifest"/);
  assert.match(text('index.html'),/href="\.\/icons\/apple-touch-icon\.png"/);
  const version=JSON.parse(c('version.json'));
- assert.equal(version.version,'1.2.0-rc.1');
+ assert.equal(version.version,'1.2.0-rc.2');
  assert.equal(version.channel,'release-candidate');
- assert.equal(version.source_sha,'e52cfdd7a24cc74018e429d6b0a021967ef58b7e');
+ assert.equal(version.source_sha,'38a75ce9bdabdd7264f7eff85d56060df031b67c');
 });
 test('P4-04A new SW shell uses a distinct cache and manual-only update, never clears data',()=>{
  const sw=text('sw.js'),pwa=text('pwa.js'),index=text('index.html');
- assert.match(sw,/xiaobao-shell-v1\.2\.0-rc1/);
+ assert.match(sw,/xiaobao-shell-v1\.2\.0-rc2/);
  assert.doesNotMatch(sw,/const CACHE_NAME = 'xiaobao-shell-v1\.1\.2'/);
  for(const f of ['index.html','m1-controller.js','formal-controller.js','pwa.js',
   'manifest.webmanifest','growth.js','icons/icon-192.png',
@@ -84,7 +89,7 @@ test('P4-04A new SW shell uses a distinct cache and manual-only update, never cl
  assert.match(sw,/if\(url\.href\.split\('\?'\)\[0\] === VERSION_URL\) return/);
  assert.doesNotMatch(sw+pwa,/caches\.delete\(['"]xiaobao_diaper_planner/);
  assert.doesNotMatch(sw+pwa,/localStorage\.(?:clear|removeItem|setItem)|indexedDB\.deleteDatabase/);
- assert.match(index,/src="\.\/pwa\.js\?v=e52cfdd"/);
+ assert.match(index,/src="\.\/pwa\.js\?v=p404c01"/);
 });
 test('P4-04A local HTTP host at /diaper-manager/ returns entry and every referenced resource',async()=>{
  const server=http.createServer((req,res)=>{

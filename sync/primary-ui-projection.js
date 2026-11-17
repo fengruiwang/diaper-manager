@@ -5,6 +5,11 @@
 (function(root){
  'use strict';
  const SIZES=['NB','S','M','L','XL','XXL'];
+ const businessDate=(root?.XBPrimaryBusinessDate
+  ||(typeof module!=='undefined'&&module.exports
+   ?require('./primary-business-date.js'):null))?.fromTimestamp;
+ if(typeof businessDate!=='function')
+  throw Error('primary_business_date:dependency_required');
  const clone=x=>JSON.parse(JSON.stringify(x));
  function fail(code){throw Error('primary_ui:'+code);}
  function object(x){return x!==null&&typeof x==='object'&&!Array.isArray(x);}
@@ -84,7 +89,7 @@
    if(seen.has('transaction:'+id))fail('duplicate_history');
    seen.add('transaction:'+id);
    state.transactions.push({
-    id,type:'use',date:row.occurredAt.slice(0,10),size:row.size,
+    id,type:'use',date:businessDate(row.occurredAt),size:row.size,
     pieces:row.pieces,price:0,operationId:row.operationId,
     reversed:row.reversed===true,
     reversedByOperationId:row.reversedByOperationId||null,

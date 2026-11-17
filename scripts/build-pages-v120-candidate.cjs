@@ -2,7 +2,7 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const ROOT=path.resolve(__dirname,'..'),OUT=path.join(ROOT,'release-candidate/pages-v1.2.0');
-const SHA='e52cfdd7a24cc74018e429d6b0a021967ef58b7e',VER='1.2.0-rc.1',TAG='e52cfdd';
+const SHA='38a75ce9bdabdd7264f7eff85d56060df031b67c',VER='1.2.0-rc.2',TAG='p404c01';
 const read=p=>fs.readFileSync(path.join(ROOT,p)),text=p=>read(p).toString('utf8');
 function change(s,a,b){assert.equal(s.split(a).length-1,1,'source drift: '+a.slice(0,90));return s.replace(a,b);}
 function html(){
@@ -62,7 +62,7 @@ function sw(){
  let s=text('sw.js');
  s=change(s,'PWA v1.1.2','PWA V1.2.0 candidate');
  s=change(s,"const CACHE_NAME = 'xiaobao-shell-v1.1.2';",
-  "const CACHE_NAME = 'xiaobao-shell-v1.2.0-rc1';");
+  "const CACHE_NAME = 'xiaobao-shell-v1.2.0-rc2';");
  s=change(s,"const SHELL = ['./index.html','./pwa.js','./growth.js','./manifest.webmanifest',",
   "const SHELL = ['./index.html','./pwa.js','./m1-controller.js',\n"
   +"  './formal-controller.js','./growth.js','./manifest.webmanifest',");

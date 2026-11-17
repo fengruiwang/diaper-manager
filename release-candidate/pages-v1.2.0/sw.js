@@ -1,6 +1,6 @@
 /* 小宝纸尿裤管家 PWA V1.2.0 candidate — cache ONLY app shell, never cached user data. */
 'use strict';
-const CACHE_NAME = 'xiaobao-shell-v1.2.0-rc1';
+const CACHE_NAME = 'xiaobao-shell-v1.2.0-rc2';
 const CACHE_PREFIX = 'xiaobao-shell-';
 const SHELL = ['./index.html','./pwa.js','./m1-controller.js',
   './formal-controller.js','./growth.js','./manifest.webmanifest',

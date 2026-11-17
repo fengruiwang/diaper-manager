@@ -1,4 +1,4 @@
-name: XiaoBao P4-04A Pages v1.2.0 Candidate (NO DEPLOY)
+name: XiaoBao P4-04C-01 Pages v1.2.0 Candidate (NO DEPLOY)
 on:
   push:
     branches:
@@ -27,7 +27,7 @@ jobs:
       - name: Archive candidate ONLY - does not deploy
         uses: actions/upload-artifact@v4
         with:
-          name: XiaoBao-P4-04A-PAGES-1.2.0-rc1
+          name: XiaoBao-P4-04C-01-PAGES-1.2.0-rc2
           path: release-candidate/pages-v1.2.0/
           include-hidden-files: true
           if-no-files-found: error
