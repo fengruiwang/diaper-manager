@@ -71,7 +71,7 @@
     if(code==='40001')throw Error('primary_docs:revision_conflict');
     if(code==='23505')throw Error('primary_docs:duplicate_request_conflict');
     if(name.endsWith('put_primary_document_draft')
-      &&['reference','quotes'].includes(args?.p_kind)
+      &&['reference','quotes','growth','profile'].includes(args?.p_kind)
       &&['42501','401','403'].includes(code))
      throw Error('primary_docs:document_permission_denied');
     throw Error('primary_docs:rpc_unverified');
@@ -149,8 +149,8 @@
    try{
     // The current, B1-verified reference scope avoids repeated client SELECT.
     // SQL 026 still enforces authenticated family access and CAS.
-    const fast=['reference','quotes'].includes(input.kind)
-     &&input.fastReference===true
+    const fast=['reference','quotes','growth','profile'].includes(input.kind)
+     &&(input.fastDocument===true||input.fastReference===true)
      &&verifiedReadScope?.familyId===input.familyId
      &&verifiedReadScope?.actorUid===input.actorUid;
     const who=fast?verifiedReadScope:await scope(input);
@@ -178,10 +178,8 @@
     if(error?.message==='primary_docs:duplicate_request_conflict')
      return result('PRIMARY_DOCUMENT_REQUEST_ID_CONFLICT',{requestId:input.requestId});
     if(error?.message==='primary_docs:document_permission_denied')
-     return result(input.kind==='quotes'
-      ?'PRIMARY_DOCUMENT_QUOTES_PERMISSION_DENIED'
-      :'PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED',
-      {requestId:input.requestId});
+     return result('PRIMARY_DOCUMENT_'+String(input.kind).toUpperCase()
+      +'_PERMISSION_DENIED',{requestId:input.requestId});
     // No auto re-submit with a new UUID. The next action is receipt check.
     return result('PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID',
      {requestId:input.requestId});

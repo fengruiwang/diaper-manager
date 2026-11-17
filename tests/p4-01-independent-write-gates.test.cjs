@@ -385,16 +385,18 @@ test('P4-01 controller both ON preserves document-first retry then inventory ret
  await x.clickRetry();
  assert.ok(x.trace.includes('primary.flush'));
 });
-test('P4-01 source keeps production gates OFF and CloudBase server+UUID boundaries intact',()=>{
+test('P4-01 source opens completed document domains while purchase and settings remain OFF',()=>{
  const controller=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8');
  const html=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal/index.html'),'utf8');
  const bridge=fs.readFileSync(path.join(__dirname,
   '../sync/primary-formal-ui-actions.js'),'utf8');
- assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
  assert.match(controller,/documentWritesEnabled=FORMAL_WRITE_ENABLED/);
+ assert.match(controller,/fastGrowthEnabled:true,fastProfileEnabled:true/);
+ assert.match(controller,/allowSettings:false/);
  assert.match(controller,/purchaseReleaseEnabled=FORMAL_PURCHASE_ENABLED/);
  assert.match(controller,/documentOperatorApproved:/);
  assert.match(controller,/if\(documentsApproved\(\)&&documentsGuard\)/);

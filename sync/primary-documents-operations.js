@@ -13,6 +13,7 @@ const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
  cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
  fastReferenceEnabled=false,fastQuotesEnabled=false,
+ fastGrowthEnabled=false,fastProfileEnabled=false,
  allowGrowth=false,allowProfile=false,allowSettings=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
@@ -25,9 +26,11 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   throw Error('primary_docs_outbox:outbox_incomplete');
  let busy=false;
  // Volatile proof of a fresh IDB enqueue, never persisted or reused after reload.
- const freshReferenceIds=new Map(); // scoped, volatile first-send proof
- const fastKind=kind=>kind==='reference'?fastReferenceEnabled===true:
-  kind==='quotes'&&fastQuotesEnabled===true;
+ const freshDocumentIds=new Map(); // scoped, volatile first-send proof
+ const fastKind=kind=>({
+  reference:fastReferenceEnabled,quotes:fastQuotesEnabled,
+  growth:fastGrowthEnabled,profile:fastProfileEnabled
+ })[kind]===true;
  const enabledKind=kind=>referenceAndQuotes===true
   ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
     ||(allowProfile===true&&kind==='profile')
@@ -65,19 +68,21 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity();
    let state;
-   if((kind==='reference'||kind==='quotes')&&verifiedBaseline!==null){
+   if(fastKind(kind)&&verifiedBaseline!==null){
+    const body=verifiedBaseline.body;
+    const bodyValid=kind==='reference'
+     ?body&&body.referenceOverrides&&typeof body.referenceOverrides==='object'
+       &&!Array.isArray(body.referenceOverrides)
+     :kind==='profile'
+      ?body&&body.babyProfile&&typeof body.babyProfile==='object'
+       &&!Array.isArray(body.babyProfile)
+      :body&&Array.isArray(body.items);
     if(verifiedBaseline.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
       ||verifiedBaseline.kind!==kind||verifiedBaseline.familyId!==scope.familyId
       ||verifiedBaseline.actorUid!==scope.actorUid
       ||!UUID.test(String(verifiedBaseline.childId))
       ||verifiedBaseline.revision!==expectedRevision
-      ||!verifiedBaseline.body||typeof verifiedBaseline.body!=='object'
-      ||Array.isArray(verifiedBaseline.body)
-      ||(kind==='reference'
-       ?(!verifiedBaseline.body.referenceOverrides
-         ||typeof verifiedBaseline.body.referenceOverrides!=='object'
-         ||Array.isArray(verifiedBaseline.body.referenceOverrides))
-       :!Array.isArray(verifiedBaseline.body.items)))
+      ||!body||typeof body!=='object'||Array.isArray(body)||!bodyValid)
      return ans('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
     state=verifiedBaseline;
    }else state=await documentsClient.read({...scope,kind,readEnabled:true});
@@ -97,7 +102,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    const inserted=await outbox.enqueue(op);
    if(fastKind(kind)&&verifiedBaseline!==null&&!previous
       &&inserted?.duplicate!==true)
-    freshReferenceIds.set(op.id,Object.freeze({
+    freshDocumentIds.set(op.id,Object.freeze({
      scope:scope.familyId+'\\x00'+scope.actorUid,kind
     }));
    return ans('DOCUMENT_OPERATION_DURABLY_QUEUED',{
@@ -109,7 +114,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   finally{busy=false;}
  }
  async function send({operatorApproved=false,fastReferenceId=null,
-  fastDocumentId=null}={}){
+  fastDocumentId=null,fastDocumentKind='quotes'}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(!online())return ans('DOCUMENT_OFFLINE_QUEUE_PRESERVED');
@@ -117,19 +122,19 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity(),items=await outbox.ready(scope);
-   const fastId=fastDocumentId??fastReferenceId;
-   const wantedKind=fastDocumentId!==null?'quotes':'reference';
+   const fastId=fastReferenceId??fastDocumentId;
+   const wantedKind=fastReferenceId!==null?'reference':fastDocumentKind;
    const fastAllowed=fastKind(wantedKind);
-   const candidate=freshReferenceIds.get(fastId);
-   const fastReference=fastAllowed&&typeof fastId==='string'
+   const candidate=freshDocumentIds.get(fastId);
+   const fastDocument=fastAllowed&&typeof fastId==='string'
     &&candidate?.scope===scope.familyId+'\\x00'+scope.actorUid
     &&candidate.kind===wantedKind
     &&items.length===1&&items[0].id===fastId
     &&items[0].payload?.kind===wantedKind;
-   if(fastAllowed&&fastId!==null&&!fastReference)
+   if(fastAllowed&&fastId!==null&&!fastDocument)
     return ans('DOCUMENT_PENDING_REVIEW_REQUIRED',{requestId:fastId});
-   // A second send or later session uses existing receipt-first recovery.
-   if(fastReference)freshReferenceIds.delete(fastId);
+   // A later send or session keeps the existing original-UUID receipt recovery.
+   if(fastDocument)freshDocumentIds.delete(fastId);
    if(items.some(op=>!enabledKind(op.payload?.kind)))
     return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    if(!items.length){
@@ -144,10 +149,10 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     const command={...scope,kind:op.payload.kind,
      nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
      requestId:op.id,operatorApproved:true,
-     fastReference:fastReference&&op.id===fastId};
-    // P3 shared-document retries inspect the original request receipt
-    // before sending. No new request UUID on an ambiguous network ACK.
-    if(strictReceipt&&!fastReference){
+     fastDocument:fastDocument&&op.id===fastId};
+    // First writes with a complete displayed baseline need only one 026 PUT.
+    // Ambiguous and later-session retries retain the original receipt path.
+    if(strictReceipt&&!fastDocument){
      const prior=await documentsClient.checkRequest({
       ...scope,requestId:op.id,readEnabled:true
      });
@@ -173,16 +178,14 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      });
      acknowledged=check.status==='REQUEST_COMMITTED_VERIFIED'
        &&check.kind===op.payload.kind
-       &&(!fastReference||check.revision===op.expectedRevision+1);
+       &&(!fastDocument||check.revision===op.expectedRevision+1);
      if(acknowledged)recoveredFromReceipt=true;
      if(!acknowledged)return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',
       {requestId:op.id});
     }
-    if(fastReference&&['PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED',
-      'PRIMARY_DOCUMENT_QUOTES_PERMISSION_DENIED'].includes(result.status))
-     return ans(op.payload.kind==='quotes'
-      ?'DOCUMENT_QUOTES_PERMISSION_DENIED_KEEP_ID'
-      :'DOCUMENT_REFERENCE_PERMISSION_DENIED_KEEP_ID',{requestId:op.id});
+    const code=String(op.payload.kind).toUpperCase();
+    if(fastDocument&&result.status==='PRIMARY_DOCUMENT_'+code+'_PERMISSION_DENIED')
+     return ans('DOCUMENT_'+code+'_PERMISSION_DENIED_KEEP_ID',{requestId:op.id});
     if(result.status==='PRIMARY_DOCUMENT_VERSION_CONFLICT'){
      await outbox.recordResult(scope,op.id,{kind:'conflict'});
      return ans('DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW',
@@ -190,7 +193,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     }
     if(!acknowledged)return ans('DOCUMENT_ACK_NOT_VERIFIED',
      {requestId:op.id});
-    if(strictReceipt&&!fastReference){
+    if(strictReceipt&&!fastDocument){
      const verified=await documentsClient.checkRequest({
       ...scope,requestId:op.id,readEnabled:true
      });
@@ -200,10 +203,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
       return ans('DOCUMENT_RECEIPT_READBACK_REQUIRED_KEEP_ID',
        {requestId:op.id});
     }
-    if(fastReference){
-     // A direct ACK must echo exact family, child, kind, request ID and
-     // expected CAS revision. An ambiguous or duplicate ACK does not show
-     // potentially stale document content as the newest local version.
+    if(fastDocument){
+     // Apply a body only when the direct ACK echoes the exact CAS scope.
      const exact=result.status==='PRIMARY_DOCUMENT_COMMITTED'
       &&result.kind===op.payload.kind&&result.requestId===op.id
       &&result.familyId===scope.familyId
@@ -214,16 +215,13 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      try{await outbox.recordResult(scope,op.id,{
       kind:'accepted',receiptId:op.id
      });}catch(_){
-      return ans(op.payload.kind==='quotes'
-       ?'DOCUMENT_QUOTES_ACK_LOCAL_PENDING':'DOCUMENT_REFERENCE_ACK_LOCAL_PENDING',
-       {requestId:op.id});
+      return ans('DOCUMENT_'+code+'_ACK_LOCAL_PENDING',{requestId:op.id});
      }
      if(!exact||result.duplicate===true||recoveredFromReceipt)
-      return ans(op.payload.kind==='quotes'
-       ?'DOCUMENT_QUOTES_ACK_RECOVERED_NEEDS_REFRESH'
-       :'DOCUMENT_REFERENCE_ACK_RECOVERED_NEEDS_REFRESH',{requestId:op.id});
-     return ans(op.payload.kind==='quotes'
-      ?'DOCUMENT_QUOTES_ACK_CONFIRMED':'DOCUMENT_REFERENCE_ACK_CONFIRMED',{
+      return ans('DOCUMENT_'+code+'_ACK_RECOVERED_NEEDS_REFRESH',{
+       requestId:op.id,receiptVerified:recoveredFromReceipt
+      });
+     return ans('DOCUMENT_'+code+'_ACK_CONFIRMED',{
       requestId:op.id,kind:op.payload.kind,familyId:scope.familyId,
       actorUid:scope.actorUid,childId:op.payload.childId,
       revision:result.revision,expectedRevision:op.expectedRevision,

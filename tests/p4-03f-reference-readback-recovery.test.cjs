@@ -255,7 +255,7 @@ test('P4-03F account switch cannot unlock or render A pending request into B sco
  assert.equal(f.submits,1);
 });
 test('P4-03F P4-03E profile/settings recovery and stock purchase gates remain intact',()=>{
- assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
  const source=require('node:fs').readFileSync(
   require('node:path').join(__dirname,'../sync/primary-formal-ui-actions.js'),'utf8');

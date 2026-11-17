@@ -92,6 +92,7 @@ test('P0: revoked primary scope clears already-rendered data',async()=>{
  assert.equal(await f.app.restore(),'unverified');
  assert.equal(f.element('formalCurrentFamily').textContent,'—');
 });
-test('P0: feature build still denies every formal business write',()=>{
- assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+test('P0: feature build enables completed document domains but keeps purchase disabled',()=>{
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
 });

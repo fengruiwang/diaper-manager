@@ -124,7 +124,8 @@ test('primary not ready is a static verified state: retry/switch visible, spinne
  assert.match(PAGE,/id="formalGateActions" hidden/);
  assert.match(PAGE,/id="formalRetry"/);
  assert.match(PAGE,/id="formalGateSignOut"/);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
 });
 test('offline is static, no spinner or forced logout; loading spinner only during boot',async()=>{
  const f=fixture();

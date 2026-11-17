@@ -89,12 +89,13 @@ test('P0: logout, refresh, recheck do not retain previous identity on login scre
  assert.equal(await f.app.restore(),'login');
  assert.equal(f.el('formalCurrentAccount').textContent,'—');
 });
-test('P0: neutral loading prompt and formal writes disabled',()=>{
+test('P0: neutral loading prompt and domain-gated document writes',()=>{
  const fs=require('node:fs'),path=require('node:path');
  const html=fs.readFileSync(path.join(__dirname,'../preview/v1.2.0/formal/index.html'),'utf8');
  assert.match(html,/正在打开小宝管家…/);
  assert.doesNotMatch(html,/正在检查 CloudBase 会话与家庭权限…/);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
 });
 test('P0: formal-only M1 path still checks SDK identity and family grant, but defers child inventory',async()=>{
  let childCalls=0,grantCalls=0;

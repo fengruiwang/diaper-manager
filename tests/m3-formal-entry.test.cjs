@@ -69,7 +69,8 @@ test('formal page preserves original five tabs but uses separate non-flashing lo
   assert.match(html,new RegExp('data-tab="'+tab+'"'));
  assert.doesNotMatch(html,/id="m3Demo"|id="m102Create"|id="m1Email"/);
  assert.doesNotMatch(html,/xiaobao_v120_m1_local_sandbox/);
- assert.equal(Login.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Login.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Login.FORMAL_PURCHASE_ENABLED,false);
  const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
  for(const script of scripts)if(script[1].trim())
   assert.doesNotThrow(()=>new Function(script[1]));
@@ -185,7 +186,7 @@ test('formal static upload references two real parent-directory controllers and 
  assert.doesNotMatch(html,/id="m1CloudBox"|id="m3Panel"|id="m3Demo"/);
  assert.match(fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8'),
-  /const FORMAL_WRITE_ENABLED=false/);
+  /const FORMAL_WRITE_ENABLED=true/);
 });
 test('formal controller required HTML controls exist and cannot silently deadlock without scripts',()=>{
  const controllerText=fs.readFileSync(path.join(__dirname,

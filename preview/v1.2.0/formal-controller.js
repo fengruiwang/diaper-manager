@@ -1,11 +1,11 @@
 /* Feature-only V1.2.0 formal login + five-tab cloud shell.
- * Login is separate from business UI; SDK owns tokens and refresh.
- * All business writes are DISABLED pending independent authorization.
+ * Shared-document writes are enabled only for explicitly completed domains.
+ * Inventory/purchase remain independently disabled.
  * Never loaded by V1.1.2, accepted M1-02 or M3 preview.
  */
 (function(root){
 'use strict';
-const FORMAL_WRITE_ENABLED=false;
+const FORMAL_WRITE_ENABLED=true;
 // Purchase release is prepared but OFF until separate operator authorization.
 const FORMAL_PURCHASE_ENABLED=false;
 const SIZES=['NB','S','M','L','XL','XXL'];
@@ -70,9 +70,12 @@ function profileChangeVisible(document,expected){
    ||!Number.isSafeInteger(document.revision)
    ||document.revision<=expected.expectedRevision)return false;
  const record=expected.record||{},body=document.body;
- return ['dueDate','birthDate'].every(key=>body[key]===record[key])
-   &&record.babyProfile&&Object.entries(record.babyProfile)
-    .every(([key,value])=>body.babyProfile[key]===value);
+ return Object.entries(record).every(([key,value])=>{
+  if(key==='babyProfile')
+   return value&&typeof value==='object'
+    &&Object.entries(value).every(([field,n])=>body.babyProfile[field]===n);
+  return body[key]===value;
+ });
 }
 function settingsChangeVisible(document,expected){
  if(!expected||!document?.body
@@ -528,7 +531,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      attached=actionsFactory.create({
       primary:p,commands,documentCommands,documentQueue:documentsGuard,
       allowReference:true,allowQuotes:true,allowGrowth:true,allowProfile:true,
-      allowSettings:true,
+      allowSettings:false,
       onDocumentProgress:(kind,phase,timing={})=>{
        if(mode!=='ready'||actor!==ctx.actorUid||family!==ctx.familyId)return;
        const what=kind==='profile'?'宝宝资料':'设置';
@@ -568,13 +571,53 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       readProfileBaseline:()=>mode==='ready'
        &&documentSnapshot&&documentScope===actor+'\x00'+family
        ?{...documentSnapshot.documents?.profile,actorUid:actor}:null,
+      onProfileAck:async(ack)=>{
+       const current=controller.verifiedContext();
+       const key=ctx.actorUid+'\x00'+ctx.familyId;
+       const previous=documentSnapshot?.documents?.profile;
+       if(!current||mode!=='ready'||identityEpoch!==documentEpoch
+         ||actor!==ctx.actorUid||family!==ctx.familyId
+         ||current.actorUid!==ctx.actorUid||current.familyId!==ctx.familyId
+         ||!primaryViewBase||documentScope!==key
+         ||documentSnapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ'
+         ||previous?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ||ack?.kind!=='profile'||ack.familyId!==ctx.familyId
+         ||ack.actorUid!==ctx.actorUid||ack.childId!==previous.childId
+         ||typeof ack.requestId!=='string'||!ack.requestId
+         ||!Number.isSafeInteger(ack.expectedRevision)
+         ||!Number.isSafeInteger(ack.revision)
+         ||ack.expectedRevision!==previous.revision
+         ||ack.revision!==previous.revision+1
+         ||!ack.nextBody||typeof ack.nextBody!=='object'
+         ||Array.isArray(ack.nextBody)||!ack.nextBody.babyProfile
+         ||typeof ack.nextBody.babyProfile!=='object'
+         ||Array.isArray(ack.nextBody.babyProfile))return 'pending';
+       const revised=Object.freeze({...previous,revision:ack.revision,
+        body:ack.nextBody});
+       if(!profileChangeVisible(revised,{record:ack.record,
+        expectedRevision:ack.expectedRevision}))return 'pending';
+       const snapshot=Object.freeze({...documentSnapshot,
+        documents:Object.freeze({...documentSnapshot.documents,profile:revised})});
+       let updated;
+       try{
+        updated=documentsOverlay.apply(primaryViewBase,snapshot);
+        if(updated?.sharedBusinessDocumentsVerified!==true
+          ||updated.cloudDocumentsActorScope?.childId!==ack.childId)
+         return 'pending';
+        showCloudView(updated,current);
+       }catch(_){return 'pending';}
+       documentSnapshot=snapshot;
+       return 'ready';
+      },
       onProfileReadback:async(expected)=>{
        const current=controller.verifiedContext();
        if(!current||!documentsClient||!documentsGuard
          ||current.actorUid!==actor||current.familyId!==family)
         return 'pending';
-       const receipt=await documentsGuard.checkSavedRequest(expected.requestId);
-       if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       if(expected.receiptVerified!==true){
+        const receipt=await documentsGuard.checkSavedRequest(expected.requestId);
+        if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       }
        const fresh=await documentsClient.read({
         familyId:current.familyId,actorUid:current.actorUid,
         kind:'profile',readEnabled:true
@@ -592,13 +635,56 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        ?{...documentSnapshot.documents?.growth,actorUid:actor}:null,
       confirmGrowthDelete:record=>host.confirm?.(
        '确定删除 '+record.date+' 的体重记录？无法撤销。')===true,
+      onGrowthAck:async(ack)=>{
+       const current=controller.verifiedContext();
+       const key=ctx.actorUid+'\x00'+ctx.familyId;
+       const previous=documentSnapshot?.documents?.growth;
+       if(!current||mode!=='ready'||identityEpoch!==documentEpoch
+         ||actor!==ctx.actorUid||family!==ctx.familyId
+         ||current.actorUid!==ctx.actorUid||current.familyId!==ctx.familyId
+         ||!primaryViewBase||documentScope!==key
+         ||documentSnapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ'
+         ||previous?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ||ack?.kind!=='growth'||ack.familyId!==ctx.familyId
+         ||ack.actorUid!==ctx.actorUid||ack.childId!==previous.childId
+         ||typeof ack.requestId!=='string'||!ack.requestId
+         ||!Number.isSafeInteger(ack.expectedRevision)
+         ||!Number.isSafeInteger(ack.revision)
+         ||ack.expectedRevision!==previous.revision
+         ||ack.revision!==previous.revision+1
+         ||!ack.nextBody||typeof ack.nextBody!=='object'
+         ||Array.isArray(ack.nextBody)||!Array.isArray(ack.nextBody.items))
+        return 'pending';
+       const revised=Object.freeze({...previous,revision:ack.revision,
+        body:ack.nextBody});
+       if(!growthChangeVisible(revised,{action:ack.action,
+        record:ack.record,expectedRevision:ack.expectedRevision}))
+        return 'pending';
+       const snapshot=Object.freeze({...documentSnapshot,
+        documents:Object.freeze({...documentSnapshot.documents,growth:revised})});
+       let updated;
+       try{
+        updated=documentsOverlay.apply(primaryViewBase,snapshot);
+        if(updated?.sharedBusinessDocumentsVerified!==true
+          ||updated.cloudDocumentsActorScope?.childId!==ack.childId)
+         return 'pending';
+        showCloudView(updated,current);
+       }catch(_){return 'pending';}
+       documentSnapshot=snapshot;
+       root.XBFormalUIData.finishGrowthEdit?.({
+        action:ack.action,recordId:ack.record?.id
+       });
+       return 'ready';
+      },
       onGrowthReadback:async(expected)=>{
        const current=controller.verifiedContext();
        if(!current||!documentsClient||!documentsGuard
          ||current.actorUid!==actor||current.familyId!==family)
         return 'pending';
-       const receipt=await documentsGuard.checkSavedRequest(expected.requestId);
-       if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       if(expected.receiptVerified!==true){
+        const receipt=await documentsGuard.checkSavedRequest(expected.requestId);
+        if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       }
        const fresh=await documentsClient.read({
         familyId:current.familyId,actorUid:current.actorUid,
         kind:'growth',readEnabled:true
@@ -1218,7 +1304,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        &&documentScope===actor+'\x00'+family;
       const releasedRef=verified
        &&await attached?.recoverReferenceButton?.({displayedReference:renderedReference});
-      const releasedDocs=await attached?.recoverDocumentButtons?.({verified});
+      const releasedDocs=await attached?.recoverDocumentButtons?.({
+       verified,displayedGrowth:documentSnapshot?.documents?.growth
+        ?{...documentSnapshot.documents.growth,actorUid:actor}:null
+      });
       const releasedQuote=verified
        &&await attached?.recoverMinimalButtons?.({domain:'quotes'});
       $('formalSyncState').textContent=next==='ready'
@@ -1253,7 +1342,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       &&documentScope===actor+'\x00'+family;
      const releasedRef=verified
       &&await attached.recoverReferenceButton?.({displayedReference:renderedReference});
-     const releasedDocs=await attached.recoverDocumentButtons({verified});
+     const releasedDocs=await attached.recoverDocumentButtons({
+      verified,displayedGrowth:documentSnapshot?.documents?.growth
+       ?{...documentSnapshot.documents.growth,actorUid:actor}:null
+     });
      const releasedQuote=verified
       &&await attached?.recoverMinimalButtons?.({domain:'quotes'});
      $('formalSyncState').textContent=releasedRef
@@ -1360,7 +1452,8 @@ function browserStart(){
     contract:root.XBOutboxContract,
     cloudWritesEnabled:FORMAL_WRITE_ENABLED,
     fastReferenceEnabled:true,fastQuotesEnabled:true,
-    referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true
+    fastGrowthEnabled:true,fastProfileEnabled:true,
+    referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:false
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,
   batchStocktakeFactory:({controller,host,primary})=>

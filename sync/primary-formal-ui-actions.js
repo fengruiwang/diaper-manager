@@ -2,8 +2,8 @@
  * formal primary view (not loaded in existing M3 read-only browser preview).
  * Captures native page buttons before their legacy localStorage click handlers:
  * buyNow, buyquote, consume, saveStocks, deletetx.
- * Keeps unsupported quote/profile/growth/settings writes blocked, never
- * falling through to an independent local history. No auto network actions.
+ * Captures explicitly enabled shared-document writes before legacy local handlers.
+ * No auto network actions; server permissions remain authoritative.
  * SERVER permissions remain authoritative; UI flags grant no SQL rights.
  */
 (function(root){
@@ -27,8 +27,9 @@
   onQuotesAck=null,confirmQuoteClear=()=>false,confirmQuoteDelete=()=>true,
   prepareQuoteEdit=null,
   allowGrowth=false,readGrowthBaseline=null,onGrowthReadback=null,
-  confirmGrowthDelete=()=>false,
+  onGrowthAck=null,confirmGrowthDelete=()=>false,
   allowProfile=false,readProfileBaseline=null,onProfileReadback=null,
+  onProfileAck=null,
   allowSettings=false,readSettingsBaseline=null,onSettingsReadback=null,
   batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
@@ -220,7 +221,7 @@
   }
   // P4-03E: profile/settings share P4-03D's feedback behavior, not a new queue.
   const activeDocumentButton={profile:null,settings:null};
-  const pendingDocumentReview={profile:null,settings:null};
+  const pendingDocumentReview={profile:null,settings:null,growth:null};
   const originalLabels=new Map();
   const DOCUMENT_STAGES=Object.freeze({
    checking:'正在检查数据与版本…',
@@ -229,7 +230,14 @@
    readback:'云端回执已确认，正在刷新页面…',
    pending:'待确认，请勿重复保存'
   });
-  function documentProgress(kind,phase,timing={}){
+  const PROFILE_STAGES=Object.freeze({
+   checking:'正在保存宝宝资料…',
+   queued:'正在保存宝宝资料…',
+   submitting:'正在保存宝宝资料…',
+   readback:'正在保存宝宝资料…',
+   pending:'宝宝资料保存结果待核验，请勿重复提交'
+  });
+  function documentProgress(kind,phase,timing={},answer=null){
    const dom=attached?.doc;
    const controls=kind==='profile'?[dom?.getElementById('saveProfile')]:
     [dom?.getElementById('saveSizePreferences'),
@@ -237,16 +245,78 @@
      ...(dom?.querySelectorAll?.('[data-preset]')||[])];
    if(activeDocumentButton[kind]&&!controls.includes(activeDocumentButton[kind]))
     controls.push(activeDocumentButton[kind]);
-   const waiting=Object.prototype.hasOwnProperty.call(DOCUMENT_STAGES,phase);
+   const stages=kind==='profile'?PROFILE_STAGES:DOCUMENT_STAGES;
+   const waiting=Object.prototype.hasOwnProperty.call(stages,phase);
    for(const el of controls){
     if(!el)continue;
     if(!originalLabels.has(el))originalLabels.set(el,el.textContent||'保存');
     el.disabled=waiting;
     el.textContent=el===activeDocumentButton[kind]&&waiting
-     ?DOCUMENT_STAGES[phase]:originalLabels.get(el);
+     ?(phase==='pending'?'等待核验…':kind==='profile'?'正在保存…':stages[phase])
+     :originalLabels.get(el);
+   }
+   if(kind==='profile'){
+    const feedback=dom?.getElementById('profileActionFeedback');
+    if(feedback){
+     const status=String(answer?.status||'');
+     feedback.textContent=phase==='success'?'宝宝资料已保存'
+      :phase==='working'||Object.prototype.hasOwnProperty.call(PROFILE_STAGES,phase)
+       ?PROFILE_STAGES[phase]
+      :phase==='idle'?'原宝宝资料请求已核验，可以继续操作。'
+      :/UNCHANGED/.test(status)?'资料没有变化，无需保存。'
+      :/FORM_INVALID|INPUT/.test(status)?'资料未保存：请检查日期、出生时间和测量数据。'
+      :/PERMISSION|NOT_AUTHORIZED/.test(status)?'服务器拒绝保存宝宝资料，请检查账号及家庭权限。'
+      :/CONFLICT|REVISION/.test(status)?'资料未保存：云端版本已变化，请刷新后重试。'
+      :'宝宝资料保存未完成，请检查网络及同步状态。';
+    }
    }
    onDocumentProgress(kind,phase,timing);
    if(!waiting)activeDocumentButton[kind]=null;
+  }
+  let activeGrowthButton=null;
+  function growthProgress(phase,action='add',answer=null){
+   const dom=attached?.doc,save=dom?.getElementById('saveWeight');
+   const cancel=dom?.getElementById('cancelWeight');
+   const deletes=[...(dom?.querySelectorAll?.('[data-action="deleteweight"]')||[])];
+   const controls=[save,cancel,...deletes].filter(Boolean);
+   const waiting=phase==='working'||phase==='pending';
+   for(const el of controls){
+    if(!originalLabels.has(el))originalLabels.set(el,el.textContent||'保存');
+    el.disabled=waiting;
+    if(waiting&&el===activeGrowthButton)
+     el.textContent=phase==='pending'?'等待核验…':
+      action==='delete'?'正在删除…':
+      action==='edit'?'正在保存修改…':'正在保存…';
+    else if(!waiting&&(el===activeGrowthButton
+      ||/^(正在保存|正在删除|等待核验)/.test(el.textContent||''))){
+     if(phase==='success'&&el===save){
+      if(/^(正在保存|等待核验)/.test(el.textContent||''))
+       el.textContent='保存体重记录';
+     }else el.textContent=originalLabels.get(el);
+    }
+   }
+   const feedback=dom?.getElementById('growthActionFeedback');
+   if(feedback){
+    const status=String(answer?.status||'');
+    feedback.textContent=phase==='working'
+     ?action==='delete'?'正在删除记录…':
+      action==='edit'?'正在保存修改…':'正在保存体重记录…'
+     :phase==='success'
+      ?action==='delete'?'体重记录已删除':
+       action==='edit'?'体重记录已更新':'体重记录已保存'
+     :phase==='pending'?'体重记录保存结果待核验，原请求已保留，请勿重复提交。'
+     :phase==='recovered'?'原体重记录请求已核验，可以继续操作。'
+     :phase==='cancelled'||status==='GROWTH_DELETE_CANCELLED'
+      ?'已取消删除，体重记录未变化。'
+     :/FORM_INVALID|INPUT/.test(status)
+      ?'体重记录未保存：请检查测量日期、体重和时间。'
+     :/PERMISSION|NOT_AUTHORIZED/.test(status)
+      ?'服务器拒绝保存体重记录，请检查账号及家庭权限。'
+     :/CONFLICT|REVISION/.test(status)
+      ?'体重记录未保存：云端版本已变化，请刷新后重试。'
+     :'体重记录保存未完成，请检查网络及同步状态。';
+   }
+   if(!waiting)activeGrowthButton=null;
   }
   const purchaseAuthorized=()=>buildAllowsWrites===true
    &&operatorApproved()===true;
@@ -541,7 +611,7 @@
    }catch(_){return result('QUOTES_OPERATION_REVIEW_REQUIRED');}
    finally{quoteBusy=false;}
   }
-  async function invokeGrowth(el,doc){
+  async function invokeGrowth(el,doc,preparedInput=null){
    if(allowGrowth!==true||!documentCommands?.submit
      ||!documentQueue?.send||typeof readDocumentInput!=='function')
     return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
@@ -555,7 +625,7 @@
       ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
       ||!Array.isArray(baseline.body?.items))
      return result('GROWTH_DISPLAYED_BASELINE_REQUIRED');
-    const input=readDocumentInput(el,doc);
+    const input=preparedInput||readDocumentInput(el,doc);
     if(input?.kind!=='growth'||!['add','edit','delete'].includes(input.action))
      return result('GROWTH_FORM_INVALID');
     if(typeof input.record?.id!=='string'||!input.record.id)
@@ -571,33 +641,52 @@
      return result('GROWTH_FORM_INVALID');
     const saved=await documentCommands.submit({
      ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
-     expectedRevision:baseline.revision,operatorApproved:true
+     expectedRevision:baseline.revision,operatorApproved:true,
+     verifiedBaseline:baseline
     });
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('GROWTH_COMMAND_UNVERIFIED');
     const requestId=saved.requestId;
     let synced;
-    try{synced=await documentQueue.send({operatorApproved:true});}
-    catch(_){return Object.freeze({
-     status:'GROWTH_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
-    });}
-    if(synced?.status!=='DOCUMENT_SYNC_CONFIRMED')
-     return Object.freeze({status:synced?.status
-       ||'GROWTH_ACK_UNKNOWN_KEEP_REQUEST_ID',
-      requestId,cloudWriteCommitted:false});
-    try{
-     const visible=typeof onGrowthReadback==='function'
-      ?await onGrowthReadback({
-       requestId,action:input.action,record:input.record,
-       expectedRevision:baseline.revision
-      }):null;
+    try{synced=await documentQueue.send({operatorApproved:true,
+     fastDocumentId:requestId,fastDocumentKind:'growth'});}
+    catch(_){return Object.freeze({status:'GROWTH_ACK_UNKNOWN_KEEP_REQUEST_ID',
+     requestId,action:input.action,record:input.record,
+     expectedRevision:baseline.revision,familyId:baseline.familyId,
+     actorUid:baseline.actorUid,cloudWriteCommitted:false});}
+    const expected={requestId,action:input.action,record:input.record,
+     expectedRevision:baseline.revision,
+     receiptVerified:synced?.receiptVerified===true};
+    if(synced?.status==='DOCUMENT_GROWTH_ACK_CONFIRMED'){
+     let applied='pending';
+     try{applied=typeof onGrowthAck==='function'
+      ?await onGrowthAck({...synced,action:input.action,
+       record:input.record}):'pending';}catch(_){}
+     if(applied==='ready')return Object.freeze({
+      status:'GROWTH_CLOUD_ACK_APPLIED',requestId,
+      action:input.action,cloudWriteCommitted:true
+     });
+    }
+    if(['DOCUMENT_GROWTH_ACK_RECOVERED_NEEDS_REFRESH',
+      'DOCUMENT_GROWTH_ACK_CONFIRMED','DOCUMENT_SYNC_CONFIRMED']
+      .includes(synced?.status)){
+     let visible=null;
+     try{visible=typeof onGrowthReadback==='function'
+      ?await onGrowthReadback(expected):null;}catch(_){}
      if(visible==='ready')return Object.freeze({
       status:'GROWTH_CLOUD_READBACK_VERIFIED',requestId,
       action:input.action,cloudWriteCommitted:true
      });
-    }catch(_){}
-    return Object.freeze({status:'GROWTH_COMMITTED_READBACK_REQUIRED',
-     requestId,cloudWriteCommitted:true});
+     return Object.freeze({status:'GROWTH_COMMITTED_READBACK_REQUIRED',
+      requestId,action:input.action,record:input.record,
+      expectedRevision:baseline.revision,familyId:baseline.familyId,
+      actorUid:baseline.actorUid,cloudWriteCommitted:true});
+    }
+    return Object.freeze({status:synced?.status||
+      'GROWTH_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId,
+     action:input.action,record:input.record,
+     expectedRevision:baseline.revision,familyId:baseline.familyId,
+     actorUid:baseline.actorUid,cloudWriteCommitted:false});
    }catch(_){return result('GROWTH_OPERATION_REVIEW_REQUIRED');}
    finally{growthBusy=false;}
   }
@@ -609,22 +698,36 @@
    profileBusy=true;
    const startedAt=Date.now();let queuedAt=startedAt,committedAt=startedAt;
    try{
-    // Match the exact document revision visible in the settings editor.
     const baseline=typeof readProfileBaseline==='function'
      ?readProfileBaseline():null;
     if(!baseline||typeof baseline.familyId!=='string'
       ||typeof baseline.actorUid!=='string'
       ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
       ||!baseline.body?.babyProfile
-      ||typeof baseline.body.babyProfile!=='object')
+      ||typeof baseline.body.babyProfile!=='object'
+      ||Array.isArray(baseline.body.babyProfile))
      return result('PROFILE_DISPLAYED_BASELINE_REQUIRED');
     const input=readDocumentInput(el,doc);
     if(input?.kind!=='profile'||input.action!=='patch'
        ||!input.record?.babyProfile)
      return result('PROFILE_FORM_INVALID');
+    // Patch only fields whose displayed values actually changed. Unknown
+    // top-level and nested migration fields remain in the full document body.
+    const patch={},profilePatch={};
+    for(const key of ['dueDate','birthDate']){
+     if(Object.prototype.hasOwnProperty.call(input.record,key)
+       &&input.record[key]!==baseline.body[key])patch[key]=input.record[key];
+    }
+    for(const [key,value] of Object.entries(input.record.babyProfile)){
+     if(value!==baseline.body.babyProfile[key])profilePatch[key]=value;
+    }
+    if(Object.keys(profilePatch).length)patch.babyProfile=profilePatch;
+    if(!Object.keys(patch).length)return result('PROFILE_UNCHANGED');
+    const commandInput={...input,record:patch};
     const saved=await documentCommands.submit({
-     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
-     expectedRevision:baseline.revision,operatorApproved:true
+     ...commandInput,familyId:baseline.familyId,actorUid:baseline.actorUid,
+     expectedRevision:baseline.revision,operatorApproved:true,
+     verifiedBaseline:baseline
     });
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('PROFILE_COMMAND_UNVERIFIED');
@@ -633,37 +736,54 @@
     documentProgress('profile','queued',{checkAndQueueMs:queuedAt-startedAt});
     documentProgress('profile','submitting');
     let synced;
-    try{synced=await documentQueue.send({operatorApproved:true});}
-    catch(_){return Object.freeze({
-     status:'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId,
-     cloudWriteCommitted:false
-    });}
-    if(synced?.status!=='DOCUMENT_SYNC_CONFIRMED')
-     return Object.freeze({
-      status:synced?.status||'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',
-      requestId,cloudWriteCommitted:false
+    try{synced=await documentQueue.send({operatorApproved:true,
+     fastDocumentId:requestId,fastDocumentKind:'profile'});}
+    catch(_){return Object.freeze({status:'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',
+     requestId,record:input.record,expectedRevision:baseline.revision,
+     familyId:baseline.familyId,actorUid:baseline.actorUid,
+     cloudWriteCommitted:false});}
+    const expected={requestId,record:input.record,
+     expectedRevision:baseline.revision,
+     receiptVerified:synced?.receiptVerified===true};
+    if(synced?.status==='DOCUMENT_PROFILE_ACK_CONFIRMED'){
+     let applied='pending';
+     try{applied=typeof onProfileAck==='function'
+      ?await onProfileAck({...synced,action:'patch',record:input.record}):'pending';
+     }catch(_){}
+     if(applied==='ready')return Object.freeze({
+      status:'PROFILE_CLOUD_ACK_APPLIED',requestId,
+      cloudWriteCommitted:true
      });
-    committedAt=Date.now();
-    documentProgress('profile','readback',{
-     checkAndQueueMs:queuedAt-startedAt,receiptAndCommitMs:committedAt-queuedAt
-    });
-    try{
-     const visible=typeof onProfileReadback==='function'
-      ?await onProfileReadback({
-       requestId,record:input.record,expectedRevision:baseline.revision
-      }):null;
+    }
+    if(['DOCUMENT_PROFILE_ACK_RECOVERED_NEEDS_REFRESH',
+      'DOCUMENT_PROFILE_ACK_CONFIRMED','DOCUMENT_SYNC_CONFIRMED']
+      .includes(synced?.status)){
+     committedAt=Date.now();
+     documentProgress('profile','readback',{
+      checkAndQueueMs:queuedAt-startedAt,receiptAndCommitMs:committedAt-queuedAt
+     });
+     let visible=null;
+     try{visible=typeof onProfileReadback==='function'
+      ?await onProfileReadback(expected):null;}catch(_){}
      if(visible==='ready')return Object.freeze({
-      status:'PROFILE_CLOUD_READBACK_VERIFIED',
-      requestId,cloudWriteCommitted:true,
+      status:'PROFILE_CLOUD_READBACK_VERIFIED',requestId,
+      cloudWriteCommitted:true,
       timings:Object.freeze({
        checkAndQueueMs:queuedAt-startedAt,
        receiptAndCommitMs:committedAt-queuedAt,
        readbackMs:Date.now()-committedAt
       })
      });
-    }catch(_){}
-    return Object.freeze({status:'PROFILE_COMMITTED_READBACK_REQUIRED',
-     requestId,cloudWriteCommitted:true});
+     return Object.freeze({status:'PROFILE_COMMITTED_READBACK_REQUIRED',
+      requestId,record:patch,expectedRevision:baseline.revision,
+      familyId:baseline.familyId,actorUid:baseline.actorUid,
+      cloudWriteCommitted:true});
+    }
+    return Object.freeze({status:synced?.status||
+      'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId,
+     record:patch,expectedRevision:baseline.revision,
+     familyId:baseline.familyId,actorUid:baseline.actorUid,
+     cloudWriteCommitted:false});
    }catch(_){return result('PROFILE_OPERATION_REVIEW_REQUIRED');}
    finally{profileBusy=false;}
   }
@@ -733,7 +853,7 @@
    }catch(_){return result('SETTINGS_OPERATION_REVIEW_REQUIRED');}
    finally{settingsBusy=false;}
   }
-  async function handle(el,doc){
+  async function handle(el,doc,preparedDocumentInput=null){
    const action=el.dataset?.action;
    const referenceEvent=el.id==='saveEditedReference'
     ||el.id==='restoreDefaultReference'||action==='resetref';
@@ -775,7 +895,7 @@
     return readStocktakeInputs(doc);
    if(referenceEvent)return invokeReference(el,doc);
    if(quoteWriteEvent)return invokeQuotes(el,doc);
-   if(growthWriteEvent)return invokeGrowth(el,doc);
+   if(growthWriteEvent)return invokeGrowth(el,doc,preparedDocumentInput);
    if(profileWriteEvent)return invokeProfile(el,doc);
    if(settingsWriteEvent)return invokeSettings(el,doc);
    if(quoteEditEvent&&typeof prepareQuoteEdit==='function'){
@@ -891,6 +1011,14 @@
     referenceProgress('idle');
     return true;
    }
+   if(kind==='growth'&&pendingDocumentReview.growth?.requestId===requestId
+     &&pendingDocumentReview.growth.actorUid===actorUid
+     &&pendingDocumentReview.growth.familyId===familyId){
+    const action=pendingDocumentReview.growth.action;
+    pendingDocumentReview.growth=null;
+    growthProgress('recovered',action);
+    return true;
+   }
    if((kind==='profile'||kind==='settings')
      &&pendingDocumentReview[kind]===requestId){
     pendingDocumentReview[kind]=null;
@@ -899,9 +1027,53 @@
    }
    return false;
   }
+  function dispatchGrowthSave(el,doc){
+   if(growthBusy)return;
+   if(pendingDocumentReview.growth){
+    growthProgress('pending',pendingDocumentReview.growth.action);
+    notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
+   }
+   if(!documentsAuthorized()||allowGrowth!==true){
+    let pending;try{pending=handle(el,doc);}catch(_){pending=Promise.resolve(
+     result('FORMAL_OPERATION_REVIEW_REQUIRED'));}
+    void Promise.resolve(pending).then(notify,
+     ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
+    return;
+   }
+   let input=null;
+   try{input=readDocumentInput?.(el,doc);}catch(_){}
+   if(!input){
+    growthProgress('failed','add',result('GROWTH_FORM_INVALID'));
+    notify(result('GROWTH_FORM_INVALID'));return;
+   }
+   activeGrowthButton=el;
+   growthProgress('working',input.action);
+   let promise;
+   try{promise=handle(el,doc,input);}
+   catch(_){promise=Promise.resolve(result('GROWTH_OPERATION_REVIEW_REQUIRED'));}
+   void Promise.resolve(promise).then(answer=>{
+    const ok=['GROWTH_CLOUD_ACK_APPLIED','GROWTH_CLOUD_READBACK_VERIFIED']
+     .includes(answer?.status);
+    if(answer?.requestId&&!ok){
+     pendingDocumentReview.growth=Object.freeze({
+      requestId:answer.requestId,action:answer.action||input.action,
+      record:answer.record||input.record,
+      expectedRevision:answer.expectedRevision,
+      actorUid:answer.actorUid,familyId:answer.familyId
+     });
+    }
+    growthProgress(pendingDocumentReview.growth?'pending':
+     ok?'success':answer?.status==='GROWTH_DELETE_CANCELLED'
+      ?'cancelled':'failed',input.action,answer);
+    notify(answer);
+   },()=>{
+    growthProgress('failed',input.action,
+     result('GROWTH_OPERATION_REVIEW_REQUIRED'));
+    notify(result('GROWTH_OPERATION_REVIEW_REQUIRED'));
+   });
+  }
   function dispatchDocumentSave(el,doc,kind){
    if(kind!=='profile'&&kind!=='settings')return;
-   // Immediate call uses the existing per-document busy flag before its first await.
    if(kind==='profile'?profileBusy:settingsBusy)return;
    if(pendingDocumentReview[kind]){
     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
@@ -913,24 +1085,51 @@
    }
    activeDocumentButton[kind]=el;
    documentProgress(kind,'checking');
-   void handle(el,doc).then(answer=>{
-    const ok=answer?.status===(kind==='profile'
-     ?'PROFILE_CLOUD_READBACK_VERIFIED':'SETTINGS_CLOUD_READBACK_VERIFIED');
+   let promise;
+   try{promise=handle(el,doc);}
+   catch(_){promise=Promise.resolve(result('FORMAL_OPERATION_REVIEW_REQUIRED'));}
+   void Promise.resolve(promise).then(answer=>{
+    const ok=kind==='profile'
+     ?['PROFILE_CLOUD_ACK_APPLIED','PROFILE_CLOUD_READBACK_VERIFIED']
+       .includes(answer?.status)
+     :answer?.status==='SETTINGS_CLOUD_READBACK_VERIFIED';
     if(answer?.requestId&&!ok)pendingDocumentReview[kind]=answer.requestId;
     documentProgress(kind,pendingDocumentReview[kind]?'pending':
-     ok?'success':'failed',answer?.timings||{});
+     ok?'success':'failed',answer?.timings||{},answer);
     notify(answer);
    },()=>{
-    documentProgress(kind,'failed');
+    documentProgress(kind,'failed',{},result('FORMAL_OPERATION_REVIEW_REQUIRED'));
     notify(result('FORMAL_OPERATION_REVIEW_REQUIRED'));
    });
   }
   // Manual "重新核验待确认操作" is the only recovery path for
   // ambiguous UUIDs. Require both a verified cloud read and original receipt.
-  async function recoverDocumentButtons({verified=false}={}){
+  async function recoverDocumentButtons({verified=false,displayedGrowth=null}={}){
    if(verified!==true||typeof documentQueue?.checkSavedRequest!=='function')
     return false;
    let recovered=false;
+   const growth=pendingDocumentReview.growth;
+   if(growth&&displayedGrowth?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+     &&displayedGrowth.kind==='growth'
+     &&displayedGrowth.familyId===growth.familyId
+     &&displayedGrowth.actorUid===growth.actorUid
+     &&Number.isSafeInteger(displayedGrowth.revision)
+     &&displayedGrowth.revision>growth.expectedRevision
+     &&Array.isArray(displayedGrowth.body?.items)){
+    const row=displayedGrowth.body.items.find(x=>x.id===growth.record?.id);
+    const matches=growth.action==='delete'?!row:
+     (growth.action==='add'||growth.action==='edit')&&row
+      &&Object.entries(growth.record||{}).every(([key,value])=>row[key]===value);
+    if(matches){
+     let receipt=null;
+     try{receipt=await documentQueue.checkSavedRequest(growth.requestId);}catch(_){}
+     if(receipt?.status==='REQUEST_ACK_RECOVERED'){
+      pendingDocumentReview.growth=null;
+      growthProgress('recovered',growth.action);
+      recovered=true;
+     }
+    }
+   }
    for(const kind of ['profile','settings']){
     const requestId=pendingDocumentReview[kind];
     if(!requestId)continue;
@@ -967,6 +1166,9 @@
       ||action==='resetref'){
      dispatchReference(el,doc);return;
     }
+    if(el.id==='saveWeight'||action==='deleteweight'){
+     dispatchGrowthSave(el,doc);return;
+    }
     if(el.id==='saveProfile'){
      dispatchDocumentSave(el,doc,'profile');return;
     }
@@ -996,7 +1198,8 @@
    return Object.freeze({
     hasPendingReferenceReview:()=>Boolean(referenceNeedsReview),
     recoverReferenceButton,releaseAbandonedDocumentConflict,
-    hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.profile||pendingDocumentReview.settings),
+    hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.growth
+     ||pendingDocumentReview.profile||pendingDocumentReview.settings),
     hasPendingMinimalReview:domain=>Boolean(minimalReview[domain]),
     recoverMinimalButtons,recoverDocumentButtons,detach(){
     if(!attached)return;

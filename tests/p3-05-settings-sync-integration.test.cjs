@@ -386,15 +386,15 @@ test('P3-05 resetAll is still blocked; original localStorage handlers captured',
  assert.match(source,/if\(settingsWriteEvent\)return invokeSettings/);
  attached.detach();
 });
-test('P3-05 source mirror, five document kinds and formal switches unchanged',async()=>{
+test('P3-05 source mirror keeps all document kinds and leaves settings disabled',async()=>{
  const controller=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8');
- assert.match(controller,/allowSettings:true/);
+ assert.match(controller,/allowSettings:false/);
  assert.match(controller,/settingsChangeVisible/);
  assert.match(controller,/expectedSettings/);
  assert.match(controller,/onSettingsReadback/);
  assert.match(controller,/\['reference','quotes','growth','profile','settings'\]/);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
  for(const name of ['primary-documents-operations',
   'primary-documents-business-commands','primary-formal-ui-actions']){

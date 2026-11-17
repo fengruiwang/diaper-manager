@@ -260,7 +260,7 @@ test('P3-03 uncertain receipt remains queued; replay checks same UUID first',asy
  assert.equal(f.putCount,1);assert.equal(f.queued.get(IDS[0]).status,'acked');
  assert.equal(f.body.items.length,2);
 });
-test('P3-03 only growth plus P3-01/02 document kinds authorized; profile/settings and formal gates off',async()=>{
+test('P3-03 growth queue stays scoped; profile/settings remain closed while document writes are enabled',async()=>{
  const f=fixture();
  for(const kind of ['profile','settings']){
   const x=await f.queue.queue({kind,requestId:IDS[0],
@@ -273,7 +273,7 @@ test('P3-03 only growth plus P3-01/02 document kinds authorized; profile/setting
  const rec=f.queued.get(IDS[0]);
  assert.equal(rec.payload.kind,'quotes');
  assert.equal(f.putCount,0);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
  const off=fixture({enabled:false});
  assert.equal((await off.click('saveWeight')).status,'FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');

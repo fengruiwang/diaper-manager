@@ -222,7 +222,7 @@ test('P4-02B SDK load 404->200 is an intended sequential URL fallback, not a doc
  assert.match(code,/await scriptLoader\(url\)/);
  assert.match(code,/catch\(_\)\{\}/);
  assert.match(code,/sdk_unavailable/);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
 });
 

@@ -7,7 +7,7 @@ function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});retur
 function fixture({submit=async()=>({status:'DOCUMENT_OPERATION_DURABLY_QUEUED',requestId:'original-uuid'}),
  send=async()=>({status:'DOCUMENT_SYNC_CONFIRMED'}),readback=async()=> 'ready',
  receipt=async()=>({status:'REQUEST_ACK_RECOVERED'}),docEnabled=true,
- allowProfile=true,allowSettings=true}={}){
+ allowProfile=true,allowSettings=true,allowGrowth=false}={}){
  const calls={submit:0,send:0,readback:0,receipt:0,stock:0};
  const statuses=[],notifications=[],handler={},stages=[],fields={name:'测试昵称',goal:'1.6'};
  function btn(id,label,dataset={}){
@@ -16,6 +16,10 @@ function fixture({submit=async()=>({status:'DOCUMENT_OPERATION_DURABLY_QUEUED',r
  }
  const buttons={
   saveProfile:btn('saveProfile','保存宝宝基本资料'),
+  profileActionFeedback:{id:'profileActionFeedback',textContent:''},
+  saveWeight:btn('saveWeight','保存体重记录'),
+  cancelWeight:btn('cancelWeight','取消编辑'),
+  growthActionFeedback:{id:'growthActionFeedback',textContent:''},
   saveSizePreferences:btn('saveSizePreferences','保存尺码与采购偏好'),
   savePlans:btn('savePlans','保存目标与日均用量'),
   cautious:btn('','保守备货',{preset:'cautious'}),
@@ -39,7 +43,7 @@ function fixture({submit=async()=>({status:'DOCUMENT_OPERATION_DURABLY_QUEUED',r
   onDocumentProgress:(kind,phase,timing)=>stages.push({kind,phase,timing}),
   buildAllowsWrites:false,operatorApproved:()=>false,
   buildAllowsDocumentWrites:docEnabled,documentOperatorApproved:()=>docEnabled,
-  allowProfile,allowSettings,allowReference:false,allowQuotes:false,allowGrowth:false,
+  allowProfile,allowSettings,allowReference:false,allowQuotes:false,allowGrowth,
   purchaseOnly:true,allowConsume:false,allowReverse:false,allowStocktake:false,
   documentCommands:{submit:async()=>{calls.submit++;return submit();}},
   documentQueue:{
@@ -49,12 +53,20 @@ function fixture({submit=async()=>({status:'DOCUMENT_OPERATION_DURABLY_QUEUED',r
   },
   readDocumentInput:el=>el.id==='saveProfile'
    ?{kind:'profile',action:'patch',record:{babyProfile:{name:fields.name}}}
-   :{kind:'settings',action:'patch',record:{goalPrice:Number(fields.goal)}},
+   :el.id==='saveWeight'
+    ?{kind:'growth',action:'add',record:{id:'weight-1',
+      date:'2026-11-17',time:'09:30',weight:3.2}}
+    :{kind:'settings',action:'patch',record:{goalPrice:Number(fields.goal)}},
   readProfileBaseline:()=>({familyId:'f',actorUid:'A',revision:0,
    body:{babyProfile:{name:'原昵称'}}}),
   readSettingsBaseline:()=>({familyId:'f',actorUid:'A',revision:0,
    body:{target:{NB:80},daily:{NB:8}}}),
   onProfileReadback:async()=>{calls.readback++;return readback();},
+  onProfileAck:async()=> 'ready',
+  readGrowthBaseline:()=>({familyId:'f',actorUid:'A',revision:0,
+   body:{items:[]}}),
+  onGrowthReadback:async()=>{calls.readback++;return readback();},
+  onGrowthAck:async()=> 'ready',
   onSettingsReadback:async()=>{calls.readback++;return readback();}
  });
  const binding=ui.attach(doc);
@@ -78,7 +90,8 @@ test('P4-03E profile click shows immediate feedback and disables before first aw
  const e=f.click('saveProfile');
  assert.equal(e.prevented,true);
  assert.equal(f.buttons.saveProfile.disabled,true);
- assert.match(f.buttons.saveProfile.textContent,/正在检查/);
+ assert.match(f.buttons.saveProfile.textContent,/正在保存/);
+ assert.equal(f.buttons.profileActionFeedback.textContent,'正在保存宝宝资料…');
  assert.deepEqual(f.stages.map(x=>x.phase),['checking']);
  assert.equal(f.fields.name,'测试昵称');
  d.resolve({status:'DOCUMENT_OPERATION_DURABLY_QUEUED',requestId:'original-uuid'});
@@ -86,6 +99,25 @@ test('P4-03E profile click shows immediate feedback and disables before first aw
  assert.equal(f.notifications.at(-1).status,'PROFILE_CLOUD_READBACK_VERIFIED');
  assert.equal(f.buttons.saveProfile.disabled,false);
  assert.equal(f.buttons.saveProfile.textContent,'保存宝宝基本资料');
+});
+test('B2-03 growth click shows immediate feedback and disables its controls before first await',async()=>{
+ const d=deferred(),f=fixture({submit:()=>d.promise,allowGrowth:true,
+  send:async()=>({status:'DOCUMENT_GROWTH_ACK_CONFIRMED'})});
+ f.click('saveWeight');
+ assert.equal(f.buttons.saveWeight.disabled,true);
+ assert.equal(f.buttons.growthActionFeedback.textContent,'正在保存体重记录…');
+ d.resolve({status:'DOCUMENT_OPERATION_DURABLY_QUEUED',requestId:'original-uuid'});
+ await tick();await tick();await tick();
+ assert.equal(f.notifications.at(-1).status,'GROWTH_CLOUD_ACK_APPLIED');
+ assert.equal(f.buttons.growthActionFeedback.textContent,'体重记录已保存');
+ assert.equal(f.buttons.saveWeight.disabled,false);
+});
+test('B2-03 profile fast ACK updates the page without a readback round trip',async()=>{
+ const f=fixture({send:async()=>({status:'DOCUMENT_PROFILE_ACK_CONFIRMED'})});
+ f.click('saveProfile');await tick();await tick();
+ assert.equal(f.calls.readback,0);
+ assert.equal(f.notifications.at(-1).status,'PROFILE_CLOUD_ACK_APPLIED');
+ assert.equal(f.buttons.profileActionFeedback.textContent,'宝宝资料已保存');
 });
 test('P4-03E settings save disables BOTH settings buttons and presets, blocks duplicate UUIDs',async()=>{
  const d=deferred(),f=fixture({submit:()=>d.promise});
@@ -197,6 +229,6 @@ test('P4-03E leaves reference P4-03D and purchase/inventory authorizations uncha
  await tick();await tick();
  assert.equal(f.calls.submit,0);
  assert.equal(f.calls.stock,0);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
 });

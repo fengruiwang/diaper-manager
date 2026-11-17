@@ -91,8 +91,8 @@ function mockReference({overrides={}}={}){
  return {scope,docClient,queue,commands,ui,click,input,state,rows,receipts,
   ids,putCalls,get primaryCalls(){return primaryCalls}};
 }
-test('P4-03B test bundle is the only build with document write ON; stock and main source stay OFF',()=>{
- assert.equal(SrcFormal.FORMAL_WRITE_ENABLED,false);
+test('P4-03B Feature and test bundle enable shared documents; purchase remains OFF',()=>{
+ assert.equal(SrcFormal.FORMAL_WRITE_ENABLED,true);
  assert.equal(SrcFormal.FORMAL_PURCHASE_ENABLED,false);
  assert.equal(TestFormal.FORMAL_WRITE_ENABLED,true);
  assert.equal(TestFormal.FORMAL_PURCHASE_ENABLED,false);
@@ -101,9 +101,9 @@ test('P4-03B test bundle is the only build with document write ON; stock and mai
  assert.match(c,/allowReference:true,allowQuotes:false,allowGrowth:false,allowProfile:false/);
  assert.match(c,/purchaseOnly:true,allowConsume:false,allowReverse:false/);
  const src=fs.readFileSync(path.join(__dirname,'../preview/v1.2.0/formal-controller.js'),'utf8');
- assert.match(src,/const FORMAL_WRITE_ENABLED=false/);
+ assert.match(src,/const FORMAL_WRITE_ENABLED=true/);
  assert.match(src,/const FORMAL_PURCHASE_ENABLED=false/);
- assert.match(src,/referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true/);
+ assert.match(src,/referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:false/);
 });
 test('P4-03B reference-only queue denies other four kinds before IDB or RPC',async()=>{
  const f=mockReference();
