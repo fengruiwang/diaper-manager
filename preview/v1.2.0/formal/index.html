@@ -3721,7 +3721,7 @@ restoreActiveTab();
   documentOperatorApproved=operatorApproved,
   documentCommands=null,documentQueue=null,
   readDocumentInput=null,readReferenceBaseline=null,
-  onReferenceReadback=null,allowReference=false,
+  onReferenceReadback=null,onReferenceAck=null,allowReference=false,
   allowQuotes=false,readQuotesBaseline=null,onQuotesReadback=null,
   confirmQuoteClear=()=>false,prepareQuoteEdit=null,
   allowGrowth=false,readGrowthBaseline=null,onGrowthReadback=null,
@@ -4045,7 +4045,8 @@ restoreActiveTab();
      return result('REFERENCE_FORM_INVALID');
     const saved=await documentCommands.submit({
      ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
-     expectedRevision:baseline.revision,operatorApproved:true
+     expectedRevision:baseline.revision,operatorApproved:true,
+     verifiedBaseline:baseline
     });
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('REFERENCE_COMMAND_UNVERIFIED');
@@ -4054,10 +4055,23 @@ restoreActiveTab();
     referenceProgress('queued',{checkAndQueueMs:queuedAt-t0});
     referenceProgress('submitting');
     let sync;
-    try{sync=await documentQueue.send({operatorApproved:true});}
+    try{sync=await documentQueue.send({operatorApproved:true,
+     fastReferenceId:requestId});}
     catch(_){return Object.freeze({
      status:'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
     });}
+    if(sync?.status==='DOCUMENT_REFERENCE_ACK_CONFIRMED'){
+     // ACK matches the queued full reference; targeted on-page update only.
+     let applied='pending';
+     try{applied=typeof onReferenceAck==='function'
+      ?await onReferenceAck({...sync,record:input.record,
+       action:input.action}):'pending';}catch(_){}
+     return Object.freeze({
+      status:applied==='ready'?'REFERENCE_CLOUD_ACK_APPLIED':
+       'REFERENCE_COMMITTED_READBACK_REQUIRED',
+      requestId,cloudWriteCommitted:true
+     });
+    }
     if(sync?.status!=='DOCUMENT_SYNC_CONFIRMED')
      return Object.freeze({status:sync?.status||
        'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',
@@ -4435,7 +4449,8 @@ restoreActiveTab();
     void handle(el,doc).then(answer=>{
      // A committed/ambiguous request stays locked until its own receipt
      // and the same account's rendered reference are verified together.
-     if(answer?.requestId&&answer.status!=='REFERENCE_CLOUD_READBACK_VERIFIED')
+     if(answer?.requestId&&!['REFERENCE_CLOUD_READBACK_VERIFIED',
+      'REFERENCE_CLOUD_ACK_APPLIED'].includes(answer.status))
       referenceNeedsReview=Object.freeze({
        requestId:answer.requestId,action:intent?.action,
        record:intent?.record?Object.freeze({...intent.record}):null,
@@ -4443,7 +4458,8 @@ restoreActiveTab();
        actorUid:baseline?.actorUid,familyId:baseline?.familyId
       });
      const phase=referenceNeedsReview?'pending':
-      answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'?'success':'failed';
+      ['REFERENCE_CLOUD_READBACK_VERIFIED',
+      'REFERENCE_CLOUD_ACK_APPLIED'].includes(answer?.status)?'success':'failed';
      referenceProgress(phase,answer?.timings||{});
      if(intent?.action==='reset'&&phase==='failed'){
       const msg=attached?.doc.getElementById('formalReferenceActionFeedback');
@@ -5007,6 +5023,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    ||!outbox?.recordResult||!outbox?.get)
   throw Error('primary_docs_outbox:outbox_incomplete');
  let busy=false;
+ // Volatile proof of a fresh IDB enqueue, never persisted or reused after reload.
+ const freshReferenceIds=new Map();
  const enabledKind=kind=>referenceAndQuotes===true
   ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
     ||(allowProfile===true&&kind==='profile')
@@ -5030,7 +5048,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   }catch(_){return ans('DOCUMENT_QUEUE_COUNTS_UNVERIFIED');}
  }
  async function queue({kind,nextBody,expectedRevision,requestId,
-  operatorApproved=false,action='upsert'}={}){
+  operatorApproved=false,action='upsert',verifiedBaseline=null}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return ans('DOCUMENT_QUEUE_BUSY');
@@ -5043,7 +5061,21 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity();
-   const state=await documentsClient.read({...scope,kind,readEnabled:true});
+   let state;
+   if(kind==='reference'&&verifiedBaseline!==null){
+    if(verifiedBaseline.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+      ||verifiedBaseline.kind!==kind||verifiedBaseline.familyId!==scope.familyId
+      ||verifiedBaseline.actorUid!==scope.actorUid
+      ||!UUID.test(String(verifiedBaseline.childId))
+      ||verifiedBaseline.revision!==expectedRevision
+      ||!verifiedBaseline.body||typeof verifiedBaseline.body!=='object'
+      ||Array.isArray(verifiedBaseline.body)
+      ||!verifiedBaseline.body.referenceOverrides
+      ||typeof verifiedBaseline.body.referenceOverrides!=='object'
+      ||Array.isArray(verifiedBaseline.body.referenceOverrides))
+     return ans('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
+    state=verifiedBaseline;
+   }else state=await documentsClient.read({...scope,kind,readEnabled:true});
    if(state.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
      ||state.revision!==expectedRevision||!UUID.test(state.childId))
     return ans('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
@@ -5054,16 +5086,22 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     expectedRevision,createdAt:new Date().toISOString(),
     payload:{childId:state.childId,kind,nextBody}
    });
+   // An old queued operation or a reused UUID is never a "first send".
+   const previous=kind==='reference'&&verifiedBaseline!==null
+    ?await outbox.get(scope,requestId):null;
    const inserted=await outbox.enqueue(op);
+   if(kind==='reference'&&verifiedBaseline!==null&&!previous
+      &&inserted?.duplicate!==true)
+    freshReferenceIds.set(op.id,scope.familyId+'\\x00'+scope.actorUid);
    return ans('DOCUMENT_OPERATION_DURABLY_QUEUED',{
-    requestId:op.id,duplicate:inserted?.duplicate===true,
+    requestId:op.id,duplicate:Boolean(previous)||inserted?.duplicate===true,
     cloudWriteCommitted:false
    });
   }catch(_){return ans('DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID',
    {requestId});}
   finally{busy=false;}
  }
- async function send({operatorApproved=false}={}){
+ async function send({operatorApproved=false,fastReferenceId=null}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return ans('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(!online())return ans('DOCUMENT_OFFLINE_QUEUE_PRESERVED');
@@ -5071,6 +5109,15 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity(),items=await outbox.ready(scope);
+   const fastReference=typeof fastReferenceId==='string'
+    &&freshReferenceIds.get(fastReferenceId)===
+     scope.familyId+'\\x00'+scope.actorUid
+    &&items.length===1&&items[0].id===fastReferenceId
+    &&items[0].payload?.kind==='reference';
+   if(fastReferenceId!==null&&!fastReference)
+    return ans('DOCUMENT_PENDING_REVIEW_REQUIRED',{requestId:fastReferenceId});
+   // A second send or later session reverts to the receipt-checking path.
+   if(fastReference)freshReferenceIds.delete(fastReferenceId);
    if(items.some(op=>!enabledKind(op.payload?.kind)))
     return ans('DOCUMENT_KIND_NOT_AUTHORIZED');
    if(!items.length){
@@ -5084,10 +5131,11 @@ function create({controller,host,documentsClient,outboxFactory,contract,
       {requestId:op.id});
     const command={...scope,kind:op.payload.kind,
      nextBody:op.payload.nextBody,expectedRevision:op.expectedRevision,
-     requestId:op.id,operatorApproved:true};
+     requestId:op.id,operatorApproved:true,
+     fastReference:fastReference&&op.id===fastReferenceId};
     // P3 shared-document retries inspect the original request receipt
     // before sending. No new request UUID on an ambiguous network ACK.
-    if(strictReceipt){
+    if(strictReceipt&&!fastReference){
      const prior=await documentsClient.checkRequest({
       ...scope,requestId:op.id,readEnabled:true
      });
@@ -5105,13 +5153,16 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     }
     const result=await documentsClient.put(command);
     let acknowledged=result.status==='PRIMARY_DOCUMENT_COMMITTED';
+    let recoveredFromReceipt=false;
     if(!acknowledged &&
       result.status==='PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID'){
      const check=await documentsClient.checkRequest({
       ...scope,requestId:op.id,readEnabled:true
      });
      acknowledged=check.status==='REQUEST_COMMITTED_VERIFIED'
-       &&check.kind===op.payload.kind;
+       &&check.kind===op.payload.kind
+       &&(!fastReference||check.revision===op.expectedRevision+1);
+     if(acknowledged)recoveredFromReceipt=true;
      if(!acknowledged)return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',
       {requestId:op.id});
     }
@@ -5122,7 +5173,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
     }
     if(!acknowledged)return ans('DOCUMENT_ACK_NOT_VERIFIED',
      {requestId:op.id});
-    if(strictReceipt){
+    if(strictReceipt&&!fastReference){
      const verified=await documentsClient.checkRequest({
       ...scope,requestId:op.id,readEnabled:true
      });
@@ -5131,6 +5182,33 @@ function create({controller,host,documentsClient,outboxFactory,contract,
         ||verified.revision!==op.expectedRevision+1)
       return ans('DOCUMENT_RECEIPT_READBACK_REQUIRED_KEEP_ID',
        {requestId:op.id});
+    }
+    if(fastReference){
+     // A direct ACK must echo exact family, child, kind, request ID and
+     // expected CAS revision. An ambiguous or duplicate ACK does not show
+     // potentially stale document content as the newest local version.
+     const exact=result.status==='PRIMARY_DOCUMENT_COMMITTED'
+      &&result.kind==='reference'&&result.requestId===op.id
+      &&result.familyId===scope.familyId
+      &&result.childId===op.payload.childId
+      &&result.revision===op.expectedRevision+1;
+     if(!exact&&!recoveredFromReceipt)
+      return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',{requestId:op.id});
+     try{await outbox.recordResult(scope,op.id,{
+      kind:'accepted',receiptId:op.id
+     });}catch(_){
+      return ans('DOCUMENT_REFERENCE_ACK_LOCAL_PENDING',{requestId:op.id});
+     }
+     if(!exact||result.duplicate===true||recoveredFromReceipt)
+      return ans('DOCUMENT_REFERENCE_ACK_RECOVERED_NEEDS_REFRESH',{
+       requestId:op.id
+      });
+     return ans('DOCUMENT_REFERENCE_ACK_CONFIRMED',{
+      requestId:op.id,kind:'reference',familyId:scope.familyId,
+      actorUid:scope.actorUid,childId:op.payload.childId,
+      revision:result.revision,expectedRevision:op.expectedRevision,
+      nextBody:op.payload.nextBody
+     });
     }
     await outbox.recordResult(scope,op.id,{
      kind:'accepted',receiptId:op.id
@@ -5322,7 +5400,7 @@ function create({client,queue,uuid}={}){
   return next;
  }
  async function submit({familyId,actorUid,kind,action,record,
-  expectedRevision=null,operatorApproved=false}={}){
+  expectedRevision=null,operatorApproved=false,verifiedBaseline=null}={}){
   if(queue.cloudWritesEnabled!==true||operatorApproved!==true)
    return reply('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return reply('BUSY');
@@ -5333,7 +5411,20 @@ function create({client,queue,uuid}={}){
    if(wait.status!=='DOCUMENT_QUEUE_COUNTS_VERIFIED'
      ||wait.outstanding>0)
     return reply('DOCUMENT_PENDING_REVIEW_REQUIRED');
-   const read=await client.read({familyId,actorUid,kind,readEnabled:true});
+   // Reference uses the COMPLETE verified B1 document, never a rendered
+   // referenceOverrides-only projection. Other kinds keep their old read.
+   let read;
+   if(kind==='reference'&&verifiedBaseline!==null){
+    if(verifiedBaseline?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+      ||verifiedBaseline.kind!=='reference'
+      ||verifiedBaseline.familyId!==familyId
+      ||verifiedBaseline.actorUid!==actorUid
+      ||typeof verifiedBaseline.childId!=='string'
+      ||!Number.isSafeInteger(verifiedBaseline.revision)
+      ||!object(verifiedBaseline.body?.referenceOverrides))
+     return reply('DOCUMENT_BASELINE_UNVERIFIED');
+    read=verifiedBaseline;
+   }else read=await client.read({familyId,actorUid,kind,readEnabled:true});
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
    // For on-screen reference/quote/growth/profile edits, use the revision that was
@@ -5352,7 +5443,9 @@ function create({client,queue,uuid}={}){
    const requestId=uuid();
    const saved=await queue.queue({kind,nextBody:body,
     expectedRevision:read.revision,requestId,operatorApproved:true,
-    action});
+    action,verifiedBaseline:kind==='reference'
+     &&read.familyId===familyId&&typeof read.childId==='string'
+     ?{...read,actorUid}:null});
    return reply(saved.status,{
     requestId:saved.requestId||requestId,cloudWriteCommitted:false
    });
@@ -5511,7 +5604,12 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
     return result('INVALID_DOCUMENT_COMMAND');
    busy=true;
    try{
-    const who=await scope(input);
+    // The current, B1-verified reference scope avoids repeated client SELECT.
+    // SQL 026 still enforces authenticated family access and CAS.
+    const fast=input.kind==='reference'&&input.fastReference===true
+     &&verifiedReadScope?.familyId===input.familyId
+     &&verifiedReadScope?.actorUid===input.actorUid;
+    const who=fast?verifiedReadScope:await scope(input);
     const d=await rpc('xb_put_primary_document_draft',{
      p_family_id:who.familyId,p_child_id:who.childId,
      p_kind:input.kind,p_expected_revision:input.expectedRevision,
@@ -5526,7 +5624,8 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
       {requestId:input.requestId});
     return result('PRIMARY_DOCUMENT_COMMITTED',{
      kind:input.kind,revision:d.revision,
-     duplicate:d.duplicate===true,requestId:input.requestId
+     duplicate:d.duplicate===true,requestId:input.requestId,
+     familyId:who.familyId,childId:who.childId
     });
    }catch(error){
     // A real 40001 conflict never gets promoted to "maybe committed".

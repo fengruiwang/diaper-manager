@@ -22,7 +22,7 @@
   documentOperatorApproved=operatorApproved,
   documentCommands=null,documentQueue=null,
   readDocumentInput=null,readReferenceBaseline=null,
-  onReferenceReadback=null,allowReference=false,
+  onReferenceReadback=null,onReferenceAck=null,allowReference=false,
   allowQuotes=false,readQuotesBaseline=null,onQuotesReadback=null,
   confirmQuoteClear=()=>false,prepareQuoteEdit=null,
   allowGrowth=false,readGrowthBaseline=null,onGrowthReadback=null,
@@ -346,7 +346,8 @@
      return result('REFERENCE_FORM_INVALID');
     const saved=await documentCommands.submit({
      ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
-     expectedRevision:baseline.revision,operatorApproved:true
+     expectedRevision:baseline.revision,operatorApproved:true,
+     verifiedBaseline:baseline
     });
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('REFERENCE_COMMAND_UNVERIFIED');
@@ -355,10 +356,23 @@
     referenceProgress('queued',{checkAndQueueMs:queuedAt-t0});
     referenceProgress('submitting');
     let sync;
-    try{sync=await documentQueue.send({operatorApproved:true});}
+    try{sync=await documentQueue.send({operatorApproved:true,
+     fastReferenceId:requestId});}
     catch(_){return Object.freeze({
      status:'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId
     });}
+    if(sync?.status==='DOCUMENT_REFERENCE_ACK_CONFIRMED'){
+     // ACK matches the queued full reference; targeted on-page update only.
+     let applied='pending';
+     try{applied=typeof onReferenceAck==='function'
+      ?await onReferenceAck({...sync,record:input.record,
+       action:input.action}):'pending';}catch(_){}
+     return Object.freeze({
+      status:applied==='ready'?'REFERENCE_CLOUD_ACK_APPLIED':
+       'REFERENCE_COMMITTED_READBACK_REQUIRED',
+      requestId,cloudWriteCommitted:true
+     });
+    }
     if(sync?.status!=='DOCUMENT_SYNC_CONFIRMED')
      return Object.freeze({status:sync?.status||
        'REFERENCE_ACK_UNKNOWN_KEEP_REQUEST_ID',
@@ -736,7 +750,8 @@
     void handle(el,doc).then(answer=>{
      // A committed/ambiguous request stays locked until its own receipt
      // and the same account's rendered reference are verified together.
-     if(answer?.requestId&&answer.status!=='REFERENCE_CLOUD_READBACK_VERIFIED')
+     if(answer?.requestId&&!['REFERENCE_CLOUD_READBACK_VERIFIED',
+      'REFERENCE_CLOUD_ACK_APPLIED'].includes(answer.status))
       referenceNeedsReview=Object.freeze({
        requestId:answer.requestId,action:intent?.action,
        record:intent?.record?Object.freeze({...intent.record}):null,
@@ -744,7 +759,8 @@
        actorUid:baseline?.actorUid,familyId:baseline?.familyId
       });
      const phase=referenceNeedsReview?'pending':
-      answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'?'success':'failed';
+      ['REFERENCE_CLOUD_READBACK_VERIFIED',
+      'REFERENCE_CLOUD_ACK_APPLIED'].includes(answer?.status)?'success':'failed';
      referenceProgress(phase,answer?.timings||{});
      if(intent?.action==='reset'&&phase==='failed'){
       const msg=attached?.doc.getElementById('formalReferenceActionFeedback');

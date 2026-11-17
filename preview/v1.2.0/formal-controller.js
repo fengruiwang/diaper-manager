@@ -113,6 +113,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
  let documentSnapshot=null,documentScope='',documentPending='',renderedReference=null;
+ let primaryViewBase=null;
  let documentEpoch=0,documentReadSerial=0;
  let documentReadTask=null,fullyReadAt=null,fullReadVerified=false;
  let documentClientCache=null;
@@ -276,6 +277,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   ui.clear();actor=null;family=null;primary=null;shownStock=null;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
+  primaryViewBase=null;
   documentEpoch++;documentReadSerial++;pendingReviewSerial++;
   documentReadTask=null;fullyReadAt=null;fullReadVerified=false;
   documentClientCache?.client?.invalidateReadScope?.();
@@ -435,6 +437,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const identityEpoch=documentEpoch;
    let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
+   const baseView=data;
    // The primary read above has already verified the current actor, family,
    // active primary, completed migration receipt and server inventory scope.
    // Reuse this current-session read scope for document RPCs only.
@@ -652,7 +655,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        const messages={
         checking:'正在检查参考价和云端版本，请勿重复点击…',
         queued:'参考价已加入本地持久队列，正在准备云端提交…',
-        submitting:'正在核验原请求回执并提交参考价，请勿重复保存…',
+        submitting:'正在向云端保存参考价，请勿重复保存…',
         readback:'云端提交及回执已确认，正在重新读取参考价…',
         pending:'这笔参考价请求尚待核实，请使用“重新核验待确认操作”，不要重复保存。'
        };
@@ -664,6 +667,55 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        &&documentSnapshot&&documentScope===actor+'\x00'+family
        ?{...documentSnapshot.documents?.reference,
          actorUid:actor}:null,
+      onReferenceAck:async(ack)=>{
+       const current=controller.verifiedContext();
+       const key=ctx.actorUid+'\x00'+ctx.familyId;
+       const previous=documentSnapshot?.documents?.reference;
+       // The ACK was checked by the document client and outbox. Here verify
+       // current identity, exact CAS revision, and the complete saved body
+       // before updating only the local reference overlay.
+       if(!current||mode!=='ready'||identityEpoch!==documentEpoch
+         ||actor!==ctx.actorUid||family!==ctx.familyId
+         ||current.actorUid!==ctx.actorUid||current.familyId!==ctx.familyId
+         ||!primaryViewBase||documentScope!==key
+         ||documentSnapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ'
+         ||previous?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ||ack?.kind!=='reference'||ack.familyId!==ctx.familyId
+         ||ack.actorUid!==ctx.actorUid||ack.childId!==previous.childId
+         ||ack.requestId===undefined
+         ||!Number.isSafeInteger(ack.expectedRevision)
+         ||!Number.isSafeInteger(ack.revision)
+         ||ack.expectedRevision!==previous.revision
+         ||ack.revision!==previous.revision+1
+         ||!ack.nextBody||typeof ack.nextBody!=='object'
+         ||Array.isArray(ack.nextBody)
+         ||!ack.nextBody.referenceOverrides
+         ||typeof ack.nextBody.referenceOverrides!=='object'
+         ||Array.isArray(ack.nextBody.referenceOverrides)
+         ||typeof ack.record?.key!=='string')
+        return 'pending';
+       const overrides=ack.nextBody.referenceOverrides;
+       const matches=ack.action==='reset'
+        ?!Object.prototype.hasOwnProperty.call(overrides,ack.record.key)
+        :ack.action==='set'&&overrides[ack.record.key]===ack.record.value;
+       if(!matches)return 'pending';
+       const revised=Object.freeze({...previous,revision:ack.revision,
+        body:ack.nextBody});
+       const snapshot=Object.freeze({...documentSnapshot,
+        documents:Object.freeze({...documentSnapshot.documents,
+         reference:revised})});
+       let updated;
+       try{
+        updated=documentsOverlay.apply(primaryViewBase,snapshot);
+        if(updated?.sharedBusinessDocumentsVerified!==true
+          ||updated.cloudDocumentsActorScope?.childId!==ack.childId)
+         return 'pending';
+        showCloudView(updated,current);
+       }catch(_){return 'pending';}
+       documentSnapshot=snapshot;
+       confirmedFullRead();
+       return 'ready';
+      },
       onReferenceReadback:async({requestId,record,action,expectedRevision})=>{
        const current=controller.verifiedContext();
        if(!current||!documentsClient||!documentsGuard
@@ -744,6 +796,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'多尺码盘点暂不可用，未保存任何库存修改。'
          :answer?.status==='PRIMARY_STOCK_REVISION_CONFLICT'
          ?'库存版本已更新，请刷新后重新盘点；未覆盖另一设备的库存。'
+         :answer?.status==='REFERENCE_CLOUD_ACK_APPLIED'
+         ?'参考价保存成功：026 已确认，当前页面价格已更新，家庭账号刷新后可见。'
          :answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'
          ?'参考价保存成功：云端回执及实际页面读回均已核验，家庭账号刷新后可看到新值。'
          :answer?.status==='SETTINGS_CLOUD_READBACK_VERIFIED'
@@ -818,6 +872,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      }).attach(doc);
     }
    }
+   // Save the current primary projection for local reference-only updates.
+   // This does not request inventory/history again after a 026 ACK.
+   primaryViewBase=baseView;
    // Do not wait for an additional getSession() call after showing UI.
    showCloudView(data,ctx);
    shownStock=Object.freeze({

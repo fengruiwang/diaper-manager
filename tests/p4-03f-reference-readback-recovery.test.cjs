@@ -16,6 +16,7 @@ function fixture({ambiguous=false}={}){
  let networkAckKnown=!ambiguous,failSettings=false,failReadAll=false;
  let outstanding=0,confirmed=false,view=null;
  const shows=[],events=new Map(),nodes=new Map(),bridges=[],statusMessages=[];
+ let actionOptions=null;
  let oldPrice=1.20,revision=0,referenceOverrides={};
  const els=id=>{
   if(!nodes.has(id))nodes.set(id,{
@@ -128,6 +129,7 @@ function fixture({ambiguous=false}={}){
   documentOpsFactory:()=>queue,
   documentCommandsFactory:{create:()=>command},
   actionsFactory:{create:options=>{
+   actionOptions=options;
    const bridge=UI.create({...options,
     readDocumentInput:el=>({
      kind:'reference',action:'set',record:{key:KEY,value:1.21}
@@ -161,6 +163,7 @@ function fixture({ambiguous=false}={}){
  return {
   app,ready,clickSave,submitForm,clickRetry,shows,bridges,els,getStatus,queue,
   get view(){return view;},
+  get actionOptions(){return actionOptions;},
   get submits(){return submits;},
   get receiptCalls(){return receiptCalls;},
   get readAllCalls(){return readAllCalls;},
@@ -259,4 +262,42 @@ test('P4-03F P4-03E profile/settings recovery and stock purchase gates remain in
  assert.match(source,/recoverDocumentButtons/);
  assert.match(source,/documentProgress\(kind,'checking'\)/);
  assert.match(source,/const purchaseAuthorized=\(\)=>buildAllowsWrites===true/);
+});
+
+test('B2-01 confirmed ACK updates reference overlay without reading any other document or restoring inventory',async()=>{
+ const f=fixture();await f.ready();
+ const baseline=f.actionOptions.readReferenceBaseline();
+ assert.equal(baseline.revision,0);
+ const readAll=f.readAllCalls,receipt=f.receiptCalls,shown=f.shows.length;
+ const applied=await f.actionOptions.onReferenceAck({
+  kind:'reference',familyId:FAMILY,actorUid:'A',childId:CHILD,
+  requestId:ID,expectedRevision:0,revision:1,action:'set',
+  record:{key:KEY,value:1.21},
+  nextBody:{referenceOverrides:{[KEY]:1.21},
+   futureField:{nested:{keep:'all'}}}
+ });
+ assert.equal(applied,'ready');
+ assert.equal(f.view.state.referenceOverrides[KEY],1.21);
+ assert.equal(f.actionOptions.readReferenceBaseline().revision,1);
+ assert.deepEqual(f.actionOptions.readReferenceBaseline().body.futureField,
+  {nested:{keep:'all'}});
+ assert.equal(f.shows.length,shown+1,'local view re-render only');
+ assert.equal(f.readAllCalls,readAll,'no five-doc reload');
+ assert.equal(f.receiptCalls,receipt,'no additional receipt request');
+ const stale=await f.actionOptions.onReferenceAck({
+  kind:'reference',familyId:FAMILY,actorUid:'A',childId:CHILD,
+  requestId:ID,expectedRevision:0,revision:1,action:'set',
+  record:{key:KEY,value:1.20},
+  nextBody:{referenceOverrides:{[KEY]:1.20}}
+ });
+ assert.equal(stale,'pending','old revision cannot roll back newer UI');
+ assert.equal(f.view.state.referenceOverrides[KEY],1.21);
+ f.setActor('B');
+ assert.equal(await f.actionOptions.onReferenceAck({
+  kind:'reference',familyId:FAMILY,actorUid:'A',childId:CHILD,
+  requestId:ID,expectedRevision:1,revision:2,action:'set',
+  record:{key:KEY,value:1.30},
+  nextBody:{referenceOverrides:{[KEY]:1.30}}
+ }), 'pending','A callback cannot mutate B account');
+ assert.equal(f.view.state.referenceOverrides[KEY],1.21);
 });

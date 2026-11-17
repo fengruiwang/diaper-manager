@@ -83,7 +83,7 @@ function create({client,queue,uuid}={}){
   return next;
  }
  async function submit({familyId,actorUid,kind,action,record,
-  expectedRevision=null,operatorApproved=false}={}){
+  expectedRevision=null,operatorApproved=false,verifiedBaseline=null}={}){
   if(queue.cloudWritesEnabled!==true||operatorApproved!==true)
    return reply('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return reply('BUSY');
@@ -94,7 +94,20 @@ function create({client,queue,uuid}={}){
    if(wait.status!=='DOCUMENT_QUEUE_COUNTS_VERIFIED'
      ||wait.outstanding>0)
     return reply('DOCUMENT_PENDING_REVIEW_REQUIRED');
-   const read=await client.read({familyId,actorUid,kind,readEnabled:true});
+   // Reference uses the COMPLETE verified B1 document, never a rendered
+   // referenceOverrides-only projection. Other kinds keep their old read.
+   let read;
+   if(kind==='reference'&&verifiedBaseline!==null){
+    if(verifiedBaseline?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+      ||verifiedBaseline.kind!=='reference'
+      ||verifiedBaseline.familyId!==familyId
+      ||verifiedBaseline.actorUid!==actorUid
+      ||typeof verifiedBaseline.childId!=='string'
+      ||!Number.isSafeInteger(verifiedBaseline.revision)
+      ||!object(verifiedBaseline.body?.referenceOverrides))
+     return reply('DOCUMENT_BASELINE_UNVERIFIED');
+    read=verifiedBaseline;
+   }else read=await client.read({familyId,actorUid,kind,readEnabled:true});
    if(read.status!=='PRIMARY_DOCUMENT_READ_VERIFIED')
     return reply('DOCUMENT_BASELINE_UNVERIFIED');
    // For on-screen reference/quote/growth/profile edits, use the revision that was
@@ -113,7 +126,9 @@ function create({client,queue,uuid}={}){
    const requestId=uuid();
    const saved=await queue.queue({kind,nextBody:body,
     expectedRevision:read.revision,requestId,operatorApproved:true,
-    action});
+    action,verifiedBaseline:kind==='reference'
+     &&read.familyId===familyId&&typeof read.childId==='string'
+     ?{...read,actorUid}:null});
    return reply(saved.status,{
     requestId:saved.requestId||requestId,cloudWriteCommitted:false
    });

@@ -9,7 +9,7 @@ function deferred(){
 }
 function fixture({submit=async()=>({status:'DOCUMENT_OPERATION_DURABLY_QUEUED',requestId:'original-uuid'}),
  send=async()=>({status:'DOCUMENT_SYNC_CONFIRMED'}),
- readback=async()=> 'ready',docEnabled=true}={}){
+ readback=async()=> 'ready',docEnabled=true,ack=async()=> 'ready'}={}){
  const events={},stages=[],notifications=[],calls={commands:0,sends:0,readback:0,stock:0};
  const button={id:'saveEditedReference',dataset:{},disabled:false,
   textContent:'保存新价格',closest(){return this}};
@@ -37,7 +37,8 @@ function fixture({submit=async()=>({status:'DOCUMENT_OPERATION_DURABLY_QUEUED',r
    record:{key:'好奇|小森林|NB',value:1.21}}),
   readReferenceBaseline:()=>({familyId:'family',actorUid:'actor',
    revision:0,body:{referenceOverrides:{}}}),
-  onReferenceReadback:async()=>{calls.readback++;return readback();}
+  onReferenceReadback:async()=>{calls.readback++;return readback();},
+  onReferenceAck:ack
  });
  const binding=ui.attach(dom);
  function click(id='saveEditedReference',dataset={}){
@@ -165,4 +166,17 @@ test('P4-03D purchase, stocktake and other document writes remain blocked in ref
  assert.equal(f.calls.stock,0);
  assert.ok(f.notifications.every(x=>x.status==='FORMAL_CLOUD_WRITES_NOT_AUTHORIZED'
   ||x.status==='FORMAL_PURCHASE_ONLY'));
+});
+
+test('B2-01 direct server ACK marks nearby reference save successful without readback callback',async()=>{
+ let applied=0;
+ const f=fixture({send:async()=>({status:'DOCUMENT_REFERENCE_ACK_CONFIRMED',
+  requestId:'original-uuid',kind:'reference',revision:1}),
+  ack:async()=>{applied++;return 'ready';},
+  readback:async()=>{throw Error('must not read reference or restore');}});
+ f.click();await tick();await tick();
+ assert.equal(applied,1);
+ assert.equal(f.calls.readback,0);
+ assert.equal(f.notifications.at(-1).status,'REFERENCE_CLOUD_ACK_APPLIED');
+ assert.equal(f.button.disabled,false);
 });

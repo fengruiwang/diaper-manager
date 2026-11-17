@@ -143,7 +143,12 @@
     return result('INVALID_DOCUMENT_COMMAND');
    busy=true;
    try{
-    const who=await scope(input);
+    // The current, B1-verified reference scope avoids repeated client SELECT.
+    // SQL 026 still enforces authenticated family access and CAS.
+    const fast=input.kind==='reference'&&input.fastReference===true
+     &&verifiedReadScope?.familyId===input.familyId
+     &&verifiedReadScope?.actorUid===input.actorUid;
+    const who=fast?verifiedReadScope:await scope(input);
     const d=await rpc('xb_put_primary_document_draft',{
      p_family_id:who.familyId,p_child_id:who.childId,
      p_kind:input.kind,p_expected_revision:input.expectedRevision,
@@ -158,7 +163,8 @@
       {requestId:input.requestId});
     return result('PRIMARY_DOCUMENT_COMMITTED',{
      kind:input.kind,revision:d.revision,
-     duplicate:d.duplicate===true,requestId:input.requestId
+     duplicate:d.duplicate===true,requestId:input.requestId,
+     familyId:who.familyId,childId:who.childId
     });
    }catch(error){
     // A real 40001 conflict never gets promoted to "maybe committed".
