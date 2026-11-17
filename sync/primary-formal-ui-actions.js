@@ -747,7 +747,7 @@
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
-      'formalConfirmOtp','formalSyncNow','formalResolveDocumentConflict','closeRefEditor','cancelEditedReference',
+      'formalConfirmOtp','formalSyncNow','formalResolveDocumentConflict','formalResolveBatchConflict','closeRefEditor','cancelEditedReference',
       'cancelWeight','installPwa','pwaUpdateNow']);
     const allowedActions=new Set(['go','editstock','series','pickref','editref','editweight']);
     if(el.classList?.contains('tab')||allowedIds.has(el.id)

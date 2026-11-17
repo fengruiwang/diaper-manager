@@ -213,6 +213,36 @@
     };
    });
   }
+  // Separate terminal path for an explicitly proven 027 batch CAS conflict.
+  // Only a batch_client that checked the remote receipt and fresh revisions
+  // may invoke this; the store atomically rechecks the immutable local shape.
+  async function abandonStocktakeBatchConflict(scopeInput,operationId){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   return run('readwrite',(store,complete,abort)=>{
+    const req=store.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     try{
+      const current=req.result;
+      checkIdentity(current,scope);
+      if(current.type!=='inventory.count'
+       ||current.payload?.kind!=='stocktake_batch'
+       ||!Array.isArray(current.payload.items)
+       ||current.payload.items.length<2
+       ||current.status!=='conflict'||current.error!=='conflict'
+       ||current.receipt!==null)
+       fail('not_uncommitted_batch_conflict');
+      const updated={...current,status:'abandoned',
+       abandonedAt:new Date().toISOString(),
+       abandonedReason:'batch_revision_conflict',
+       error:'conflict_abandoned'};
+      const put=store.put(updated);
+      put.onerror=()=>abort(new Error('outbox_store:write_failed'));
+      put.onsuccess=()=>complete(updated);
+     }catch(e){abort(e);}
+    };
+   });
+  }
   async function stats(scopeInput){
    const rows=await list(scopeInput,{includeAcked:true});
    const counts={pending:0,retry:0,conflict:0,blocked:0,acked:0,abandoned:0};
@@ -397,7 +427,7 @@
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,abandonDocumentConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
+  return Object.freeze({enqueue,get,list,ready,recordResult,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;

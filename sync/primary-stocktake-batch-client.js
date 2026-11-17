@@ -117,6 +117,101 @@ function create({controller,host,primary,outboxFactory,contract,
    return d;
   }catch(_){return null;}
  }
+ // A missing receipt is only proven when the read-only 027 RPC returns
+ // NO_RECEIPT for the exact authenticated family/child/batch triple.
+ // Network failures, permission errors and mismatches are NOT absence.
+ async function receiptState(id,batchId){
+  const app=controller.verifiedContext()?.app;
+  if(!app?.rdb)return 'unverified';
+  try{
+   const response=await app.rdb().rpc(
+    'xb_read_primary_stocktake_batch_receipt_draft',{
+     p_family_id:id.familyId,p_child_id:id.childId,
+     p_batch_id:batchId
+    });
+   if(response?.error)return 'unverified';
+   const data=Array.isArray(response?.data)?response.data[0]:response?.data;
+   if(data?.family_id!==id.familyId||data?.child_id!==id.childId
+     ||data?.batch_id!==batchId)return 'unverified';
+   return data.status==='NO_RECEIPT'?'absent':
+    data.status==='COMMITTED'?'committed':'unverified';
+  }catch(_){return 'unverified';}
+ }
+ async function conflicts(){
+  try{
+   const id=scope();
+   if(typeof store.list!=='function')throw Error('batch_client:list_unavailable');
+   const rows=await store.list(id),items=rows.filter(op=>
+    op.status==='conflict'&&op.error==='conflict'
+    &&op.receipt===null&&op.type==='inventory.count'
+    &&op.payload?.kind==='stocktake_batch'
+    &&op.payload?.childId===id.childId
+    &&Array.isArray(op.payload.items)&&op.payload.items.length>=2)
+    .map(op=>({batchId:op.id,items:op.payload.items,
+     createdAt:op.createdAt}));
+   return answer('BATCH_CONFLICTS_VERIFIED',{items});
+  }catch(_){return answer('BATCH_CONFLICT_LIST_UNVERIFIED');}
+ }
+ async function abandonConflict({batchId,operatorApproved=false,
+  userConfirmed=false}={}){
+  if(cloudWritesEnabled!==true||operatorApproved!==true)
+   return answer('BATCH_WRITES_NOT_AUTHORIZED');
+  if(userConfirmed!==true)
+   return answer('BATCH_CONFLICT_USER_CONFIRMATION_REQUIRED');
+  if(!connected())return answer('BATCH_CONFLICT_OFFLINE_KEEP_ID');
+  if(busy)return answer('BATCH_BUSY');
+  if(!UUID.test(String(batchId)))return answer('BATCH_INVALID_ID');
+  busy=true;
+  try{
+   if(typeof store.abandonStocktakeBatchConflict!=='function')
+    return answer('BATCH_CONFLICT_ABANDON_UNSUPPORTED');
+   const id=scope(),op=await store.get(id,batchId);
+   if(!op||op.status!=='conflict'||op.error!=='conflict'
+     ||op.receipt!==null||op.type!=='inventory.count'
+     ||op.payload?.kind!=='stocktake_batch'
+     ||op.payload.childId!==id.childId
+     ||!Array.isArray(op.payload.items)
+     ||op.payload.items.length<2||op.payload.items.length>6)
+    return answer('BATCH_NOT_DEFINITE_CONFLICT_KEEP_ID');
+   const seen=new Set();
+   for(const item of op.payload.items){
+    if(!item||!SIZES.includes(item.size)||seen.has(item.size)
+      ||!Number.isSafeInteger(item.count)||item.count<0||item.count>100000
+      ||!Number.isSafeInteger(item.expectedRevision)
+      ||item.expectedRevision<0)
+     return answer('BATCH_ORIGINAL_PAYLOAD_UNVERIFIED_KEEP_ID');
+    seen.add(item.size);
+   }
+   if(await receiptState(id,batchId)!=='absent')
+    return answer('BATCH_CONFLICT_RECEIPT_UNVERIFIED_KEEP_ID');
+   const fresh=await primary.read();
+   if(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
+      ||!fresh.inventory||!fresh.revisions
+      ||!SIZES.every(size=>Number.isSafeInteger(fresh.inventory[size])
+       &&fresh.inventory[size]>=0
+       &&Number.isSafeInteger(fresh.revisions[size])
+       &&fresh.revisions[size]>=0)
+      ||op.payload.items.some(item=>
+       fresh.revisions[item.size]<item.expectedRevision)
+      ||!op.payload.items.some(item=>
+       fresh.revisions[item.size]>item.expectedRevision))
+    return answer('BATCH_CONFLICT_LATEST_STOCK_UNVERIFIED_KEEP_ID');
+   // Account or active primary must still be the same after remote reads.
+   const current=scope();
+   if(current.familyId!==id.familyId||current.actorUid!==id.actorUid
+      ||current.childId!==id.childId)
+    return answer('BATCH_CONFLICT_SCOPE_CHANGED_KEEP_ID');
+   if(await receiptState(id,batchId)!=='absent')
+    return answer('BATCH_CONFLICT_RECEIPT_UNVERIFIED_KEEP_ID');
+   const ended=await store.abandonStocktakeBatchConflict(id,batchId);
+   if(ended?.status!=='abandoned'||ended.id!==batchId)
+    return answer('BATCH_CONFLICT_ABANDON_UNVERIFIED_KEEP_ID');
+   return answer('BATCH_CONFLICT_ABANDONED',{
+    batchId,items:op.payload.items,latestRevisions:fresh.revisions
+   });
+  }catch(_){return answer('BATCH_CONFLICT_RESOLUTION_UNVERIFIED_KEEP_ID');}
+  finally{busy=false;}
+ }
  async function send({operatorApproved=false}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return answer('BATCH_WRITES_NOT_AUTHORIZED');
@@ -178,7 +273,7 @@ function create({controller,host,primary,outboxFactory,contract,
   }catch(_){return answer('BATCH_SYNC_UNVERIFIED_KEEP_QUEUE');}
   finally{busy=false;}
  }
- return Object.freeze({queue,send,pending,
+ return Object.freeze({queue,send,pending,conflicts,abandonConflict,
   get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
 }
 const api=Object.freeze({create,DB_NAME});

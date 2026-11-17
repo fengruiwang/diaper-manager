@@ -211,8 +211,23 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   conflictButton(found?.status==='DOCUMENT_CONFLICTS_VERIFIED'
     &&found.items.length>0);
  }
+ function batchConflictButton(visible){
+  const btn=$('formalResolveBatchConflict');
+  if(!btn)return;
+  btn.hidden=!visible;btn.disabled=!visible;
+ }
+ async function refreshBatchConflictButton(){
+  if(purchaseReleaseEnabled!==true||purchaseOperatorApproved()!==true
+    ||!batchGuard?.conflicts||mode!=='ready'||!actor||!family)return;
+  const key=actor+'\x00'+family,epoch=documentEpoch;
+  const found=await batchGuard.conflicts();
+  if(epoch!==documentEpoch||key!==actor+'\x00'+family
+    ||mode!=='ready')return;
+  batchConflictButton(found?.status==='BATCH_CONFLICTS_VERIFIED'
+   &&found.items.length>0);
+ }
  function clear(){
-  conflictButton(false);
+  conflictButton(false);batchConflictButton(false);
   ui.clear();actor=null;family=null;primary=null;shownStock=null;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
@@ -623,6 +638,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       readQuote:id=>root.XBFormalUIData.quote(id),
       readTransaction:id=>root.XBFormalUIData.transaction(id),
       notify:answer=>{
+        if(answer?.status==='BATCH_REVISION_CONFLICT_MANUAL_REVIEW')
+         batchConflictButton(true);
        if(documentWritesEnabled===true
          &&answer?.status==='DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW')
         conflictButton(true);
@@ -631,7 +648,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'单尺码盘点已保存，六尺码云端库存已重新读取。'
           :answer?.status==='BATCH_CLOUD_READBACK_VERIFIED'
          ?'多尺码盘点已一次性保存，云端六尺码库存已重新读取。'
-         :answer?.status==='BATCH_COMMITTED_READBACK_REQUIRED'
+         :answer?.status==='BATCH_REVISION_CONFLICT_MANUAL_REVIEW'
+          ?'其他设备已更新库存，本次批量盘点未保存；请点击“处理盘点冲突”放弃旧修改后重新盘点。'
+          :answer?.status==='BATCH_PENDING_REVIEW_FIRST'
+          ?'上次批量盘点待处理，请先核验原请求或处理确定冲突。'
+          :answer?.status==='BATCH_COMMITTED_READBACK_REQUIRED'
          ?'批量操作回执已确认，库存页面仍需刷新核验；请勿重复创建批次。'
          :answer?.status==='MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED'
          ?'多尺码盘点暂不可用，未保存任何库存修改。'
@@ -740,6 +761,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     optionalRead(documentsClient,ctx,scopeKey,data,identityEpoch);
    if(documentWritesEnabled===true)
     void refreshConflictButton().catch(()=>{});
+    if(purchaseReleaseEnabled===true)
+     void refreshBatchConflictButton().catch(()=>{});
    const settingsAppear=expectedSettings===null||
     (documentsVerified&&settingsChangeVisible(
      documentSnapshot?.documents?.settings,expectedSettings));
@@ -858,6 +881,45 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   on('formalRefresh',restore);
+   // The 027 conflict must be proven uncommitted before user-confirmed archival.
+   if($('formalResolveBatchConflict'))on('formalResolveBatchConflict',async()=>{
+    if(mode!=='ready'||purchaseReleaseEnabled!==true
+       ||purchaseOperatorApproved()!==true
+       ||!batchGuard?.conflicts||!batchGuard?.abandonConflict){
+     $('formalSyncState').textContent='批量盘点冲突处理目前不可用。';return;
+    }
+    const found=await batchGuard.conflicts();
+    if(found?.status!=='BATCH_CONFLICTS_VERIFIED'
+       ||found.items.length===0){
+     $('formalSyncState').textContent='没有可处理的确定批量冲突。';
+     batchConflictButton(false);return;
+    }
+    const item=found.items[0];
+    const changes=item.items.map(row=>row.size+' → '+row.count+'片').join('、');
+    if(host.confirm?.('旧批量盘点 '+changes+' 已因库存版本冲突而失败。'
+       +'是否放弃这次未保存的修改并读取最新库存？'
+       +'原批次编号和修改记录会保留。')!==true)return;
+    const button=$('formalResolveBatchConflict');
+    if(button)button.disabled=true;
+    try{
+     $('formalSyncState').textContent='正在核验原批次回执及最新库存…';
+     const result=await batchGuard.abandonConflict({
+      batchId:item.batchId,operatorApproved:true,userConfirmed:true
+     });
+     if(result?.status!=='BATCH_CONFLICT_ABANDONED'){
+      $('formalSyncState').textContent='暂不能放弃原批次：'
+       +String(result?.status||'UNVERIFIED')
+       +'；原请求和库存未修改，请核验后重试。';
+      return;
+     }
+     const next=await restore();
+     $('formalSyncState').textContent=next==='ready'
+      ?'原冲突批次已归档，最新库存已刷新；请重新盘点。'
+      :'原冲突批次已归档，库存读取尚未完成，请刷新。';
+    }finally{
+     await refreshBatchConflictButton().catch(()=>{});
+    }
+   });
   // Explicit confirmation is required. No retry/ACK-unknown record may be discarded.
   on('formalResolveDocumentConflict',async()=>{
    if(documentWritesEnabled!==true||!documentsGuard?.conflicts
@@ -1002,9 +1064,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       $('formalSyncState').textContent=next==='ready'
        ?'原批次已确认，六尺码库存已从云端刷新。'
        :'批次回执已确认，云端库存仍需重新读取。';
-     }else $('formalSyncState').textContent=
-      '批次待核实：'+String(batchSent?.status||'UNVERIFIED')
-       +'；已保留原批次 ID，请勿重复新建。';
+     }else{
+       if(batchSent?.status==='BATCH_NO_READY_OPERATION'){
+        await refreshBatchConflictButton().catch(()=>{});
+        $('formalSyncState').textContent='原批次存在确定冲突；请点击“处理盘点冲突”。';
+       }else $('formalSyncState').textContent=
+        '批次待核实：'+String(batchSent?.status||'UNVERIFIED')
+         +'；已保留原批次 ID，请勿重复新建。';
+      }
      return;
     }
    }
