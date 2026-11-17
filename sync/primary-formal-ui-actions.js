@@ -151,7 +151,9 @@
       minimalReview[kind]=Object.freeze(kind==='purchase'
        ?{operationId:id,kind:'buy'}:{requestId:id,
          action:minimalQuoteIntent?.action,record:minimalQuoteIntent?.record,
-         expectedRevision:minimalQuoteIntent?.expectedRevision});
+         expectedRevision:minimalQuoteIntent?.expectedRevision,
+         actorUid:minimalQuoteIntent?.actorUid,
+         familyId:minimalQuoteIntent?.familyId});
     }
     minimalFeedback(kind,success?'success':
      minimalReview[kind]?'pending':
@@ -490,7 +492,8 @@
       ||baseline.body.items.some(row=>row.id===input.record.id)))
      return result('QUOTES_FORM_INVALID');
     minimalQuoteIntent=Object.freeze({action:input.action,
-     expectedRevision:baseline.revision,
+     expectedRevision:baseline.revision,actorUid:baseline.actorUid,
+     familyId:baseline.familyId,
      record:input.record?Object.freeze({...input.record}):null});
     const saved=await documentCommands.submit({
      ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
@@ -874,6 +877,13 @@
   // local pending button after the current account's cloud view is verified.
   function releaseAbandonedDocumentConflict({kind,requestId,
    actorUid,familyId}={}){
+   if(kind==='quotes'&&minimalReview.quotes?.requestId===requestId
+     &&minimalReview.quotes.actorUid===actorUid
+     &&minimalReview.quotes.familyId===familyId){
+    minimalReview.quotes=null;
+    minimalFeedback('quotes','recovered');
+    return true;
+   }
    if(kind==='reference'&&referenceNeedsReview?.requestId===requestId
      &&referenceNeedsReview.actorUid===actorUid
      &&referenceNeedsReview.familyId===familyId){

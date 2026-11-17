@@ -216,3 +216,21 @@ test('B2-02 clear cancellation creates no UUID; confirmed clear updates list fee
  assert.equal(yes.counts.quote,1);
  assert.match(yes.nodes.formalQuoteListFeedback.textContent,/候选价已清空/);
 });
+
+test('B2-02 abandoned quotes CAS conflict releases button only for original actor and family',async()=>{
+ const f=fixture({send:()=>({status:'DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW',
+  requestId:'quote-original'})});
+ f.click('saveQuote');await tick();await tick();
+ assert.equal(f.binding.hasPendingMinimalReview('quotes'),true);
+ assert.equal(f.nodes.saveQuote.disabled,true);
+ assert.match(f.nodes.formalCompareActionFeedback.textContent,/版本已变化/);
+ assert.equal(f.binding.releaseAbandonedDocumentConflict({
+  kind:'quotes',requestId:'quote-original',actorUid:'B',familyId:'family-A'}),false);
+ assert.equal(f.binding.releaseAbandonedDocumentConflict({
+  kind:'quotes',requestId:'quote-original',actorUid:'A',familyId:'family-other'}),false);
+ assert.equal(f.nodes.saveQuote.disabled,true);
+ assert.equal(f.binding.releaseAbandonedDocumentConflict({
+  kind:'quotes',requestId:'quote-original',actorUid:'A',familyId:'family-A'}),true);
+ assert.equal(f.binding.hasPendingMinimalReview('quotes'),false);
+ assert.equal(f.nodes.saveQuote.disabled,false);
+});
