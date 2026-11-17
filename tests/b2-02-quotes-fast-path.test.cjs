@@ -9,7 +9,7 @@ const oldQuote={id:'quote-1',brand:'好奇',series:'小森林',size:'S',price:80
  pieces:60,unit:1.333,legacy:{coupon:true,unknown:'keep'}};
 const nextQuote={id:'quote-2',brand:'Babycare',series:'山茶花',size:'M',price:95,per:80,packs:1,pieces:80,unit:1.1875};
 function fixture({mode='normal',duplicate=false,localFail=false,fast=true}={}){
- let actor='A',ids=0,readCount=0;const trace=[],rows=new Map();
+ let actor='A',ids=0,readCount=0,sent=false;const trace=[],rows=new Map();
  const body={items:[clone(oldQuote)],unknownTop:{extra:['retain']}};
  const scope=()=>({familyId:F,actorUid:actor});
  const baseline=()=>({status:'PRIMARY_DOCUMENT_READ_VERIFIED',kind:'quotes',
@@ -26,14 +26,15 @@ function fixture({mode='normal',duplicate=false,localFail=false,fast=true}={}){
  };
  const doc={
   async read(){trace.push('rpc.read');readCount++;return baseline();},
-  async put(x){trace.push('rpc.put');
+  async put(x){trace.push('rpc.put');sent=true;
    if(mode==='conflict')return {status:'PRIMARY_DOCUMENT_VERSION_CONFLICT'};
    if(mode==='lost')return {status:'PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID'};
    if(mode==='denied')return {status:'PRIMARY_DOCUMENT_QUOTES_PERMISSION_DENIED'};
    return {status:'PRIMARY_DOCUMENT_COMMITTED',kind:x.kind,
     familyId:F,childId:C,requestId:x.requestId,revision:x.expectedRevision+1,duplicate};},
   async checkRequest(){trace.push('rpc.receipt');
-   return {status:'REQUEST_COMMITTED_VERIFIED',kind:'quotes',revision:8};}
+   return sent?{status:'REQUEST_COMMITTED_VERIFIED',kind:'quotes',revision:8}
+    :{status:'REQUEST_NOT_YET_RECEIPTED_SAME_ID_ONLY'};}
  };
  const ops=Operations.create({controller:{verifiedContext:scope},
   host:{indexedDB:{open(){}},navigator:{onLine:true}},
