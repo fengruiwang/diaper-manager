@@ -1,0 +1,32 @@
+name: XiaoBao P4-04C-02 rc4 integrated candidate (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+    paths:
+      - 'release-candidate/pages-v1.2.0-rc4/**'
+      - 'scripts/build-pages-v120-rc4.cjs'
+      - 'tests/p4-04c-02-rc4.test.cjs'
+      - '.github/workflows/pages-v120-rc4.yml'
+permissions:
+  contents: read
+jobs:
+  rc4-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Confirm rc4 deterministic build matches committed candidate
+        run: node scripts/build-pages-v120-rc4.cjs --check
+      - name: Verify full write routes, C-01/C-03, sync feedback, 14 resources and isolated HTTP path
+        run: node --test tests/p4-04c-02-rc4.test.cjs
+      - name: Archive rc4 only - no Tencent upload or GitHub Pages deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-P4-04C-02-PAGES-1.2.0-rc4
+          path: release-candidate/pages-v1.2.0-rc4/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

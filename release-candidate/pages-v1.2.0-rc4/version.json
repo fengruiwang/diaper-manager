@@ -1,0 +1,7 @@
+{
+  "version": "1.2.0-rc.4",
+  "channel": "release-candidate",
+  "source_sha": "a637dac357c27331e92ecff67a717b4d14e2bcc1",
+  "released": "2026-11-17",
+  "notes": "V1.2.0 家庭完整联网写入；状态核验与027确定冲突恢复；隔离候选，未部署"
+}

@@ -23,7 +23,7 @@ function snapshot(actor='A',valid=true){
  return {status:'PRIMARY_DOCUMENTS_FULLY_READ',canWrite:false,documents};
 }
 function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
- let actor='A',loggedIn=true,docReads=0,currentReadAll=readAll,refreshReads=0;
+ let actor='A',loggedIn=true,docReads=0,currentReadAll=readAll,refreshReads=0,currentOne=null;
  const elements=new Map(),handlers=new Map(),shows=[],clears=[],timeouts=[];
  const element=id=>{
   if(!elements.has(id))elements.set(id,{
@@ -82,13 +82,13 @@ function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
   documentsFactory:()=>({
    readAll:()=>{docReads++;return currentReadAll(actor);},
    read:async({kind})=>{
-    refreshReads++;return snapshot(actor).documents[kind];
+    refreshReads++;return currentOne?currentOne({kind,actor}):snapshot(actor).documents[kind];
    }
   }),
   documentsOverlay:Overlay,scriptLoader:async()=>{}
  });
  const status=()=>element('formalSyncState').textContent;
- const uiVerified=()=>/五类共享文档已验证/.test(status());
+ const uiVerified=()=>/^已同步/.test(status());
  async function clickRefresh(){
   const cb=handlers.get('formalRefresh:click');
   assert.equal(typeof cb,'function');
@@ -97,7 +97,7 @@ function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
  }
  return {app,status,uiVerified,shows,clears,host,timeouts,element,handlers,
   clickRefresh,setActor:value=>actor=value,
-  setReadAll:handler=>currentReadAll=handler,
+  setReadAll:handler=>currentReadAll=handler,setReadOne:handler=>currentOne=handler,
   get docReads(){return docReads;},
   get refreshReads(){return refreshReads;}
  };
@@ -113,7 +113,7 @@ test('P4-02B double-pass read may take longer than 12s: waiting until complete, 
   }
  });
  assert.equal(await f.app.start(),'ready');
- assert.match(f.status(),/正在核验五类共享文档/);
+ assert.match(f.status(),/正在核验共享数据/);
  assert.equal(f.uiVerified(),false);
  assert.equal(f.shows.filter(x=>x.shared).length,0);
  await sleep(55);
@@ -190,7 +190,7 @@ test('P4-02B an incomplete or malformed snapshot can never mark five docs verifi
  await f.app.start();
  await nextTick();
  assert.equal(f.uiVerified(),false);
- assert.match(f.status(),/历史迁移快照/);
+ assert.match(f.status(),/未完全同步/);
  f.setReadAll(async()=>snapshot('A',false));
  await f.clickRefresh();
  assert.equal(f.uiVerified(),false);
@@ -216,4 +216,35 @@ test('P4-02B SDK load 404->200 is an intended sequential URL fallback, not a doc
  assert.match(code,/sdk_unavailable/);
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+});
+
+test('P4-04C-02 manual refresh gives immediate feedback and cannot show stale success while five reads are pending',async()=>{
+ const f=fixture();await f.app.start();await nextTick();
+ assert.equal(f.uiVerified(),true);
+ let release;
+ const slow=new Promise(resolve=>{release=resolve;});
+ f.setReadOne(async({kind})=>{await slow;return snapshot().documents[kind];});
+ f.handlers.get('formalRefresh:click')();
+ await nextTick();
+ assert.match(f.status(),/正在刷新/);
+ assert.equal(f.element('formalRefresh').disabled,true);
+ assert.equal(f.uiVerified(),false,'prior success cannot represent an in-flight refresh');
+ // A second click must not create another set of five reads.
+ f.handlers.get('formalRefresh:click')();
+ await sleep(5);assert.equal(f.refreshReads,5);
+ release();await sleep(12);
+ assert.equal(f.uiVerified(),true);
+ assert.equal(f.element('formalRefresh').disabled,false);
+ assert.match(f.status(),/^已同步 · \d{2}\/\d{2}/);
+});
+test('P4-04C-02 incomplete refresh must not update full-success status',async()=>{
+ const f=fixture();await f.app.start();await nextTick();
+ assert.equal(f.uiVerified(),true);
+ f.setReadOne(async()=>null);
+ f.setReadAll(async()=>({status:'PRIMARY_DOCUMENT_SNAPSHOT_INCOMPLETE'}));
+ f.handlers.get('formalRefresh:click')();
+ await sleep(25);
+ assert.equal(f.uiVerified(),false);
+ assert.match(f.status(),/未完全同步/);
+ assert.equal(f.element('formalRefresh').disabled,false);
 });
