@@ -691,6 +691,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       readQuote:id=>root.XBFormalUIData.quote(id),
       readTransaction:id=>root.XBFormalUIData.transaction(id),
       notify:answer=>{
+        const resultCode=String(answer?.status||'');
+        if(/UNKNOWN|PENDING|REVIEW|CONFLICT|UNVERIFIED|FAILED/.test(resultCode)
+          &&(documentWritesEnabled===true||purchaseReleaseEnabled===true)){
+         const button=$('formalSyncNow');
+         if(button){button.hidden=false;button.disabled=false;}
+         void checkPending().catch(()=>{});
+        }
         if(answer?.status==='BATCH_REVISION_CONFLICT_MANUAL_REVIEW')
          batchConflictButton(true);
        if(documentWritesEnabled===true
