@@ -660,7 +660,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         showCloudView(updated,current);
        }catch(_){return 'pending';}
        documentSnapshot=snapshot;
-       root.XBFormalUIData?.finishQuoteEdit?.({
+       root?.XBFormalUIData?.finishQuoteEdit?.({
         action:ack.action,recordId:ack.record?.id
        });
        // A single successful write is not a full cloud pull.

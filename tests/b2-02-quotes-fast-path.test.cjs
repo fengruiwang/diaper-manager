@@ -122,6 +122,8 @@ test('B2-02 strict opt-in preserves legacy quotes receipt workflow',async()=>{
  const f=fixture({fast:false});await f.perform('add',nextQuote);
  assert.equal((await f.send()).status,'DOCUMENT_SYNC_CONFIRMED');
  assert.equal(f.trace.filter(x=>x==='rpc.put').length,1);
+ assert.equal(f.trace.filter(x=>x==='rpc.read').length,0,
+  'complete baseline is still reused when only fast ACK is disabled');
  assert.equal(f.trace.filter(x=>x==='rpc.receipt').length,2);
 });
 test('B2-02 read-only verified primary scope permits fast quotes PUT without extra client SELECT',async()=>{
