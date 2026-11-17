@@ -168,6 +168,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      if(!acknowledged)return ans('DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID',
       {requestId:op.id});
     }
+    if(fastReference&&result.status==='PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED')
+     return ans('DOCUMENT_REFERENCE_PERMISSION_DENIED_KEEP_ID',{requestId:op.id});
     if(result.status==='PRIMARY_DOCUMENT_VERSION_CONFLICT'){
      await outbox.recordResult(scope,op.id,{kind:'conflict'});
      return ans('DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW',

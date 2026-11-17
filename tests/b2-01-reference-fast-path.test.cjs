@@ -34,6 +34,7 @@ function fixture({mode='normal',duplicate=false,localFail=false}={}){
   async read(input){trace.push('doc.read');return currentBaseline();},
   async put(input){trace.push('rpc.put');if(mode==='conflict')return {status:'PRIMARY_DOCUMENT_VERSION_CONFLICT'};
    if(mode==='ackLost')return {status:'PRIMARY_DOCUMENT_ACK_UNKNOWN_KEEP_REQUEST_ID'};
+   if(mode==='forbidden')return {status:'PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED'};
    return {status:'PRIMARY_DOCUMENT_COMMITTED',kind:'reference',
     requestId:mode==='wrongId'?'another-uuid':input.requestId,
     familyId:F,childId:C,revision:input.expectedRevision+1,duplicate};},
@@ -154,4 +155,29 @@ test('B2 actual CloudBase client reference fastScope skips SELECT but still vali
  assert.equal(result.familyId,F);assert.equal(result.childId,C);
  assert.equal(result.requestId,ID);assert.equal(result.revision,4);
  assert.equal(preflight,0);assert.equal(discovery,0);
+});
+
+test('B2 explicit server permission denial does not claim success and keeps original ID',async()=>{
+ const f=fixture({mode:'forbidden'});await f.prepare();
+ const answer=await f.send();
+ assert.equal(answer.status,'DOCUMENT_REFERENCE_PERMISSION_DENIED_KEEP_ID');
+ assert.equal(answer.requestId,ID);
+ assert.equal(f.records.get(ID).status,'pending');
+ assert.equal(f.trace.filter(x=>x==='rpc.put').length,1);
+});
+
+test('B2 real document client recognizes explicit 42501 permission rejection',async()=>{
+ const client=Client.create({
+  app:{auth:{getSession:async()=>({})},rdb:()=>({rpc:async()=>({error:{code:'42501'}})})},
+  accessPreflight:{create:()=>({verifyAccess:async()=>{throw Error('unexpected_preflight');}})},
+  childReader:{create:()=>({inspectLegacyTarget:async()=>{throw Error('unexpected_child');}})},
+  scopeGuard:{requireLegacyMigrationTarget(){}},cloudWritesEnabled:true
+ });
+ client.acceptVerifiedPrimary({status:'PRIMARY_READ_ONLY_READY',canWrite:false,
+  source:'cloudbase-primary-receipt-verified',familyId:F,actorUid:'A',childId:C});
+ const r=await client.put({familyId:F,actorUid:'A',kind:'reference',
+  requestId:ID,operatorApproved:true,expectedRevision:3,fastReference:true,
+  nextBody:{referenceOverrides:{[KEY]:1.15}}});
+ assert.equal(r.status,'PRIMARY_DOCUMENT_REFERENCE_PERMISSION_DENIED');
+ assert.equal(r.requestId,ID);
 });

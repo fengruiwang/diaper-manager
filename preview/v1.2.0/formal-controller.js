@@ -855,6 +855,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
            'DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID',
            'DOCUMENT_RECEIPT_CONFLICT_KEEP_ID'].includes(answer?.status)
          ?'参考价请求回执尚待确认，原 UUID 已保留，请使用待确认操作核验，不要重复保存。'
+         :answer?.status==='DOCUMENT_REFERENCE_PERMISSION_DENIED_KEEP_ID'
+         ?'服务器明确拒绝参考价保存：请检查账号家庭权限；原请求已保留，切勿重复提交。'
          :answer?.status==='DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED'
          ?'共享文档已有其他设备更新，请刷新后重新编辑；未覆盖新数据。'
          :answer?.status==='DOCUMENT_PENDING_REVIEW_REQUIRED'
