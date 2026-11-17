@@ -1,0 +1,32 @@
+name: XiaoBao P4-04D rc3 full-write candidate (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+    paths:
+      - 'release-candidate/pages-v1.2.0-rc3/**'
+      - 'scripts/build-pages-v120-write-rc3.cjs'
+      - 'tests/p4-04d-01-write-rc3.test.cjs'
+      - '.github/workflows/pages-v120-write-rc3.yml'
+permissions:
+  contents: read
+jobs:
+  rc3-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify rc3 generated source parity (no root or deployment writes)
+        run: node scripts/build-pages-v120-write-rc3.cjs --check
+      - name: Verify write gates, original data paths, local HTTP, and PWA
+        run: node --test tests/p4-04d-01-write-rc3.test.cjs
+      - name: Archive isolated rc3 only - never deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-P4-04D-01-PAGES-1.2.0-rc3
+          path: release-candidate/pages-v1.2.0-rc3/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
