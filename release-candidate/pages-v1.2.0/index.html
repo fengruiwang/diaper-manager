@@ -93,7 +93,7 @@
 .stock-details{margin:12px 0}
 @media(max-width:600px){.stock-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stock-size{padding:10px}}
 </style>
-<style>#pwaLaunch,#pwaMigrationNotice,#pwaUpdateNotice{display:none!important}</style>
+
 <style>
 #formalGate{min-height:100vh;display:flex;justify-content:center;align-items:center;
 padding:20px;background:linear-gradient(155deg,#f0f9f6,#edf2fb)}
@@ -4378,7 +4378,7 @@ restoreActiveTab();
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
       'formalConfirmOtp','formalSyncNow','formalResolveDocumentConflict','closeRefEditor','cancelEditedReference',
-      'cancelWeight']);
+      'cancelWeight','installPwa','pwaUpdateNow']);
     const allowedActions=new Set(['go','editstock','series','pickref','editref','editweight']);
     if(el.classList?.contains('tab')||allowedIds.has(el.id)
       ||allowedActions.has(action))return;

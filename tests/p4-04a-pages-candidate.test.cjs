@@ -123,3 +123,87 @@ test('P4-04A local HTTP host at /diaper-manager/ returns entry and every referen
    '/diaper-manager/manifest.webmanifest');
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+
+test('P4-04A-FIX candidate PWA CSS respects runtime hidden state and formal gate',()=>{
+ const html=text('index.html'),preview=load('preview/v1.2.0/formal/index.html').toString('utf8');
+ const pwa=text('pwa.js');
+ assert.match(preview,/<style>#pwaLaunch,#pwaMigrationNotice,#pwaUpdateNotice\{display:none!important\}<\/style>/);
+ assert.doesNotMatch(html,/#pwaLaunch,#pwaMigrationNotice,#pwaUpdateNotice\{display:none!important\}/);
+ const rules=[...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1]).join('\n');
+ for(const fragment of rules.split('}'))
+  if(/#pwa(?:Launch|UpdateNotice)\b/.test(fragment))
+   assert.doesNotMatch(fragment,/display\s*:\s*none\s*!important/);
+ assert.match(html,/<div class="pwa-launch" id="pwaLaunch">/);
+ assert.match(html,/<div class="pwa-notice" id="pwaUpdateNotice" hidden>/);
+ assert.match(html,/\[hidden\]\{display:none!important\}/);
+ assert.match(html,/body:not\(\[data-formal-state="ready"\]\) \.wrap\{display:none!important\}/);
+ assert.match(pwa,/launch\.hidden=standalone\(\)/);
+ assert.match(pwa,/updateNotice\.hidden=false/);
+ assert.doesNotMatch(html,/id="pwaImportOld"/);
+});
+
+test('P4-04A-FIX real PWA click listeners bypass formal capture; unknown/legacy business clicks remain blocked',async()=>{
+ const vm=require('node:vm'),Bridge=require('../sync/primary-formal-ui-actions.js');
+ const button=(id,hidden=false)=>({id,hidden,dataset:{},handlers:{},
+  addEventListener(type,fn){this.handlers[type]=fn;},
+  closest(){return this;}});
+ const elements=new Map([
+  ['pwaLaunch',button('pwaLaunch',true)],
+  ['installPwa',button('installPwa')],
+  ['pwaInstallTip',{textContent:''}],
+  ['pwaUpdateNotice',button('pwaUpdateNotice',true)],
+  ['pwaUpdateNow',button('pwaUpdateNow')]
+ ]);
+ let capture=null,submissions=0;
+ const notifications=[],messages=[];
+ const doc={
+  getElementById(id){return elements.get(id)||null;},
+  addEventListener(type,fn,capturing){if(type==='click'&&capturing===true)capture=fn;},
+  removeEventListener(){}
+ };
+ const bound=Bridge.create({
+  commands:{submit:async()=>{submissions++;throw Error('unexpected write');}},
+  primary:{read:async()=>({})},
+  readPurchase:()=>({}),readQuote:()=>({}),readTransaction:()=>({}),
+  notify:r=>notifications.push(r.status),
+  formalModeSelected:()=>true,buildAllowsWrites:false,operatorApproved:()=>false
+ }).attach(doc);
+ const reg={waiting:{postMessage:m=>messages.push(m.type)},
+  addEventListener(){},update:async()=>{}};
+ const navigator={userAgent:'Chrome',onLine:true,standalone:false,
+  serviceWorker:{controller:{},addEventListener(){},
+   register:async()=>reg}};
+ const window={navigator,isSecureContext:true,matchMedia:()=>({matches:false}),
+  addEventListener(){},confirm:()=>true,location:{reload(){}}};
+ vm.runInNewContext(text('pwa.js'),{window,document:doc,navigator,
+  setInterval(){},fetch:async()=>({})},{timeout:1000});
+ await Promise.resolve();await Promise.resolve();
+ assert.equal(elements.get('pwaLaunch').hidden,false,'install area visible');
+ assert.equal(elements.get('pwaUpdateNotice').hidden,false,'waiting SW notice visible');
+ function fire(id){
+  const el=elements.get(id)||button(id);
+  let prevented=false,stopped=false,received=false;
+  const event={target:el,
+   preventDefault(){prevented=true;},
+   stopImmediatePropagation(){stopped=true;}};
+  capture(event);
+  if(!stopped&&el.handlers.click){received=true;el.handlers.click(event);}
+  return {prevented,stopped,received};
+ }
+ assert.deepEqual(fire('installPwa'),{prevented:false,stopped:false,received:true});
+ assert.match(elements.get('pwaInstallTip').textContent,/Chrome 或 Edge/);
+ assert.deepEqual(fire('pwaUpdateNow'),{prevented:false,stopped:false,received:true});
+ assert.deepEqual(messages,['SKIP_WAITING'],'manual update reaches waiting SW');
+ assert.equal(elements.get('pwaUpdateNow').disabled,true);
+ for(const id of ['unknownBusinessAction','buyNow','saveProfile']){
+  const e=fire(id);
+  assert.equal(e.prevented,true,id);
+  assert.equal(e.stopped,true,id);
+  assert.equal(e.received,false,id);
+ }
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(submissions,0,'no cloud or local write reached');
+ assert.equal(notifications.length,3,'three unknown/legacy business commands were intercepted');
+ bound.detach();
+});

@@ -7,6 +7,8 @@ const read=p=>fs.readFileSync(path.join(ROOT,p)),text=p=>read(p).toString('utf8'
 function change(s,a,b){assert.equal(s.split(a).length-1,1,'source drift: '+a.slice(0,90));return s.replace(a,b);}
 function html(){
  let s=text('preview/v1.2.0/formal/index.html');
+ // Preview-only suppression must not override candidate PWA state transitions.
+ s=change(s,'<style>#pwaLaunch,#pwaMigrationNotice,#pwaUpdateNotice{display:none!important}</style>','');
  s=change(s,'<title>M3 独立预览 · 小宝管家 V1.2.0 · 独立联网测试版 M1-01</title>',
   '<title>小宝管家 V1.2.0 · 家庭云端管理</title>');
  s=change(s,'<meta name="robots" content="noindex,nofollow" />',
