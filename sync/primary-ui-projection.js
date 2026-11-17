@@ -6,10 +6,8 @@
  'use strict';
  const SIZES=['NB','S','M','L','XL','XXL'];
  const businessDate=(root?.XBPrimaryBusinessDate
-  ||(typeof module!=='undefined'&&module.exports
+  ||(typeof require==='function'
    ?require('./primary-business-date.js'):null))?.fromTimestamp;
- if(typeof businessDate!=='function')
-  throw Error('primary_business_date:dependency_required');
  const clone=x=>JSON.parse(JSON.stringify(x));
  function fail(code){throw Error('primary_ui:'+code);}
  function object(x){return x!==null&&typeof x==='object'&&!Array.isArray(x);}
@@ -79,6 +77,7 @@
   // Current cloud consumption events are display-only; stock is the separately
   // verified authoritative six-size snapshot, not a sum of transactions.
   for(const row of view.liveUses||[]){
+   if(typeof businessDate!=='function')fail('business_date_required');
    if(!row||typeof row.operationId!=='string'||!row.operationId
      ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
      ||row.pieces<1||row.pieces>100000

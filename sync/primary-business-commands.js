@@ -12,10 +12,8 @@
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const SIZES=['NB','S','M','L','XL','XXL'];
  const businessDate=(root?.XBPrimaryBusinessDate
-  ||(typeof module!=='undefined'&&module.exports
+  ||(typeof require==='function'
    ?require('./primary-business-date.js'):null))?.fromTimestamp;
- if(typeof businessDate!=='function')
-  throw Error('primary_business_date:dependency_required');
  function ret(status,extras={}){return Object.freeze({status,...extras});}
  function create({primary,uuid,clock}={}){
   if(!primary?.selectedScope||!primary?.read||!primary?.queue
@@ -36,6 +34,8 @@
     throw Error('primary_commands:invalid_size');
    let type,expectedRevision=null,payload;
    if(action==='purchase'){
+    if(typeof businessDate!=='function')
+     throw Error('primary_business_date:dependency_required');
     const brand=String(value.brand??'').trim();
     const series=String(value.series??'').trim();
     if(!brand||!series||brand.length>120||series.length>120

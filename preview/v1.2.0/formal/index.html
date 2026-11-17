@@ -3094,10 +3094,8 @@ restoreActiveTab();
  'use strict';
  const SIZES=['NB','S','M','L','XL','XXL'];
  const businessDate=(root?.XBPrimaryBusinessDate
-  ||(typeof module!=='undefined'&&module.exports
+  ||(typeof require==='function'
    ?require('./primary-business-date.js'):null))?.fromTimestamp;
- if(typeof businessDate!=='function')
-  throw Error('primary_business_date:dependency_required');
  const clone=x=>JSON.parse(JSON.stringify(x));
  function fail(code){throw Error('primary_ui:'+code);}
  function object(x){return x!==null&&typeof x==='object'&&!Array.isArray(x);}
@@ -3167,6 +3165,7 @@ restoreActiveTab();
   // Current cloud consumption events are display-only; stock is the separately
   // verified authoritative six-size snapshot, not a sum of transactions.
   for(const row of view.liveUses||[]){
+   if(typeof businessDate!=='function')fail('business_date_required');
    if(!row||typeof row.operationId!=='string'||!row.operationId
      ||!SIZES.includes(row.size)||!Number.isSafeInteger(row.pieces)
      ||row.pieces<1||row.pieces>100000
@@ -3546,10 +3545,8 @@ restoreActiveTab();
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const SIZES=['NB','S','M','L','XL','XXL'];
  const businessDate=(root?.XBPrimaryBusinessDate
-  ||(typeof module!=='undefined'&&module.exports
+  ||(typeof require==='function'
    ?require('./primary-business-date.js'):null))?.fromTimestamp;
- if(typeof businessDate!=='function')
-  throw Error('primary_business_date:dependency_required');
  function ret(status,extras={}){return Object.freeze({status,...extras});}
  function create({primary,uuid,clock}={}){
   if(!primary?.selectedScope||!primary?.read||!primary?.queue
@@ -3570,6 +3567,8 @@ restoreActiveTab();
     throw Error('primary_commands:invalid_size');
    let type,expectedRevision=null,payload;
    if(action==='purchase'){
+    if(typeof businessDate!=='function')
+     throw Error('primary_business_date:dependency_required');
     const brand=String(value.brand??'').trim();
     const series=String(value.series??'').trim();
     if(!brand||!series||brand.length>120||series.length>120
