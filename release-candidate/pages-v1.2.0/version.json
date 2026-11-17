@@ -1,0 +1,7 @@
+{
+  "version": "1.2.0-rc.1",
+  "channel": "release-candidate",
+  "source_sha": "e52cfdd7a24cc74018e429d6b0a021967ef58b7e",
+  "released": "2026-11-17",
+  "notes": "V1.2.0 联网五页面候选；业务写入未授权，未部署"
+}

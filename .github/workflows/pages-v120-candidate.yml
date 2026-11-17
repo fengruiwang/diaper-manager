@@ -1,0 +1,34 @@
+name: XiaoBao P4-04A Pages v1.2.0 Candidate (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+    paths:
+      - 'release-candidate/**'
+      - 'scripts/build-pages-v120-candidate.cjs'
+      - 'scripts/pages-v120-pwa.js'
+      - 'tests/p4-04a-pages-candidate.test.cjs'
+      - '.github/workflows/pages-v120-candidate.yml'
+permissions:
+  contents: read
+jobs:
+  pages-candidate:
+    name: Candidate source parity and local HTTP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify full generated candidate and no root writes
+        run: node scripts/build-pages-v120-candidate.cjs --check
+      - name: Verify Paths, Manifest, PWA, write gates, local HTTP
+        run: node --test tests/p4-04a-pages-candidate.test.cjs
+      - name: Archive candidate ONLY - does not deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-P4-04A-PAGES-1.2.0-rc1
+          path: release-candidate/pages-v1.2.0/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
