@@ -1309,6 +1309,7 @@ function browserStart(){
     outboxFactory:root.XBDurableOutbox,
     contract:root.XBOutboxContract,
     cloudWritesEnabled:FORMAL_WRITE_ENABLED,
+    fastReferenceEnabled:true,
     referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,

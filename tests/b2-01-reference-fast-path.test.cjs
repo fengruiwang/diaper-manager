@@ -45,7 +45,7 @@ function fixture({mode='normal',duplicate=false,localFail=false}={}){
   host:{indexedDB:{open(){}},navigator:{onLine:true}},
   documentsClient:docClient,outboxFactory:{create:()=>store},
   contract:{createOperation:input=>clone(input)},cloudWritesEnabled:true,
-  referenceAndQuotes:true});
+  referenceAndQuotes:true,fastReferenceEnabled:true});
  const cmd=Cmd.create({client:docClient,queue:ops,uuid:()=>{ids++;return ID;}});
  const prepare=(action='set',verified=true)=>cmd.submit({familyId:F,actorUid,
   kind:'reference',action,expectedRevision:3,

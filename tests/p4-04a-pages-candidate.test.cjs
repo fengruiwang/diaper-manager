@@ -30,8 +30,8 @@ test('P4-04A frozen rc2 candidate preserves verified assets and archived module 
   './formal-controller.js?v=p404c01','./pwa.js?v=p404c01'])
   assert.ok(html.includes('src="'+script+'"'),script);
  assert.ok(html.indexOf('src="./m1-controller')<html.indexOf('src="./formal-controller'));
- for(const name of ['primary-documents-operations','primary-documents-business-commands',
-  'outbox-contract','primary-cloud-operations','cloudbase-inventory-client'])
+ // Frozen rc2 is verified by original Git blob hashes, not Feature B2 code.
+ for(const name of ['outbox-contract','primary-cloud-operations','cloudbase-inventory-client'])
   assert.ok(html.includes(load('sync/'+name+'.js').toString('utf8').trim()),name);
 });
 test('P4-04A read-only production build gates, no Tencent test assets or fake release controls',()=>{

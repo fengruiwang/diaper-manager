@@ -97,7 +97,12 @@ function create({client,queue,uuid}={}){
    // Reference uses the COMPLETE verified B1 document, never a rendered
    // referenceOverrides-only projection. Other kinds keep their old read.
    let read;
-   if(kind==='reference'&&verifiedBaseline!==null){
+   if(kind==='reference'&&verifiedBaseline?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+     &&verifiedBaseline.familyId===familyId
+     &&verifiedBaseline.actorUid===actorUid
+     &&typeof verifiedBaseline.childId==='string'
+     &&Number.isSafeInteger(verifiedBaseline.revision)
+     &&object(verifiedBaseline.body?.referenceOverrides)){
     if(verifiedBaseline?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
       ||verifiedBaseline.kind!=='reference'
       ||verifiedBaseline.familyId!==familyId

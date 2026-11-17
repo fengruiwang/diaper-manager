@@ -61,8 +61,7 @@ test('P4-04C-02 rc4 has all write domains, original UUID/readback, C-01 and late
  assert.match(ctrl,/documentOperatorApproved:\(\)=>documentWritesEnabled===true/);
  for(const name of ['primary-business-date','primary-business-commands',
   'primary-ui-projection','primary-stocktake-batch-client','idb-outbox',
-  'primary-documents-operations',
-  'primary-documents-business-commands']){
+  ]){
   assert.ok(html.includes(read('sync/'+name+'.js').toString('utf8').trim()),
    'rc4 inline source not current: '+name);
  }

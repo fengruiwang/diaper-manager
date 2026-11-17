@@ -12,6 +12,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
  cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
+ fastReferenceEnabled=false,
  allowGrowth=false,allowProfile=false,allowSettings=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
@@ -90,8 +91,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
    const previous=kind==='reference'&&verifiedBaseline!==null
     ?await outbox.get(scope,requestId):null;
    const inserted=await outbox.enqueue(op);
-   if(kind==='reference'&&verifiedBaseline!==null&&!previous
-      &&inserted?.duplicate!==true)
+   if(fastReferenceEnabled===true&&kind==='reference'
+      &&verifiedBaseline!==null&&!previous&&inserted?.duplicate!==true)
     freshReferenceIds.set(op.id,scope.familyId+'\\x00'+scope.actorUid);
    return ans('DOCUMENT_OPERATION_DURABLY_QUEUED',{
     requestId:op.id,duplicate:Boolean(previous)||inserted?.duplicate===true,
@@ -109,12 +110,13 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   busy=true;
   try{
    const scope=identity(),items=await outbox.ready(scope);
-   const fastReference=typeof fastReferenceId==='string'
+   const fastReference=fastReferenceEnabled===true
+    &&typeof fastReferenceId==='string'
     &&freshReferenceIds.get(fastReferenceId)===
      scope.familyId+'\\x00'+scope.actorUid
     &&items.length===1&&items[0].id===fastReferenceId
     &&items[0].payload?.kind==='reference';
-   if(fastReferenceId!==null&&!fastReference)
+   if(fastReferenceEnabled===true&&fastReferenceId!==null&&!fastReference)
     return ans('DOCUMENT_PENDING_REVIEW_REQUIRED',{requestId:fastReferenceId});
    // A second send or later session reverts to the receipt-checking path.
    if(fastReference)freshReferenceIds.delete(fastReferenceId);
