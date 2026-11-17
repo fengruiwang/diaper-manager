@@ -5536,11 +5536,11 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
    const response=await db.rpc(name,args);
    if(response?.error){
     // A failed read must never keep a privileged scope for a later retry.
-    if(name==='xb_read_primary_document_draft')invalidateReadScope();
+    if(name.endsWith('read_primary_document_draft'))invalidateReadScope();
     const code=String(response.error.code||response.error.errorCode||'');
     if(code==='40001')throw Error('primary_docs:revision_conflict');
     if(code==='23505')throw Error('primary_docs:duplicate_request_conflict');
-    if(name==='xb_put_primary_document_draft'
+    if(name.endsWith('put_primary_document_draft')
       &&args?.p_kind==='reference'
       &&['42501','401','403'].includes(code))
      throw Error('primary_docs:reference_permission_denied');
