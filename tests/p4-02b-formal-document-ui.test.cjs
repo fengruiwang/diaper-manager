@@ -24,6 +24,7 @@ function snapshot(actor='A',valid=true){
 }
 function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
  let actor='A',loggedIn=true,docReads=0,currentReadAll=readAll,refreshReads=0,currentOne=null;
+ let currentChild=CHILD,documentClients=0;const acceptedScopes=[];
  const elements=new Map(),handlers=new Map(),shows=[],clears=[],timeouts=[];
  const element=id=>{
   if(!elements.has(id))elements.set(id,{
@@ -51,10 +52,12 @@ function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
    session:{user:{id:actor}}}
  })}};
  const context=()=>loggedIn?{app:sdk,actorUid:actor,familyId:FAMILY}:null;
- const primaryRead=async()=>({status:'PRIMARY_READ_ONLY_READY',canWrite:false});
+ const primaryRead=async()=>({status:'PRIMARY_READ_ONLY_READY',
+  source:'cloudbase-primary-receipt-verified',canWrite:false,
+  familyId:FAMILY,childId:currentChild,actorUid:actor});
  const projection=()=>({
   status:'PRIMARY_READ_ONLY_READY',source:'cloudbase-primary-receipt-verified',
-  familyId:FAMILY,childId:CHILD,actorUid:actor,
+  familyId:FAMILY,childId:currentChild,actorUid:actor,
   canWrite:false,revisions:{NB:1,S:1,M:1,L:1,XL:1,XXL:1},
   state:{inventory:{NB:0,S:0,M:0,L:0,XL:0,XXL:0},
    transactions:[],quotes:[],weightRecords:[],babyProfile:{}}
@@ -79,12 +82,15 @@ function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
   ui:{defaults:()=>({}),show:data=>shows.push({
    actor:data.actorUid,shared:data.sharedBusinessDocumentsVerified===true
   }),clear:()=>clears.push(actor)},
-  documentsFactory:()=>({
-   readAll:()=>{docReads++;return currentReadAll(actor);},
-   read:async({kind})=>{
-    refreshReads++;return currentOne?currentOne({kind,actor}):snapshot(actor).documents[kind];
-   }
-  }),
+  documentsFactory:()=>{
+   documentClients++;
+   return {acceptVerifiedPrimary:verified=>{acceptedScopes.push({
+     actor:verified.actorUid,child:verified.childId});return true;},
+    readAll:()=>{docReads++;return currentReadAll(actor);},
+    read:async({kind})=>{
+     refreshReads++;return currentOne?currentOne({kind,actor}):snapshot(actor).documents[kind];
+    }};
+  },
   documentsOverlay:Overlay,scriptLoader:async()=>{}
  });
  const status=()=>element('formalSyncState').textContent;
@@ -96,19 +102,21 @@ function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
   await sleep(12);
  }
  return {app,status,uiVerified,shows,clears,host,timeouts,element,handlers,
-  clickRefresh,setActor:value=>actor=value,
+  clickRefresh,setActor:value=>actor=value,setChild:value=>currentChild=value,
   setReadAll:handler=>currentReadAll=handler,setReadOne:handler=>currentOne=handler,
   get docReads(){return docReads;},
-  get refreshReads(){return refreshReads;}
+  get refreshReads(){return refreshReads;},
+  get documentClients(){return documentClients;},
+  get acceptedScopes(){return acceptedScopes;}
  };
 }
-test('P4-02B double-pass read may take longer than 12s: waiting until complete, then verified',async()=>{
+test('B1 single-pass five-doc read can exceed 12s without false early sync',async()=>{
  let steps=0;
  const f=fixture({
   timeoutMs:120,
   readAll:async()=>{
-   // Real client performs five document reads twice (ten awaits).
-   for(let i=0;i<10;i++){await sleep(3);steps++;}
+   // Simulated one-pass RPC list: each kind is read once.
+   for(let i=0;i<5;i++){await sleep(6);steps++;}
    return snapshot();
   }
  });
@@ -117,10 +125,10 @@ test('P4-02B double-pass read may take longer than 12s: waiting until complete, 
  assert.equal(f.uiVerified(),false);
  assert.equal(f.shows.filter(x=>x.shared).length,0);
  await sleep(55);
- assert.equal(steps,10);
+ assert.equal(steps,5);
  assert.equal(f.uiVerified(),true);
  assert.equal(f.shows.filter(x=>x.shared).length,1);
- assert.ok(f.timeouts.includes(60000),'double-pass timeout must be 60s');
+ assert.ok(f.timeouts.includes(60000),'complete read timeout must be 60s');
  assert.ok(!f.timeouts.includes(12000),'old 12s overall timeout must be removed');
 });
 test('P4-02B failed first read must permit explicit refresh and successful retry',async()=>{
@@ -247,4 +255,31 @@ test('P4-04C-02 incomplete refresh must not update full-success status',async()=
  assert.equal(f.uiVerified(),false);
  assert.match(f.status(),/未完全同步/);
  assert.equal(f.element('formalRefresh').disabled,false);
+});
+
+test('B1 startup and refresh reuse one current-session documents client',async()=>{
+ const f=fixture();
+ await f.app.start();await nextTick();
+ assert.equal(f.documentClients,1);
+ assert.equal(f.docReads,1);
+ assert.deepEqual(f.acceptedScopes[0],{actor:'A',child:CHILD});
+ await f.clickRefresh();await nextTick();
+ assert.equal(f.documentClients,1,'refresh cannot rebuild five independent scope clients');
+ assert.equal(f.refreshReads,5,'one new RPC per document in refresh');
+ assert.equal(f.acceptedScopes.length,2);
+ f.setActor('B');
+ assert.equal(await f.app.restore(),'ready');
+ await nextTick();
+ assert.equal(f.documentClients,2,'account change discards old document client');
+ assert.equal(f.acceptedScopes.at(-1).actor,'B');
+});
+test('B1 changed primary child invalidates session scope and old rendered snapshot',async()=>{
+ const f=fixture();
+ await f.app.start();await nextTick();
+ const previous=f.shows.length;
+ f.setChild('89918bcb-a7bc-4b2b-a9eb-f160475fd339');
+ assert.equal(await f.app.restore(),'unverified');
+ assert.equal(f.documentClients,1);
+ assert.equal(f.shows.length,previous);
+ assert.ok(f.clears.length>0);
 });

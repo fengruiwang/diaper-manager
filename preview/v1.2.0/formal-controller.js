@@ -10,7 +10,7 @@ const FORMAL_WRITE_ENABLED=false;
 const FORMAL_PURCHASE_ENABLED=false;
 const SIZES=['NB','S','M','L','XL','XXL'];
 const OTP_COOLDOWN_MS=60000;
-// readAll performs two sequential passes over five documents, each with scope checks.
+// Five parallel server-authorized document RPCs, with no full-body second pass.
 const DOCUMENT_READ_TIMEOUT_MS=60000;
 const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
 const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED','FORMAL_FAMILY_VERIFIED']);
@@ -115,6 +115,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let documentSnapshot=null,documentScope='',documentPending='',renderedReference=null;
  let documentEpoch=0,documentReadSerial=0;
  let documentReadTask=null,fullyReadAt=null,fullReadVerified=false;
+ let documentClientCache=null;
  let refreshBusy=false,pendingReviewSerial=0;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
  const syncTime=()=>new Intl.DateTimeFormat('zh-CN',{
@@ -277,6 +278,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
   documentEpoch++;documentReadSerial++;pendingReviewSerial++;
   documentReadTask=null;fullyReadAt=null;fullReadVerified=false;
+  documentClientCache?.client?.invalidateReadScope?.();
+  documentClientCache=null;
   if(attached){attached.detach();attached=null;}
   $('formalCurrentAccount').textContent='—';
   $('formalCurrentFamily').textContent='—';
@@ -432,10 +435,31 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const identityEpoch=documentEpoch;
    let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
+   // The primary read above has already verified the current actor, family,
+   // active primary, completed migration receipt and server inventory scope.
+   // Reuse this current-session read scope for document RPCs only.
+   if(documentClientCache
+      &&(documentClientCache.app!==ctx.app
+       ||documentClientCache.actorUid!==ctx.actorUid
+       ||documentClientCache.familyId!==ctx.familyId
+       ||documentClientCache.childId!==verified.childId)){
+    // Never render a prior baby's view with a changed primary scope.
+    clear();screen('unverified','账号或正式宝宝作用域已变化，请重新检查。');
+    return mode;
+   }
    let documentsClient=null;
    if(typeof documentsFactory==='function'&&documentsOverlay?.apply){
-    try{documentsClient=documentsFactory(ctx.app);}catch(_){
-     // Optional document service must not prevent a valid primary read.
+    try{
+     documentsClient=documentClientCache?.client||documentsFactory(ctx.app);
+     if(documentsClient){
+      documentsClient.acceptVerifiedPrimary?.(verified);
+      documentClientCache={app:ctx.app,actorUid:ctx.actorUid,
+       familyId:ctx.familyId,childId:verified.childId,
+       client:documentsClient};
+     }
+    }catch(_){
+     documentsClient=null;documentClientCache=null;
+     // Document service remains optional for authenticated inventory.
     }
    }
    let documentsVerified=false;
