@@ -25,7 +25,7 @@ test('P4-04A candidate is complete and generated scripts exactly reuse existing 
  assert.ok(html.indexOf('src="./m1-controller')<html.indexOf('src="./formal-controller'));
  for(const name of ['primary-documents-operations','primary-documents-business-commands',
   'primary-documents-client','primary-formal-ui-actions','idb-outbox',
-  'outbox-contract','primary-cloud-operations','inventory-client'])
+  'outbox-contract','primary-cloud-operations','cloudbase-inventory-client'])
   assert.ok(html.includes(load('sync/'+name+'.js').toString('utf8').trim()),name);
 });
 test('P4-04A read-only production build gates, no Tencent test assets or fake release controls',()=>{
