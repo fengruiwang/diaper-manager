@@ -139,8 +139,7 @@ test('B2-03 actual document client accepts fast growth/profile ACKs from verifie
 test('B2-03 profile business action submits only changed fields and applies ACK without readback',async()=>{
  const baseline={familyId:F,actorUid:'A',revision:3,body:{
   dueDate:'2027-01-08',birthDate:'',
-  babyProfile:{name:'原名',sex:'F',birthTime:'',birthWeight:3.2,birthLength:50,
-   legacyUnknown:'保留'}
+  babyProfile:{name:'原名',legacyUnknown:'保留'}
  }};
  let submitted=null,readbacks=0;
  const actions=Bridge.create({
@@ -162,7 +161,7 @@ test('B2-03 profile business action submits only changed fields and applies ACK 
   readProfileBaseline:()=>baseline,
   readDocumentInput:()=>({kind:'profile',action:'patch',record:{
    dueDate:'2027-01-08',birthDate:'',
-   babyProfile:{name:'新名',sex:'F',birthTime:'',birthWeight:3.2,birthLength:50}
+   babyProfile:{name:'新名',sex:'',birthTime:'',birthWeight:'',birthLength:''}
   }}),
   onProfileAck:async()=> 'ready',
   onProfileReadback:async()=>{readbacks++;return 'ready';}

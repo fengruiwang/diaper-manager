@@ -328,7 +328,8 @@ test('P3-04 no settings writes; source gates and previous shared documents prese
  const off=fixture({enabled:false});
  assert.equal((await off.click()).status,'FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
  assert.equal(off.queued.size,0);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
  const controller=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8');

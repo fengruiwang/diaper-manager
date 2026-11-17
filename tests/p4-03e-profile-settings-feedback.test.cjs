@@ -229,6 +229,7 @@ test('P4-03E leaves reference P4-03D and purchase/inventory authorizations uncha
  await tick();await tick();
  assert.equal(f.calls.submit,0);
  assert.equal(f.calls.stock,0);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
 });

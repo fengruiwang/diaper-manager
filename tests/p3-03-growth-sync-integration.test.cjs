@@ -273,7 +273,8 @@ test('P3-03 growth queue stays scoped; profile/settings remain closed while docu
  const rec=f.queued.get(IDS[0]);
  assert.equal(rec.payload.kind,'quotes');
  assert.equal(f.putCount,0);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
  const off=fixture({enabled:false});
  assert.equal((await off.click('saveWeight')).status,'FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');

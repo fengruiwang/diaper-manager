@@ -1,11 +1,12 @@
 /* Feature-only V1.2.0 formal login + five-tab cloud shell.
- * Shared-document writes are enabled only for explicitly completed domains.
- * Inventory/purchase remain independently disabled.
+ * General formal business writes stay disabled; completed shared-document
+ * domains use a separate narrow switch. Inventory/purchase remain disabled.
  * Never loaded by V1.1.2, accepted M1-02 or M3 preview.
  */
 (function(root){
 'use strict';
-const FORMAL_WRITE_ENABLED=true;
+const FORMAL_WRITE_ENABLED=false;
+const FORMAL_DOCUMENT_WRITE_ENABLED=true;
 // Purchase release is prepared but OFF until separate operator authorization.
 const FORMAL_PURCHASE_ENABLED=false;
 const SIZES=['NB','S','M','L','XL','XXL'];
@@ -101,7 +102,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  batchStocktakeFactory=null,
  purchaseReleaseEnabled=FORMAL_PURCHASE_ENABLED,
  purchaseOperatorApproved=()=>false,
- documentWritesEnabled=FORMAL_WRITE_ENABLED}={}){
+ documentWritesEnabled=FORMAL_DOCUMENT_WRITE_ENABLED}={}){
  if(!host||!doc||!loginController?.create||typeof readModelFactory!=='function'
    ||typeof primaryFactory!=='function'||!commandsFactory?.create
    ||!actionsFactory?.create||!projection?.project
@@ -1442,7 +1443,7 @@ function browserStart(){
   documentsFactory:app=>root.XBPrimaryDocumentsClient?.create({
    app,accessPreflight:root.XBCloudbaseAccessPreflight,
    childReader:root.XBCloudbaseChildReader,scopeGuard:root.XBChildScopeGuard,
-   cloudWritesEnabled:FORMAL_WRITE_ENABLED
+   cloudWritesEnabled:FORMAL_DOCUMENT_WRITE_ENABLED
   }),
   documentsOverlay:root.XBPrimaryDocumentsOverlay,
   documentOpsFactory:({controller,host,documentsClient})=>
@@ -1450,7 +1451,7 @@ function browserStart(){
     controller,host,documentsClient,
     outboxFactory:root.XBDurableOutbox,
     contract:root.XBOutboxContract,
-    cloudWritesEnabled:FORMAL_WRITE_ENABLED,
+    cloudWritesEnabled:FORMAL_DOCUMENT_WRITE_ENABLED,
     fastReferenceEnabled:true,fastQuotesEnabled:true,
     fastGrowthEnabled:true,fastProfileEnabled:true,
     referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:false
@@ -1492,7 +1493,8 @@ function browserStart(){
  });
  root.XBFormalApp=app;app.start();
 }
-const api=Object.freeze({create,FORMAL_WRITE_ENABLED,FORMAL_PURCHASE_ENABLED});
+const api=Object.freeze({create,FORMAL_WRITE_ENABLED,
+ FORMAL_DOCUMENT_WRITE_ENABLED,FORMAL_PURCHASE_ENABLED});
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(root?.document){
  root.XBFormalAppModule=api;

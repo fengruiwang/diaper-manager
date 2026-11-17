@@ -4416,12 +4416,22 @@ restoreActiveTab();
     // Patch only fields whose displayed values actually changed. Unknown
     // top-level and nested migration fields remain in the full document body.
     const patch={},profilePatch={};
+    const sameProfileValue=(key,next,current)=>{
+     const empty=value=>value===null||value===undefined||value==='';
+     if(['birthWeight','birthLength'].includes(key)){
+      if(empty(next)||empty(current))return empty(next)&&empty(current);
+      return Number(next)===Number(current);
+     }
+     return (next??'')===(current??'');
+    };
     for(const key of ['dueDate','birthDate']){
      if(Object.prototype.hasOwnProperty.call(input.record,key)
-       &&input.record[key]!==baseline.body[key])patch[key]=input.record[key];
+       &&!sameProfileValue(key,input.record[key],baseline.body[key]))
+      patch[key]=input.record[key];
     }
     for(const [key,value] of Object.entries(input.record.babyProfile)){
-     if(value!==baseline.body.babyProfile[key])profilePatch[key]=value;
+     if(!sameProfileValue(key,value,baseline.body.babyProfile[key]))
+      profilePatch[key]=value;
     }
     if(Object.keys(profilePatch).length)patch.babyProfile=profilePatch;
     if(!Object.keys(patch).length)return result('PROFILE_UNCHANGED');

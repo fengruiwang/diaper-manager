@@ -392,9 +392,10 @@ test('P4-01 source opens completed document domains while purchase and settings 
   '../preview/v1.2.0/formal/index.html'),'utf8');
  const bridge=fs.readFileSync(path.join(__dirname,
   '../sync/primary-formal-ui-actions.js'),'utf8');
- assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
- assert.match(controller,/documentWritesEnabled=FORMAL_WRITE_ENABLED/);
+ assert.match(controller,/documentWritesEnabled=FORMAL_DOCUMENT_WRITE_ENABLED/);
  assert.match(controller,/fastGrowthEnabled:true,fastProfileEnabled:true/);
  assert.match(controller,/allowSettings:false/);
  assert.match(controller,/purchaseReleaseEnabled=FORMAL_PURCHASE_ENABLED/);

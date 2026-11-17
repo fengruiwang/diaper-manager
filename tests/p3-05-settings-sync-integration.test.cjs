@@ -394,7 +394,8 @@ test('P3-05 source mirror keeps all document kinds and leaves settings disabled'
  assert.match(controller,/expectedSettings/);
  assert.match(controller,/onSettingsReadback/);
  assert.match(controller,/\['reference','quotes','growth','profile','settings'\]/);
- assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
  for(const name of ['primary-documents-operations',
   'primary-documents-business-commands','primary-formal-ui-actions']){

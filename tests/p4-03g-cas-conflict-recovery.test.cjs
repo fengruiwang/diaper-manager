@@ -193,7 +193,8 @@ test('P4-03G inventory conflict states and inventory outbox stay unchanged',asyn
  assert.equal((await f.storage.stats(scopeA)).outstanding,1);
 });
 test('P4-03G formal source keeps purchase off and preserves domain interfaces',()=>{
- assert.equal(Formal.FORMAL_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
  const text=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8');

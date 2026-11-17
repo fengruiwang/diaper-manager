@@ -68,7 +68,8 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity();
    let state;
-   if(fastKind(kind)&&verifiedBaseline!==null){
+   if(['reference','quotes','growth','profile'].includes(kind)
+     &&verifiedBaseline!==null){
     const body=verifiedBaseline.body;
     const bodyValid=kind==='reference'
      ?body&&body.referenceOverrides&&typeof body.referenceOverrides==='object'
