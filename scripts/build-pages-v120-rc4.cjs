@@ -5,6 +5,12 @@ const ROOT=path.resolve(__dirname,'..');
 const OUT=path.join(ROOT,'release-candidate/pages-v1.2.0-rc4');
 const SOURCE_SHA="a637dac357c27331e92ecff67a717b4d14e2bcc1",TAG="p404c02",VER="1.2.0-rc.4";
 const read=p=>fs.readFileSync(path.join(ROOT,p)),text=p=>read(p).toString('utf8');
+// rc.4 is deployed; newer Feature source must NOT alter its historical assets.
+if(process.argv.includes('--check')){
+ require('./verify-v120-frozen-candidates.cjs').check('rc4');
+ process.exit(0);
+}
+throw Error('frozen_candidate_not_regeneratable_create_new_version_later');
 function ch(s,oldValue,newValue){
  const num=s.split(oldValue).length-1;
  if(num!==1)throw Error("source drift "+num+": "+oldValue.slice(0,110));

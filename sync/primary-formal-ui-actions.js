@@ -41,6 +41,87 @@
   let busy=false,stocktakeBusy=false,referenceBusy=false,quoteBusy=false,growthBusy=false,profileBusy=false,settingsBusy=false,attached=null;
   // UI-only hold for a reference UUID pending authoritative readback.
   let referenceNeedsReview=null,referenceButtonLabel='';
+  let activeReferenceAction=null,referenceResetLabel='';
+  // UI-only holds; no UUID, queue, CAS or RPC behaviour is changed.
+  const minimalBusy={purchase:false,quotes:false};
+  const minimalReview={purchase:null,quotes:null};
+  const minimalLabels={purchase:null,quotes:null};
+  let minimalQuoteIntent=null;
+  function errorText(status,kind){
+   const name=kind==='purchase'?'采购':kind==='quotes'?'候选价':'默认价';
+   if(/NOT_AUTHORIZED|CONTRACT_NOT_READY|FORMAL_PURCHASE_ONLY/.test(status))
+    return '当前云端操作未开放，请核对账号及家庭授权。';
+   if(/FORM_INVALID|INVALID|NOT_VERIFIED|INPUT/.test(status))
+    return name+'未保存：请检查商品、价格及数量填写是否正确。';
+   if(/BASELINE|CONFLICT/.test(status))
+    return name+'未确认：数据版本已变化，请刷新后核对。';
+   return name+'保存未完成，请检查网络及同步状态后再操作。';
+  }
+  function minimalFeedback(kind,phase,answer=null){
+   const dom=attached?.doc;
+   const button=dom?.getElementById(kind==='purchase'?'buyNow':'saveQuote');
+   const text=dom?.getElementById('formalCompareActionFeedback');
+   if(!button)return;
+   if(!minimalLabels[kind])minimalLabels[kind]=button.textContent||
+    (kind==='purchase'?'已购买 · 立即入库':'加入候选价');
+   const name=kind==='purchase'?'采购':'候选价';
+   if(text)text.textContent=phase==='working'?'正在保存'+name+'…':
+    phase==='success'?name+'保存成功，云端回执与页面读回已确认。':
+    phase==='pending'?'正在核验，请勿重复提交；原请求已保留，请使用“核验待处理”。':
+    phase==='recovered'?'原'+name+'请求已核验，可继续操作。':
+    errorText(String(answer?.status||''),kind);
+   const waiting=phase==='working'||phase==='pending';
+   button.disabled=waiting;
+   button.textContent=waiting?(phase==='working'?'正在保存…':'等待核验…'):
+    phase==='success'&&kind==='quotes'?'加入候选价':minimalLabels[kind];
+   if(!waiting)minimalLabels[kind]=null;
+  }
+  function dispatchMinimal(el,doc,kind){
+   if(minimalBusy[kind])return;
+   if(minimalReview[kind]){
+    minimalFeedback(kind,'pending');
+    notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
+   }
+   minimalBusy[kind]=true;
+   if(kind==='quotes')minimalQuoteIntent=null;
+   minimalFeedback(kind,'working');
+   // Set the existing invoke busy guard synchronously before a second click.
+   let promise;
+   try{promise=handle(el,doc);}
+   catch(_){promise=Promise.resolve(result('FORMAL_OPERATION_REVIEW_REQUIRED'));}
+   void Promise.resolve(promise).then(answer=>{
+    const success=answer?.status===(kind==='purchase'
+     ?'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED':
+      'QUOTES_CLOUD_READBACK_VERIFIED');
+    if(!success){
+     const id=kind==='purchase'?answer?.operationId:answer?.requestId;
+     if(typeof id==='string'&&id)
+      minimalReview[kind]=Object.freeze(kind==='purchase'
+       ?{operationId:id,kind:'buy'}:{requestId:id,
+         action:minimalQuoteIntent?.action,record:minimalQuoteIntent?.record,
+         expectedRevision:minimalQuoteIntent?.expectedRevision});
+    }
+    minimalFeedback(kind,success?'success':
+     minimalReview[kind]?'pending':'failed',answer);
+    notify(answer);
+   },()=>{
+    minimalFeedback(kind,'failed',result('FORMAL_OPERATION_REVIEW_REQUIRED'));
+    notify(result('FORMAL_OPERATION_REVIEW_REQUIRED'));
+   }).finally(()=>{minimalBusy[kind]=false;});
+  }
+  async function recoverMinimalButtons({domain}={}){
+   const pending=minimalReview[domain];
+   if(!pending||minimalBusy[domain])return false;
+   const callback=domain==='purchase'?onPurchaseReadback:
+    domain==='quotes'?onQuotesReadback:null;
+   if(typeof callback!=='function')return false;
+   let verified=null;
+   try{verified=await callback(pending);}catch(_){}
+   if(verified!=='ready'||minimalReview[domain]!==pending)return false;
+   minimalReview[domain]=null;
+   minimalFeedback(domain,'recovered');
+   return true;
+  }
   const REFERENCE_STAGES=Object.freeze({
    checking:'正在检查价格与版本…',
    queued:'已加入本地队列，准备提交…',
@@ -49,13 +130,36 @@
    pending:'待确认，请勿重复保存'
   });
   function referenceProgress(phase,timing={}){
-   const button=attached?.doc.getElementById('saveEditedReference');
+   const dom=attached?.doc;
+   const button=dom?.getElementById('saveEditedReference');
+   const restore=dom?.getElementById('restoreDefaultReference');
+   const waiting=Object.prototype.hasOwnProperty.call(REFERENCE_STAGES,phase);
    if(button){
     if(!referenceButtonLabel)referenceButtonLabel=button.textContent||'保存新价格';
-    const waiting=Object.prototype.hasOwnProperty.call(REFERENCE_STAGES,phase);
     button.disabled=waiting;
     button.textContent=waiting?REFERENCE_STAGES[phase]:referenceButtonLabel;
    }
+   if(restore){
+    if(!referenceResetLabel)referenceResetLabel=restore.textContent||'恢复默认价';
+    restore.disabled=waiting;
+    restore.textContent=waiting&&activeReferenceAction==='reset'
+     ?phase==='pending'?'等待核验…':'正在恢复…':referenceResetLabel;
+   }
+   if(activeReferenceAction==='reset'){
+    const feedback=dom?.getElementById('formalReferenceActionFeedback');
+    if(feedback){
+     feedback.textContent=waiting
+      ?phase==='pending'
+       ?'正在核验，请勿重复提交；原请求已保留，请使用“核验待处理”。'
+       :'正在恢复默认价…'
+      :phase==='success'
+       ?'已恢复默认价，云端回执与页面价格读回已确认。'
+      :phase==='idle'
+       ?'原请求已核验，可继续操作。'
+      :'恢复未完成，请刷新核对网络及云端数据。';
+    }
+   }
+   if(!waiting)activeReferenceAction=null;
    if(typeof onReferenceProgress==='function')onReferenceProgress(phase,timing);
   }
   // P4-03E: profile/settings share P4-03D's feedback behavior, not a new queue.
@@ -314,6 +418,9 @@
     if(input.action==='add'&&(!input.record?.id
       ||baseline.body.items.some(row=>row.id===input.record.id)))
      return result('QUOTES_FORM_INVALID');
+    minimalQuoteIntent=Object.freeze({action:input.action,
+     expectedRevision:baseline.revision,
+     record:input.record?Object.freeze({...input.record}):null});
     const saved=await documentCommands.submit({
      ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
      expectedRevision:baseline.revision,operatorApproved:true
@@ -624,6 +731,7 @@
      intent=readDocumentInput?.(el,doc);
      baseline=readReferenceBaseline?.();
     }catch(_){}
+    activeReferenceAction=intent?.action||null;
     referenceProgress('checking');
     void handle(el,doc).then(answer=>{
      // A committed/ambiguous request stays locked until its own receipt
@@ -635,9 +743,13 @@
        expectedRevision:baseline?.revision,
        actorUid:baseline?.actorUid,familyId:baseline?.familyId
       });
-     referenceProgress(referenceNeedsReview?'pending':
-      answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'?'success':'failed',
-      answer?.timings||{});
+     const phase=referenceNeedsReview?'pending':
+      answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'?'success':'failed';
+     referenceProgress(phase,answer?.timings||{});
+     if(intent?.action==='reset'&&phase==='failed'){
+      const msg=attached?.doc.getElementById('formalReferenceActionFeedback');
+      if(msg)msg.textContent=errorText(String(answer?.status||''),'reference');
+     }
      notify(answer);
     },()=>{
      referenceProgress('failed');
@@ -765,6 +877,12 @@
     if(el.id==='saveSizePreferences'||el.id==='savePlans'||el.dataset?.preset){
      dispatchDocumentSave(el,doc,'settings');return;
     }
+    if(el.id==='buyNow'){
+     dispatchMinimal(el,doc,'purchase');return;
+    }
+    if(el.id==='saveQuote'){
+     dispatchMinimal(el,doc,'quotes');return;
+    }
     Promise.resolve().then(()=>handle(el,doc)).then(notify,
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
@@ -782,7 +900,8 @@
     hasPendingReferenceReview:()=>Boolean(referenceNeedsReview),
     recoverReferenceButton,releaseAbandonedDocumentConflict,
     hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.profile||pendingDocumentReview.settings),
-    recoverDocumentButtons,detach(){
+    hasPendingMinimalReview:domain=>Boolean(minimalReview[domain]),
+    recoverMinimalButtons,recoverDocumentButtons,detach(){
     if(!attached)return;
     attached.doc.removeEventListener('click',attached.handler,true);
     attached.doc.removeEventListener('submit',attached.formHandler,true);

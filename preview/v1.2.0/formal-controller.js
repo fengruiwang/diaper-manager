@@ -1086,12 +1086,16 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       const releasedRef=verified
        &&await attached?.recoverReferenceButton?.({displayedReference:renderedReference});
       const releasedDocs=await attached?.recoverDocumentButtons?.({verified});
+      const releasedQuote=verified
+       &&await attached?.recoverMinimalButtons?.({domain:'quotes'});
       $('formalSyncState').textContent=next==='ready'
        ?releasedRef
         ?'原参考价 UUID 回执与实际页面价格均已确认，可以继续保存。'
         :releasedDocs
          ?'原资料或设置请求已确认，页面已重新读取，可以继续保存。'
-         :'原共享文档请求已确认，但未确认参考价显示时仍不可重复保存。'
+         :releasedQuote
+          ?'原候选价请求已核验并读回，可以继续保存。'
+          :'原共享文档请求已确认，但尚有操作需要核验，请勿重复保存。'
        :'文档回执已确认，请刷新云端数据。';
      }else{
       if(['DOCUMENT_CONFLICT_REVIEW_REQUIRED',
@@ -1108,7 +1112,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if(docPending?.status==='DOCUMENT_QUEUE_COUNTS_VERIFIED'
       &&docPending.outstanding===0
       &&(attached?.hasPendingDocumentReview?.()
-       ||attached?.hasPendingReferenceReview?.())){
+       ||attached?.hasPendingReferenceReview?.()
+       ||attached?.hasPendingMinimalReview?.('quotes'))){
      const next=await restore();
      const verified=next==='ready'
       &&documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
@@ -1116,11 +1121,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      const releasedRef=verified
       &&await attached.recoverReferenceButton?.({displayedReference:renderedReference});
      const releasedDocs=await attached.recoverDocumentButtons({verified});
+     const releasedQuote=verified
+      &&await attached?.recoverMinimalButtons?.({domain:'quotes'});
      $('formalSyncState').textContent=releasedRef
       ?'原参考价 UUID 回执与实际显示价格均已核验，可以继续保存。'
       :releasedDocs
        ?'原宝宝资料或设置请求的回执已确认，页面已重新读取，可以继续保存。'
-       :'原操作还未完成回执及实际页面核验，保留 UUID，请勿重复保存。';
+       :releasedQuote
+        ?'原候选价请求已完成回执及读回核验，可以继续保存。'
+        :'原操作还未完成回执及实际页面核验，保留 UUID，请勿重复保存。';
      return;
     }
    }
@@ -1157,9 +1166,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const sent=await primary.flush({operatorApproved:true});
    if(sent.status==='PRIMARY_CLOUD_SYNCED_VERIFIED'){
     const next=await restore();
-    $('formalSyncState').textContent=next==='ready'
-     ?'云端已核验，采购与库存已刷新。'
-     :'云端操作已确认，页面读取仍需重试。';
+    const releasedPurchase=next==='ready'
+     &&await attached?.recoverMinimalButtons?.({domain:'purchase'});
+    $('formalSyncState').textContent=releasedPurchase
+     ?'原采购请求已核验并显示在库存中，可以继续操作。'
+     :next==='ready'
+      ?'云端已核验，采购与库存已刷新。'
+      :'云端操作已确认，页面读取仍需重试。';
    }else $('formalSyncState').textContent=
     '待确认操作：'+String(sent.status)+'；保留原操作 ID，不要重复提交。';
   });

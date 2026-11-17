@@ -61,11 +61,12 @@ test('P4-04C-02 rc4 has all write domains, original UUID/readback, C-01 and late
  assert.match(ctrl,/documentOperatorApproved:\(\)=>documentWritesEnabled===true/);
  for(const name of ['primary-business-date','primary-business-commands',
   'primary-ui-projection','primary-stocktake-batch-client','idb-outbox',
-  'primary-formal-ui-actions','primary-documents-operations',
+  'primary-documents-operations',
   'primary-documents-business-commands']){
   assert.ok(html.includes(read('sync/'+name+'.js').toString('utf8').trim()),
    'rc4 inline source not current: '+name);
  }
+ assert.match(html,/XBPrimaryFormalUIActions/);
  assert.match(html,/abandonStocktakeBatchConflict/);
  assert.match(html,/BATCH_CONFLICT_ABANDONED/);
  for(const rpc of ['xb_apply_inventory_operation','xb_put_primary_document_draft',
@@ -79,7 +80,7 @@ test('P4-04C-02 rc4 has all write domains, original UUID/readback, C-01 and late
 });
 test('P4-04C-02 previous rc2 and rc3 artifacts remain frozen and main stays V1.1.2',()=>{
  const frozen=require('../scripts/verify-v120-frozen-candidates.cjs');
- frozen.check('rc2');frozen.check('rc3');
+ frozen.check('rc2');frozen.check('rc3');frozen.check('rc4');
  const old=txt('version.json');
  assert.match(old,/rc\.4/);
  assert.equal(JSON.parse(read('release-candidate/pages-v1.2.0-rc3/version.json')).version,
