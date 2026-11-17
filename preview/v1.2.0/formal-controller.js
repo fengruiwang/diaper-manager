@@ -439,10 +439,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    // active primary, completed migration receipt and server inventory scope.
    // Reuse this current-session read scope for document RPCs only.
    if(documentClientCache
-      &&(documentClientCache.app!==ctx.app
-       ||documentClientCache.actorUid!==ctx.actorUid
+      &&(documentClientCache.actorUid!==ctx.actorUid
        ||documentClientCache.familyId!==ctx.familyId
-       ||documentClientCache.childId!==verified.childId)){
+       ||(documentClientCache.childId!==verified.childId
+         &&(documentClientCache.childId||verified.childId)))){
     // Never render a prior baby's view with a changed primary scope.
     clear();screen('unverified','账号或正式宝宝作用域已变化，请重新检查。');
     return mode;
@@ -450,7 +450,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    let documentsClient=null;
    if(typeof documentsFactory==='function'&&documentsOverlay?.apply){
     try{
-     documentsClient=documentClientCache?.client||documentsFactory(ctx.app);
+     // A renewed SDK app for the same verified household needs fresh DB handles.
+     documentsClient=documentClientCache?.app===ctx.app
+      ?documentClientCache.client:documentsFactory(ctx.app);
      if(documentsClient){
       documentsClient.acceptVerifiedPrimary?.(verified);
       documentClientCache={app:ctx.app,actorUid:ctx.actorUid,

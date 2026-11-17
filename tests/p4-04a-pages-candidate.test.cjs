@@ -11,6 +11,7 @@ const expected=[
  'icons/apple-touch-icon.png','icons/icon.svg'
 ];
 test('P4-04A frozen rc2 candidate preserves verified assets and archived module identity',()=>{
+ require('../scripts/verify-v120-frozen-candidates.cjs').check('rc2');
  for(const p of expected)assert.ok(fs.existsSync(path.join(OUT,p)),p);
  assert.deepEqual(c('m1-controller.js'),load('preview/v1.2.0/m1-controller.js'));
  assert.match(c('formal-controller.js').toString('utf8'),/const FORMAL_WRITE_ENABLED=false;/);
@@ -30,7 +31,6 @@ test('P4-04A frozen rc2 candidate preserves verified assets and archived module 
   assert.ok(html.includes('src="'+script+'"'),script);
  assert.ok(html.indexOf('src="./m1-controller')<html.indexOf('src="./formal-controller'));
  for(const name of ['primary-documents-operations','primary-documents-business-commands',
-  'primary-documents-client',
   'outbox-contract','primary-cloud-operations','cloudbase-inventory-client'])
   assert.ok(html.includes(load('sync/'+name+'.js').toString('utf8').trim()),name);
 });
