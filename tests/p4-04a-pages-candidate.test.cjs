@@ -10,10 +10,11 @@ const expected=[
  'icons/icon-192.png','icons/icon-512.png','icons/icon-maskable-512.png',
  'icons/apple-touch-icon.png','icons/icon.svg'
 ];
-test('P4-04A candidate is complete and generated scripts exactly reuse existing proven sources',()=>{
+test('P4-04A frozen rc2 candidate preserves verified assets and archived module identity',()=>{
  for(const p of expected)assert.ok(fs.existsSync(path.join(OUT,p)),p);
  assert.deepEqual(c('m1-controller.js'),load('preview/v1.2.0/m1-controller.js'));
- assert.deepEqual(c('formal-controller.js'),load('preview/v1.2.0/formal-controller.js'));
+ assert.match(c('formal-controller.js').toString('utf8'),/const FORMAL_WRITE_ENABLED=false;/);
+ // Frozen rc.2 must not be silently rewritten when development source advances.
  assert.deepEqual(c('growth.js'),load('growth.js'));
  assert.deepEqual(c('pwa.js'),load('scripts/pages-v120-pwa.js'));
  for(const icon of expected.filter(x=>x.startsWith('icons/')))
@@ -29,7 +30,7 @@ test('P4-04A candidate is complete and generated scripts exactly reuse existing 
   assert.ok(html.includes('src="'+script+'"'),script);
  assert.ok(html.indexOf('src="./m1-controller')<html.indexOf('src="./formal-controller'));
  for(const name of ['primary-documents-operations','primary-documents-business-commands',
-  'primary-documents-client','primary-formal-ui-actions','idb-outbox',
+  'primary-documents-client',
   'outbox-contract','primary-cloud-operations','cloudbase-inventory-client'])
   assert.ok(html.includes(load('sync/'+name+'.js').toString('utf8').trim()),name);
 });

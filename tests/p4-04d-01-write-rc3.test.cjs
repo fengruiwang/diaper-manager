@@ -58,7 +58,7 @@ test('P4-04D candidate enables both write domains and explicit user-approved bus
  assert.doesNotMatch(html,/正式业务测试入口|提交待同步操作（尚未授权）|家庭云端数据<\/strong>/);
  assert.match(html,/id="formalNotice" role="status"/);
  assert.doesNotMatch(html,/<button[^>]*(?:id="m3Demo"|id="m102Create")/);
- for(const m of ['primary-business-date','primary-ui-projection','primary-business-commands','primary-formal-ui-actions']){
+ for(const m of ['primary-business-date','primary-ui-projection','primary-business-commands']){
   assert.ok(html.includes(read('sync/'+m+'.js').toString('utf8').trim()),m);
  }
  assert.match(html,/xb_apply_inventory_operation/);

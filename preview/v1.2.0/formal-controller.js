@@ -1066,8 +1066,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        :'批次回执已确认，云端库存仍需重新读取。';
      }else{
        if(batchSent?.status==='BATCH_NO_READY_OPERATION'){
+        const found=await batchGuard.conflicts?.();
         await refreshBatchConflictButton().catch(()=>{});
-        $('formalSyncState').textContent='原批次存在确定冲突；请点击“处理盘点冲突”。';
+        $('formalSyncState').textContent=found?.status==='BATCH_CONFLICTS_VERIFIED'
+         &&found.items.length>0
+         ?'原批次存在确定冲突；请点击“处理盘点冲突”。'
+         :'批次目前无法继续发送，原编号已保留；请先核验原请求。';
        }else $('formalSyncState').textContent=
         '批次待核实：'+String(batchSent?.status||'UNVERIFIED')
          +'；已保留原批次 ID，请勿重复新建。';

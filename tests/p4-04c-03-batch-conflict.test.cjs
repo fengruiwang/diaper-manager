@@ -135,3 +135,21 @@ test('P4-04C-03 batch archival is isolated from 009 and 026 and keeps document-o
   await assert.rejects(()=>store.abandonStocktakeBatchConflict(s,id),/not_uncommitted_batch_conflict/);
  assert.equal((await store.stats(s)).outstanding,3);
 });
+
+test('P4-04C-03 only a hidden recovery button is added; 009/026 controls and old rc3 stay frozen',()=>{
+ const html=fs.readFileSync(path.join(__dirname,
+  '../preview/v1.2.0/formal/index.html'),'utf8');
+ const source=fs.readFileSync(path.join(__dirname,
+  '../preview/v1.2.0/formal-controller.js'),'utf8');
+ const actions=fs.readFileSync(path.join(__dirname,
+  '../sync/primary-formal-ui-actions.js'),'utf8');
+ const frozen=fs.readFileSync(path.join(__dirname,
+  '../release-candidate/pages-v1.2.0-rc3/index.html'),'utf8');
+ assert.match(html,/id="formalResolveBatchConflict"[^>]*hidden disabled/);
+ assert.match(source,/on\('formalResolveBatchConflict'/);
+ assert.match(source,/batchGuard\.abandonConflict\(/);
+ assert.match(source,/userConfirmed:true/);
+ assert.match(actions,/formalResolveBatchConflict/);
+ assert.match(source,/on\('formalResolveDocumentConflict'/);
+ assert.doesNotMatch(frozen,/id="formalResolveBatchConflict"/);
+});

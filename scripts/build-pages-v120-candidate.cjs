@@ -4,6 +4,12 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
 const ROOT=path.resolve(__dirname,'..'),OUT=path.join(ROOT,'release-candidate/pages-v1.2.0');
 const SHA='38a75ce9bdabdd7264f7eff85d56060df031b67c',VER='1.2.0-rc.2',TAG='p404c01';
 const read=p=>fs.readFileSync(path.join(ROOT,p)),text=p=>read(p).toString('utf8');
+ // Original rc.2 is frozen; never overwrite/re-version it from newer sources.
+ if(process.argv.includes('--check')){
+  require('./verify-v120-frozen-candidates.cjs').check('rc2');
+  process.exit(0);
+ }
+ throw Error('frozen_candidate_not_regeneratable_create_new_version_instead');
 function change(s,a,b){assert.equal(s.split(a).length-1,1,'source drift: '+a.slice(0,90));return s.replace(a,b);}
 function html(){
  let s=text('preview/v1.2.0/formal/index.html');
