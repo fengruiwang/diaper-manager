@@ -434,6 +434,48 @@
     req.onsuccess=()=>complete(req.result||null);
    },[SNAPSHOTS]);
   }
+  // 027 is a separate durable batch outbox. Once its server ACK has been
+  // verified, update the SAME inventory snapshot used by 009 quick writes.
+  async function applyVerifiedBatchInventory(scopeInput,{childId,changes}={}){
+   const scope=scopeOf(scopeInput),key=identityKey(scope,childId);
+   if(!Array.isArray(changes)||changes.length<2||changes.length>6)
+    fail('invalid_batch_changes');
+   const sizes=new Set();
+   for(const x of changes){
+    if(!x||!['NB','S','M','L','XL','XXL'].includes(x.size)
+      ||sizes.has(x.size)||!Number.isSafeInteger(x.new_quantity)
+      ||x.new_quantity<0||x.new_quantity>100000
+      ||!Number.isSafeInteger(x.revision)||x.revision<1
+      ||!Number.isSafeInteger(x.expectedRevision)||x.expectedRevision<0
+      ||x.revision<=x.expectedRevision)fail('invalid_batch_changes');
+    sizes.add(x.size);
+   }
+   return run('readwrite',(snapshots,complete,abort)=>{
+    const req=snapshots.get(key);
+    req.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    req.onsuccess=()=>{
+     try{
+      const snap=req.result;
+      if(!snap||snap.source!=='verified-server'
+        ||snap.familyId!==scope.familyId||snap.actorUid!==scope.actorUid
+        ||snap.childId!==childId)fail('batch_snapshot_unverified');
+      const inventory={...snap.inventory},serverRevisions={...snap.serverRevisions};
+      for(const x of changes){
+       if(!Number.isSafeInteger(inventory[x.size])
+         ||!Number.isSafeInteger(serverRevisions[x.size])
+         ||serverRevisions[x.size]!==x.expectedRevision)
+        fail('batch_snapshot_not_current');
+       inventory[x.size]=x.new_quantity;
+       serverRevisions[x.size]=x.revision;
+      }
+      const next={...snap,inventory,serverRevisions};
+      const put=snapshots.put({...next,key});
+      put.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      put.onsuccess=()=>complete(next);
+     }catch(e){abort(e);}
+    };
+   },[SNAPSHOTS]);
+  }
   // The local inventory projection and network outbox event must commit
   // atomically in the SAME IndexedDB transaction. Never mutate old localStorage.
   async function commitInventory(scopeInput,operation){
@@ -561,7 +603,7 @@
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,recordStocktakeAck,abandonSingleStocktakeConflict,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
+  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,recordStocktakeAck,abandonSingleStocktakeConflict,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,applyVerifiedBatchInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;
