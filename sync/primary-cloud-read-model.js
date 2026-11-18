@@ -51,8 +51,11 @@
    if(grant.member!==true||grant.appCode!=='xb'
       ||grant.familyId!==familyId||grant.actorUid!==actorUid)
     fail('grant_unverified');
+   // Never persist this proof: the same read's verification is useful only
+   // until its existing primary, migration, inventory and profile checks end.
+   try{
    let target;
-   try{target=await children.inspectLegacyTarget({familyId});}
+   try{target=await children.inspectLegacyTarget({familyId,verifiedReadGrant:grant});}
    catch(e){
     if(e?.message==='child_reader:legacy_primary_unavailable')
      return Object.freeze({status:'PRIMARY_NOT_READY',canWrite:false,
@@ -62,7 +65,8 @@
    if(target.familyId!==familyId||!UUID.test(target.childId)
       ||target.readyForMigration!==false)fail('primary_scope_unverified');
    const childId=target.childId;
-   const scope={familyId,childId};
+   accessPreflight.bindVerifiedReadChild?.(grant,{app,familyId,actorUid,childId});
+   const scope={familyId,childId,verifiedReadGrant:grant};
    // A completed receipt is required BEFORE showing any stock in a formal UI.
    // SQL 024 does not exist in the real database until independently approved.
    let settings,history;
@@ -128,6 +132,7 @@
     liveUses:Object.freeze(currentUses.slice()),
     legacyPurchasesAppliedToInventory:false
    });
+   }finally{accessPreflight.finishVerifiedRead?.(grant);}
   }
   return Object.freeze({read});
  }

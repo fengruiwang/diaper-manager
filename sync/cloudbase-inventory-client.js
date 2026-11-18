@@ -7,6 +7,8 @@
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const SIZES=new Set(['NB','S','M','L','XL','XXL']);
  const KINDS=new Set(['buy','use','stocktake','reverse']);
+ const accessProof=typeof module!=='undefined'&&module.exports
+  ?require('./cloudbase-access-preflight.js'):root?.XBCloudbaseAccessPreflight;
  function fail(code){throw new Error('inventory_client:'+code);}
  function id(value,name){if(typeof value!=='string'||!UUID.test(value))fail('invalid_'+name);return value;}
  function qty(value,minimum){if(!Number.isSafeInteger(value)||value<minimum||value>100000)fail('invalid_amount');return value;}
@@ -20,6 +22,13 @@
    const response=await auth.getSession();
    if(response?.error)fail('session_unavailable');
    if(!response?.data?.session)fail('login_required');
+  }
+  // Only read methods can skip a repeated SDK session probe within the
+  // already verified primary read. applyOperation always calls checkSession.
+  async function checkReadSession(familyId,childId,verifiedReadGrant){
+   if(verifiedReadGrant===undefined)return checkSession();
+   if(!accessProof?.verifiedReadGrant?.(verifiedReadGrant,{app,familyId,childId}))
+    fail('verified_read_grant_required');
   }
   function purchasePayload(purchase){
    if(!purchase||typeof purchase!=='object'||Array.isArray(purchase))
@@ -103,13 +112,13 @@
     duplicate:result.duplicate===true
    });
   }
-  async function readReconciliation({familyId,childId,operationIds=[]}={}){
+  async function readReconciliation({familyId,childId,operationIds=[],verifiedReadGrant}={}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
    if(!Array.isArray(operationIds)||operationIds.length>50
       ||new Set(operationIds).size!==operationIds.length)
     fail('invalid_reconciliation_ids');
    for(const oid of operationIds)id(oid,'operation_id');
-   await checkSession();
+   await checkReadSession(family,child,verifiedReadGrant);
    const response=await db.rpc('xb_read_inventory_reconciliation',{
     p_family_id:family,p_child_id:child,p_operation_ids:operationIds
    });
@@ -146,9 +155,9 @@
     checkedOperationIds:[...operationIds],seenOperationIds:[...serverSeen],rows
    };
   }
-  async function readPurchases({familyId,childId}){
+  async function readPurchases({familyId,childId,verifiedReadGrant}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
-   await checkSession();
+   await checkReadSession(family,child,verifiedReadGrant);
    const response=await db.from('xb_transactions')
      .select('operation_id,brand,series,size,pieces,total_fen,purchase_date,reversed_by_operation_id,created_by')
      .eq('family_id',family).eq('child_id',child);
@@ -171,9 +180,9 @@
   }
   // The existing family RLS policy grants SELECT on operation receipts.
   // Only 'use' rows are projected; migration baselines are never replayed.
-  async function readUses({familyId,childId}={}){
+  async function readUses({familyId,childId,verifiedReadGrant}={}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
-   await checkSession();
+   await checkReadSession(family,child,verifiedReadGrant);
    // Both reads use the same existing family RLS and primary child scope.
    // The reverse rows are read-only audit receipts, not a second stock delta.
    const query=kind=>db.from('xb_inventory_operations')
@@ -217,9 +226,9 @@
      reversedByOperationId:reversed?.operation_id||null});
    });
   }
-  async function readInventory({familyId,childId}){
+  async function readInventory({familyId,childId,verifiedReadGrant}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
-   await checkSession();
+   await checkReadSession(family,child,verifiedReadGrant);
    const response=await db.from('xb_inventory')
     .select('size,quantity,revision,updated_at')
     .eq('family_id',family).eq('child_id',child);

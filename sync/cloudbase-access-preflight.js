@@ -8,6 +8,26 @@
 (function(root){
  'use strict';
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ // Private, ephemeral read-only proof. Neither JSON nor a copied/fake grant
+ // can carry it; the primary reader always expires it in its finally block.
+ const readProofs=new WeakMap();
+ function verifiedReadGrant(grant,{app,familyId,actorUid,childId}={}){
+  const proof=grant&&typeof grant==='object'?readProofs.get(grant):null;
+  return Boolean(proof&&proof.app===app&&proof.familyId===familyId
+   &&(!actorUid||proof.actorUid===actorUid)
+   &&(!childId||proof.childId===childId));
+ }
+ function bindVerifiedReadChild(grant,{app,familyId,actorUid,childId}={}){
+  if(!UUID.test(String(childId||''))
+    ||!verifiedReadGrant(grant,{app,familyId,actorUid}))
+   fail('verified_read_scope_required');
+  const proof=readProofs.get(grant);
+  if(proof.childId&&proof.childId!==childId)fail('verified_read_child_mismatch');
+  proof.childId=childId;
+ }
+ function finishVerifiedRead(grant){
+  if(grant&&typeof grant==='object')readProofs.delete(grant);
+ }
  function fail(code){throw new Error('access_preflight:'+code);}
  function uid(value){
   return typeof value==='string'&&value.length>0&&value.length<=128?value:null;
@@ -69,14 +89,16 @@
    // At this point only the RLS authorization is verified.
    // It is NOT safe to upload until an independently verified, durable
    // child inventory baseline has been created and reconciled.
-   return Object.freeze({
+   const result=Object.freeze({
     familyId,actorUid,appCode:'xb',member:true,
     initialized:false
    });
+   readProofs.set(result,{app,familyId,actorUid,childId:null});
+   return result;
   }
   return Object.freeze({verifyAccess});
  }
- const api=Object.freeze({create});
+ const api=Object.freeze({create,verifiedReadGrant,bindVerifiedReadChild,finishVerifiedRead});
  if(root)root.XBCloudbaseAccessPreflight=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);

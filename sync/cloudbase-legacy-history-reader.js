@@ -10,6 +10,8 @@
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const KINDS=new Set(['all','transaction','quote','weight']);
  const ROW_KINDS=new Set(['transaction','quote','weight']);
+ const accessProof=typeof module!=='undefined'&&module.exports
+  ?require('./cloudbase-access-preflight.js'):root?.XBCloudbaseAccessPreflight;
  function fail(code){throw new Error('legacy_history_reader:'+code);}
  function id(value,name){
   if(typeof value!=='string'||!UUID.test(value))fail('invalid_'+name);
@@ -21,7 +23,12 @@
       ||typeof app.rdb!=='function')fail('sdk_required');
   const db=app.rdb();
   if(!db||typeof db.rpc!=='function')fail('rpc_required');
-  async function session(){
+  async function session(verifiedReadGrant,familyId,childId){
+   if(verifiedReadGrant!==undefined){
+    if(!accessProof?.verifiedReadGrant?.(verifiedReadGrant,{app,familyId,childId}))
+     fail('verified_read_grant_required');
+    return;
+   }
    let res;
    try{res=await app.auth.getSession();}
    catch(_){fail('session_unavailable');}
@@ -46,12 +53,12 @@
    if(!isObject(data))fail('invalid_server_response');
    return data;
   }
-  async function readPage({familyId,childId,kind='all',offset=0,limit=20}={}){
+  async function readPage({familyId,childId,kind='all',offset=0,limit=20,verifiedReadGrant}={}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
    if(!KINDS.has(kind)||!Number.isSafeInteger(offset)||offset<0||offset>10000
       ||!Number.isSafeInteger(limit)||limit<1||limit>50)
     fail('invalid_page_request');
-   await session();
+   await session(verifiedReadGrant,family,child);
    const data=await rpc('xb_read_legacy_history_page_draft',{
     p_family_id:family,p_child_id:child,p_record_kind:kind,
     p_offset:offset,p_limit:limit
@@ -94,10 +101,10 @@
   // Aggregate receipt-backed pages without claiming a partial page is full
   // history. SQL 024 caps offset at 10,000 and page size at 50, so refuse
   // larger totals until a separately reviewed cursor RPC is available.
-  async function readAll({familyId,childId,kind='all',limit=50}={}){
+  async function readAll({familyId,childId,kind='all',limit=50,verifiedReadGrant}={}){
    if(!Number.isSafeInteger(limit)||limit<1||limit>50||!KINDS.has(kind))
     fail('invalid_full_history_request');
-   const scope={familyId,childId,kind};
+   const scope={familyId,childId,kind,verifiedReadGrant};
    let total=null,offset=0,rows=[],prevKind='',prevOrdinal=0;
    const known=new Set();
    for(let pageIndex=0;pageIndex<=201;pageIndex++){
@@ -135,9 +142,9 @@
    }
    fail('full_history_page_limit_exceeded');
   }
-  async function readSettings({familyId,childId}={}){
+  async function readSettings({familyId,childId,verifiedReadGrant}={}){
    const family=id(familyId,'family_id'),child=id(childId,'child_id');
-   await session();
+   await session(verifiedReadGrant,family,child);
    const data=await rpc('xb_read_legacy_settings_draft',{
     p_family_id:family,p_child_id:child
    });

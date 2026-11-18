@@ -8,6 +8,8 @@
  'use strict';
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  const MAX_CHILDREN=100;
+ const accessProof=typeof module!=='undefined'&&module.exports
+  ?require('./cloudbase-access-preflight.js'):root?.XBCloudbaseAccessPreflight;
  function fail(code){throw new Error('child_reader:'+code);}
  function requireFamilyId(value){
   if(typeof value!=='string'||!UUID.test(value))fail('invalid_family_id');
@@ -80,9 +82,11 @@
     suppressedCount:rows.length-active.length
    });
   }
-  async function migrationTarget({familyId}={}){
+  async function migrationTarget({familyId,verifiedReadGrant}={}){
    const family=requireFamilyId(familyId);
-   await requireAuthorizedFamily(family);
+   if(verifiedReadGrant===undefined)await requireAuthorizedFamily(family);
+   else if(!accessProof?.verifiedReadGrant?.(verifiedReadGrant,{app,familyId:family}))
+    fail('verified_read_grant_required');
    const rows=await select('xb_children',
     'id,family_id,display_name,legacy_slot,deleted_at,revision',
     [['family_id',family],['legacy_slot','primary']],2);
