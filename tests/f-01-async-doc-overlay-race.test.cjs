@@ -1,4 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
+global.window={XBPrimaryBusinessDate:{fromTimestamp:()=> '2026-11-18'}};
 const Formal=require('../preview/v1.2.0/formal-controller.js');
 const Overlay=require('../sync/primary-documents-overlay.js');
 const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',C='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
@@ -69,6 +70,7 @@ function setup({hold=true}={}){
  }
  return {instance,views,get,op,
   ack:async(kind,n)=>ackOptions.onPurchaseAck(op(kind,n)),
+  ackRaw:async packet=>ackOptions.onPurchaseAck(packet),
   release:()=>resolveDoc(docs()),
   get latest(){return latest;},
   get readCalls(){return readCalls;},
@@ -100,11 +102,13 @@ test('F-01 late five-document overlay cannot overwrite stocktake ACK state',asyn
  ack.operation.payload.kind='stocktake';
  ack.operation.payload.count=95;
  ack.operation.expectedRevision=2;
- assert.equal(await f.instance.mode,'ready');
- // Use the same already verified 009 ACK handler as stocktake.
- assert.equal(await f.ack('buy',140),'ready');
+ assert.equal(await f.ackRaw(ack),'ready');
+ assert.equal(f.latest.state.inventory.S,95);
  f.release();await tick();await tick();
- assert.equal(f.latest.state.inventory.S,140);
+ assert.equal(f.latest.state.inventory.S,95);
+ assert.equal(f.latest.revisions.S,3);
+ assert.equal(f.latest.state.daily.S,9);
+ assert.equal(f.readCalls,1);
 });
 test('F-01 normal first read still overlays five documents without an extra request',async()=>{
  const f=setup({hold:false});await f.instance.start();
