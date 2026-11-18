@@ -498,7 +498,8 @@
   async function reconciliationIds(scopeInput,childId){
    const scope=scopeOf(scopeInput),child=id(childId,'child_id');
    const rows=await list(scope,{includeAcked:true});
-   const matches=rows.filter(row=>row.payload?.childId===child);
+   const matches=rows.filter(row=>row.payload?.childId===child
+    &&row.status!=='abandoned');
    if(matches.length>50)fail('reconciliation_requires_pagination');
    return matches.map(row=>row.id);
   }
@@ -515,7 +516,8 @@
     const pendingReq=opsStore.index('by_identity').getAll([scope.familyId,scope.actorUid]);
     pendingReq.onerror=()=>abort(new Error('outbox_store:read_failed'));
     pendingReq.onsuccess=()=>{
-     const scoped=(pendingReq.result||[]).filter(op=>op.payload?.childId===child);
+     const scoped=(pendingReq.result||[]).filter(op=>op.payload?.childId===child
+      &&op.status!=='abandoned');
      if(scoped.length>50){
       abort(new Error('outbox_store:reconciliation_requires_pagination'));return;
      }
