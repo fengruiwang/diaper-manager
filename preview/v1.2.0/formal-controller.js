@@ -146,6 +146,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   const blocked=syncActionBusy||refreshBusy||busy;
   const headerRecovery=hasPendingPageReview();
   const get=$('formalGetCloudLatest'),send=$('formalSubmitPending');
+  const refresh=$('formalRefresh');
+  if(refresh)refresh.disabled=!scoped||!connected||blocked;
   const top=$('formalSyncNow'),count=$('formalPendingCount');
   if(get)get.disabled=!scoped||!connected||blocked;
   if(send)send.disabled=!scoped||!connected||blocked
@@ -1512,7 +1514,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      ?'云端数据已更新':next==='offline'
      ?'当前网络不可用，请联网后重试'
      :'部分云端数据尚未获取成功，请稍后重试';
-    if(next!=='ready')showSync('部分云端数据尚未获取成功，未完全同步，请稍后重试','partial');
+    if(next!=='ready'&&/正在刷新/.test($('formalSyncState')?.textContent||''))
+     showSync('部分云端数据尚未获取成功，未完全同步，请稍后重试','partial');
    }catch(_){
     if(epoch===documentEpoch&&actor===account&&family===household&&node)
      node.textContent='部分云端数据尚未获取成功，请稍后重试';
@@ -1828,7 +1831,6 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     restore();
   });
   await restore();
-  await checkPending().catch(()=>{});
   return mode;
  }
  return Object.freeze({start,restore,signOut,
