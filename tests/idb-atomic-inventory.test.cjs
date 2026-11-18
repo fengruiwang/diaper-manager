@@ -5,6 +5,7 @@ const Contract=require('../sync/outbox-contract.js');
 const Projection=require('../sync/inventory-local-projection.js');
 const Reconciler=require('../sync/inventory-reconciler.js');
 const Bootstrap=require('../sync/inventory-bootstrap-coordinator.js');
+const Runner=require('../sync/inventory-outbox-runner.js');
 const FAMILY='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='6b3d0e45-bf18-4c95-889c-6f19731a8ae5';
 const O1='397b1791-b8d0-4d63-82d6-c5b829240f42';
@@ -549,4 +550,56 @@ test('F-02 diagnostic only: 51 ACK historical UUIDs block current reconciliation
   /reconciliation_requires_pagination/);
  assert.equal((await store.get(dad,O1)).status,'retry');
  assert.equal((await store.stats(dad)).acked,51);
+});
+
+test('F-02 integrated fast runner + actual IDB transaction: one 009, authoritative 160 then 027 bridge',async()=>{
+ const db=idbFake(),store=make(db,'f02-integrated-fast');
+ await store.initializeInventory(dad,{childId:CHILD,inventory:{...stock(80),NB:25},
+  serverRevisions:{S:2,NB:1},source:'verified-server'});
+ await store.commitInventory(dad,event(O1));
+ let rpc=0;
+ const runner=Runner.create({outbox:store,
+  remote:{applyOperation:async input=>{
+   rpc++;assert.equal(input.operationId,O1);
+   return {operationId:O1,childId:CHILD,size:'S',
+    quantity:160,revision:5,duplicate:false};
+  }},verifyAccess:async()=>{throw Error('fast path must skip authorization recheck');}});
+ const result=await runner.flush(dad,{uploadEnabled:true,fastPurchaseId:O1});
+ assert.equal(result.status,'purchase-ack-confirmed');
+ assert.equal(rpc,1);
+ const committed=await make(db,'f02-integrated-fast').readInventory(dad,CHILD);
+ assert.equal(committed.inventory.S,160);
+ assert.equal(committed.serverRevisions.S,5);
+ const batch=await store.applyVerifiedBatchInventory(dad,{childId:CHILD,changes:[
+  {size:'NB',expectedRevision:1,new_quantity:30,revision:2},
+  {size:'S',expectedRevision:5,new_quantity:155,revision:6}]});
+ assert.equal(batch.inventory.S,155);
+ assert.equal(batch.serverRevisions.S,6);
+ assert.equal(rpc,1,'batch bridge must not send another 009');
+});
+test('F-02 integrated original UUID duplicate recovery with real IDB updates authority without double-add',async()=>{
+ const db=idbFake(),store=make(db,'f02-integrated-recovery');
+ await store.initializeInventory(dad,{childId:CHILD,inventory:stock(80),
+  serverRevisions:{S:2},source:'verified-server'});
+ await store.commitInventory(dad,event(O1));
+ await store.recordResult(dad,O1,{kind:'timeout'});
+ let rpc=0;
+ const runner=Runner.create({outbox:store,remote:{applyOperation:async input=>{
+  rpc++;assert.equal(input.operationId,O1);
+  return {operationId:O1,childId:CHILD,size:'S',
+   quantity:160,revision:5,duplicate:true};
+ }},verifyAccess:async()=>({familyId:FAMILY,actorUid:dad.actorUid,
+  appCode:'xb',member:true,initialized:true})});
+ const result=await runner.flush(dad,{uploadEnabled:true});
+ assert.equal(result.accepted,1);assert.equal(result.remaining,0);
+ assert.equal(rpc,1);
+ const recovered=make(db,'f02-integrated-recovery');
+ assert.equal((await recovered.get(dad,O1)).status,'acked');
+ assert.equal((await recovered.readInventory(dad,CHILD)).inventory.S,160);
+ assert.equal((await recovered.readInventory(dad,CHILD)).serverRevisions.S,5);
+ const repeat=await store.recordDeltaAck(dad,O1,{
+  operationId:O1,childId:CHILD,size:'S',quantity:160,
+  revision:5,duplicate:true});
+ assert.equal(repeat.duplicate,true);
+ assert.equal((await recovered.readInventory(dad,CHILD)).inventory.S,160);
 });
