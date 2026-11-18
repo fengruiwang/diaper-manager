@@ -171,6 +171,8 @@
     :status==='PRIMARY_STOCK_UNCHANGED'?'库存没有变化，无需保存'
     :status==='MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED'
      ?'多尺码批量盘点功能尚未开放，请等待下一阶段。'
+    :status==='BATCH_REVISION_CONFLICT_MANUAL_REVIEW'
+     ?'云端库存已变化，本次批量盘点未保存'
     :/CONFLICT|REVISION/.test(status)
      ?'库存已发生变化，请获取云端最新后重新盘点'
     :/INVALID|INCOMPLETE/.test(status)?'库存数量无效，请输入 0 至 100000 的整数'
@@ -309,7 +311,8 @@
           kind==='consume'?'use':kind==='stocktake'?'stocktake':'reverse',
           reversesOperationId:kind==='reverse'
            ?prepared?.reversesOperationId:null,
-          ...(answer?.batchId?{batchId:answer.batchId}:{}),
+          ...(answer?.batchId?{batchId:answer.batchId,
+           items:answer.items||null}:{}),
           ...(kind==='stocktake'?{
            size:answer?.size,count:answer?.count,
            expectedRevision:answer?.expectedRevision}: {})}:{requestId:id,
@@ -332,7 +335,8 @@
   async function recoverMinimalButtons({domain}={}){
    const pending=minimalReview[domain];
    if(!pending||minimalBusy[domain])return false;
-   const callback=['purchase','consume','reverse','stocktake'].includes(domain)?onPurchaseReadback:
+   const callback=domain==='stocktake'&&pending.batchId
+     ?onBatchReadback:['purchase','consume','reverse','stocktake'].includes(domain)?onPurchaseReadback:
     domain==='quotes'?onQuotesReadback:null;
    if(typeof callback!=='function')return false;
    let verified=null;
@@ -683,8 +687,9 @@
      status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
     });}
     if(!['BATCH_ATOMIC_COMMIT_ACKED','BATCH_ACK_RECOVERED']
-      .includes(sent?.status))return sent||Object.freeze({
-       status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
+      .includes(sent?.status))return Object.freeze({
+       ...(sent||{status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID'}),
+       batchId,items
       });
     try{
      const visible=sent.fastBatch===true&&typeof onBatchAck==='function'
