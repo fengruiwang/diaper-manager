@@ -332,12 +332,15 @@
     notify(result('FORMAL_OPERATION_REVIEW_REQUIRED'));
    }).finally(()=>{minimalBusy[kind]=false;});
   }
-  async function recoverMinimalButtons({domain}={}){
+  async function recoverMinimalButtons({domain,verifiedBatch=false}={}){
    const pending=minimalReview[domain];
    if(!pending||minimalBusy[domain])return false;
    const callback=domain==='stocktake'&&pending.batchId
      ?onBatchReadback:['purchase','consume','reverse','stocktake'].includes(domain)?onPurchaseReadback:
     domain==='quotes'?onQuotesReadback:null;
+   if(verifiedBatch===true&&domain==='stocktake'&&pending.batchId){
+    minimalReview[domain]=null;minimalFeedback(domain,'recovered');return true;
+   }
    if(typeof callback!=='function')return false;
    let verified=null;
    try{verified=await callback(pending);}catch(_){}
