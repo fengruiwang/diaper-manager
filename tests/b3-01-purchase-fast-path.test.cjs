@@ -111,6 +111,21 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
     total:items.length,pending:items.filter(x=>x.status==='pending').length,
     conflict:0,blocked:0,retry:0};
   },
+  async recordDeltaAck(_scope,id,receipt){
+   trace.push('idb.deltaAck');
+   const op=rows.get(id);
+   assert.equal(op.type,'inventory.delta');
+   assert.equal(receipt.operationId,id);
+   assert.equal(receipt.childId,C);
+   assert.equal(receipt.size,op.payload.size);
+   rows.set(id,Contract.applyResult(op,{
+    kind:receipt.duplicate?'duplicate':'accepted',receiptId:id}));
+   local={...local,inventory:{...local.inventory,
+    [receipt.size]:receipt.quantity},
+    serverRevisions:{...local.serverRevisions,
+     [receipt.size]:receipt.revision}};
+   return {operation:rows.get(id),snapshot:clone(local)};
+  },
   async recordResult(_scope,id,result){
    trace.push('idb.ack');
    rows.set(id,Contract.applyResult(rows.get(id),result));
