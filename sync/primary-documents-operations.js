@@ -13,7 +13,7 @@ const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
  cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
  fastReferenceEnabled=false,fastQuotesEnabled=false,
- fastGrowthEnabled=false,fastProfileEnabled=false,
+ fastGrowthEnabled=false,fastProfileEnabled=false,fastSettingsEnabled=false,
  allowGrowth=false,allowProfile=false,allowSettings=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
@@ -29,7 +29,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
  const freshDocumentIds=new Map(); // scoped, volatile first-send proof
  const fastKind=kind=>({
   reference:fastReferenceEnabled,quotes:fastQuotesEnabled,
-  growth:fastGrowthEnabled,profile:fastProfileEnabled
+  growth:fastGrowthEnabled,profile:fastProfileEnabled,settings:fastSettingsEnabled
  })[kind]===true;
  const enabledKind=kind=>referenceAndQuotes===true
   ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
@@ -68,7 +68,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity();
    let state;
-   if(['reference','quotes','growth','profile'].includes(kind)
+   if(['reference','quotes','growth','profile','settings'].includes(kind)
      &&verifiedBaseline!==null){
     const body=verifiedBaseline.body;
     const bodyValid=kind==='reference'
@@ -77,7 +77,11 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      :kind==='profile'
       ?body&&body.babyProfile&&typeof body.babyProfile==='object'
        &&!Array.isArray(body.babyProfile)
-      :body&&Array.isArray(body.items);
+      :kind==='settings'
+       ?body&&body.target&&typeof body.target==='object'
+        &&!Array.isArray(body.target)&&body.daily
+        &&typeof body.daily==='object'&&!Array.isArray(body.daily)
+       :body&&Array.isArray(body.items);
     if(verifiedBaseline.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
       ||verifiedBaseline.kind!==kind||verifiedBaseline.familyId!==scope.familyId
       ||verifiedBaseline.actorUid!==scope.actorUid

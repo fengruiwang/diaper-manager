@@ -149,7 +149,7 @@
    try{
     // The current, B1-verified reference scope avoids repeated client SELECT.
     // SQL 026 still enforces authenticated family access and CAS.
-    const fast=['reference','quotes','growth','profile'].includes(input.kind)
+    const fast=['reference','quotes','growth','profile','settings'].includes(input.kind)
      &&(input.fastDocument===true||input.fastReference===true)
      &&verifiedReadScope?.familyId===input.familyId
      &&verifiedReadScope?.actorUid===input.actorUid;

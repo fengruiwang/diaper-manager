@@ -288,6 +288,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
         </div>
         <p class="soft-note" id="sizePreview">手动模式优先。自动模式参考体重，不会强迫在重叠区间换码。</p>
         <div class="action-row"><button class="btn" id="saveSizePreferences">保存尺码与采购偏好</button></div>
+        <p class="soft-note" id="sizeSettingsActionFeedback" role="status" aria-live="polite"></p>
       </div>
       <div class="head"><h2 id="planSettingsTitle">🎯 备货目标与日均用量</h2></div>
       <div class="card">
@@ -297,6 +298,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
           <button class="chip active" data-preset="balanced" type="button">均衡备货：NB100 / S60</button>
           <button class="chip" data-preset="relaxed" type="button">宽松备货：NB120 / S80</button>
         </div>
+        <p class="soft-note" id="presetSettingsActionFeedback" role="status" aria-live="polite"></p>
         <div id="postnatalPolicy" class="plan-formats" hidden>
           <div class="form-grid">
             <div class="field"><label for="replenishMode">当前补货方式</label>
@@ -310,6 +312,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
         </div>
         <div id="settingsSizes"></div>
         <div class="action-row"><button class="btn" id="savePlans">保存目标与日均用量</button></div>
+        <p class="soft-note" id="planSettingsActionFeedback" role="status" aria-live="polite"></p>
       </div>
       <div class="head"><h2>💾 数据备份与恢复</h2></div>
       <div class="card"><p class="sub" style="margin:0 0 13px">数据自动保存在当前浏览器。换浏览器、换设备或清除浏览器数据时，可能无法保留；建议定期导出备份。导入备份会替换当前数据。</p>
@@ -3939,6 +3942,11 @@ restoreActiveTab();
    readback:'正在保存宝宝资料…',
    pending:'宝宝资料保存结果待核验，请勿重复提交'
   });
+  const SETTINGS_STAGES=Object.freeze({
+   checking:'正在保存设置…',queued:'正在保存设置…',
+   submitting:'正在保存设置…',readback:'正在保存设置…',
+   pending:'设置保存结果待核验，请勿重复提交'
+  });
   function documentProgress(kind,phase,timing={},answer=null){
    const dom=attached?.doc;
    const controls=kind==='profile'?[dom?.getElementById('saveProfile')]:
@@ -3947,14 +3955,16 @@ restoreActiveTab();
      ...(dom?.querySelectorAll?.('[data-preset]')||[])];
    if(activeDocumentButton[kind]&&!controls.includes(activeDocumentButton[kind]))
     controls.push(activeDocumentButton[kind]);
-   const stages=kind==='profile'?PROFILE_STAGES:DOCUMENT_STAGES;
+   const stages=kind==='profile'?PROFILE_STAGES:
+    kind==='settings'?SETTINGS_STAGES:DOCUMENT_STAGES;
    const waiting=Object.prototype.hasOwnProperty.call(stages,phase);
    for(const el of controls){
     if(!el)continue;
     if(!originalLabels.has(el))originalLabels.set(el,el.textContent||'保存');
     el.disabled=waiting;
     el.textContent=el===activeDocumentButton[kind]&&waiting
-     ?(phase==='pending'?'等待核验…':kind==='profile'?'正在保存…':stages[phase])
+     ?(phase==='pending'?'等待核验…':kind==='profile'?'正在保存…':
+       kind==='settings'?'正在保存…':stages[phase])
      :originalLabels.get(el);
    }
    if(kind==='profile'){
@@ -3970,6 +3980,32 @@ restoreActiveTab();
       :/PERMISSION|NOT_AUTHORIZED/.test(status)?'服务器拒绝保存宝宝资料，请检查账号及家庭权限。'
       :/CONFLICT|REVISION/.test(status)?'资料未保存：云端版本已变化，请刷新后重试。'
       :'宝宝资料保存未完成，请检查网络及同步状态。';
+    }
+   }
+   if(kind==='settings'){
+    const active=activeDocumentButton.settings;
+    const preset=Boolean(active?.dataset?.preset);
+    const size=active?.id==='saveSizePreferences';
+    const feedback=dom?.getElementById(preset?'presetSettingsActionFeedback':
+     size?'sizeSettingsActionFeedback':'planSettingsActionFeedback');
+    if(feedback){
+     const status=String(answer?.status||'');
+     feedback.textContent=phase==='success'
+      ?preset?'备货方案已保存':size?'尺码与采购偏好已保存':'备货计划已保存'
+      :waiting&&phase!=='pending'
+       ?preset?'正在应用并保存方案…':size?'正在保存设置…':'正在保存备货计划…'
+      :phase==='pending'
+       ?/CONFLICT|REVISION/.test(status)
+        ?'云端版本已变化，请获取云端最新后重新编辑；原请求已保留。'
+        :'设置保存结果待核验，原 UUID 已保留，请勿重复提交。'
+      :phase==='idle'?'原设置请求已核验，可以继续操作。'
+      :/UNCHANGED/.test(status)?'设置没有变化，无需保存'
+      :/FORM_INVALID|INPUT/.test(status)?'设置未保存：请检查输入。'
+      :/CONFLICT|REVISION/.test(status)
+       ?'云端版本已变化，请获取云端最新后重新编辑。'
+      :/PERMISSION|NOT_AUTHORIZED/.test(status)
+       ?'服务器拒绝保存设置，请检查账号及家庭权限。'
+      :'设置未保存，请检查网络和同步状态。';
     }
    }
    onDocumentProgress(kind,phase,timing);
@@ -4507,10 +4543,10 @@ restoreActiveTab();
    settingsBusy=true;
    const startedAt=Date.now();let queuedAt=startedAt,committedAt=startedAt;
    try{
-    // Bind all settings edits to the revision actually displayed in UI.
     const baseline=typeof readSettingsBaseline==='function'
      ?readSettingsBaseline():null;
-    if(!baseline||typeof baseline.familyId!=='string'
+    if(!baseline||baseline.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+      ||baseline.kind!=='settings'||typeof baseline.familyId!=='string'
       ||typeof baseline.actorUid!=='string'
       ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
       ||!baseline.body?.target||!baseline.body?.daily)
@@ -4518,11 +4554,26 @@ restoreActiveTab();
     const input=readDocumentInput(el,doc);
     if(input?.kind!=='settings'||input.action!=='patch'
       ||!input.record||typeof input.record!=='object'
-      ||Object.keys(input.record).length===0)
+      ||Array.isArray(input.record)||!Object.keys(input.record).length)
      return result('SETTINGS_FORM_INVALID');
+    // Only changed values are expected by ACK/readback. The queued 026 body
+    // is still merged from the COMPLETE B1 settings document.
+    const patch={};
+    for(const [key,value] of Object.entries(input.record)){
+     if(['target','daily','replenishPolicy'].includes(key)
+       &&value&&typeof value==='object'&&!Array.isArray(value)){
+      const previous=baseline.body[key]||{},changed={};
+      for(const [field,next] of Object.entries(value)){
+       if(previous[field]!==next)changed[field]=next;
+      }
+      if(Object.keys(changed).length)patch[key]=changed;
+     }else if(baseline.body[key]!==value)patch[key]=value;
+    }
+    if(!Object.keys(patch).length)return result('SETTINGS_UNCHANGED');
     const saved=await documentCommands.submit({
-     ...input,familyId:baseline.familyId,actorUid:baseline.actorUid,
-     expectedRevision:baseline.revision,operatorApproved:true
+     ...input,record:patch,familyId:baseline.familyId,
+     actorUid:baseline.actorUid,expectedRevision:baseline.revision,
+     operatorApproved:true,verifiedBaseline:baseline
     });
     if(saved?.status!=='DOCUMENT_OPERATION_DURABLY_QUEUED')
      return saved||result('SETTINGS_COMMAND_UNVERIFIED');
@@ -4531,37 +4582,55 @@ restoreActiveTab();
     documentProgress('settings','queued',{checkAndQueueMs:queuedAt-startedAt});
     documentProgress('settings','submitting');
     let synced;
-    try{synced=await documentQueue.send({operatorApproved:true});}
+    try{synced=await documentQueue.send({operatorApproved:true,
+     fastDocumentId:requestId,fastDocumentKind:'settings'});}
     catch(_){return Object.freeze({
      status:'SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId,
+     record:patch,expectedRevision:baseline.revision,
+     familyId:baseline.familyId,actorUid:baseline.actorUid,
      cloudWriteCommitted:false
     });}
-    if(synced?.status!=='DOCUMENT_SYNC_CONFIRMED')
-     return Object.freeze({
-      status:synced?.status||'SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',
-      requestId,cloudWriteCommitted:false
+    const expected={requestId,record:patch,
+     expectedRevision:baseline.revision,
+     receiptVerified:synced?.receiptVerified===true};
+    if(synced?.status==='DOCUMENT_SETTINGS_ACK_CONFIRMED'){
+     let applied='pending';
+     try{applied=typeof onSettingsAck==='function'
+      ?await onSettingsAck({...synced,action:'patch',record:patch}):'pending';
+     }catch(_){}
+     if(applied==='ready')return Object.freeze({
+      status:'SETTINGS_CLOUD_ACK_APPLIED',requestId,cloudWriteCommitted:true
      });
-    committedAt=Date.now();
-    documentProgress('settings','readback',{
-     checkAndQueueMs:queuedAt-startedAt,receiptAndCommitMs:committedAt-queuedAt
-    });
-    try{
-     const visible=typeof onSettingsReadback==='function'
-      ?await onSettingsReadback({
-       requestId,record:input.record,expectedRevision:baseline.revision
-      }):null;
+    }
+    if(['DOCUMENT_SETTINGS_ACK_RECOVERED_NEEDS_REFRESH',
+      'DOCUMENT_SETTINGS_ACK_CONFIRMED','DOCUMENT_SYNC_CONFIRMED']
+       .includes(synced?.status)){
+     committedAt=Date.now();
+     documentProgress('settings','readback',{
+      checkAndQueueMs:queuedAt-startedAt,
+      receiptAndCommitMs:committedAt-queuedAt
+     });
+     let visible=null;
+     try{visible=typeof onSettingsReadback==='function'
+      ?await onSettingsReadback(expected):null;}catch(_){}
      if(visible==='ready')return Object.freeze({
-      status:'SETTINGS_CLOUD_READBACK_VERIFIED',
-      requestId,cloudWriteCommitted:true,
-      timings:Object.freeze({
+      status:'SETTINGS_CLOUD_READBACK_VERIFIED',requestId,
+      cloudWriteCommitted:true,timings:Object.freeze({
        checkAndQueueMs:queuedAt-startedAt,
        receiptAndCommitMs:committedAt-queuedAt,
        readbackMs:Date.now()-committedAt
       })
      });
-    }catch(_){}
-    return Object.freeze({status:'SETTINGS_COMMITTED_READBACK_REQUIRED',
-     requestId,cloudWriteCommitted:true});
+     return Object.freeze({status:'SETTINGS_COMMITTED_READBACK_REQUIRED',
+      requestId,record:patch,expectedRevision:baseline.revision,
+      familyId:baseline.familyId,actorUid:baseline.actorUid,
+      cloudWriteCommitted:true});
+    }
+    return Object.freeze({status:synced?.status||
+     'SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',requestId,
+     record:patch,expectedRevision:baseline.revision,
+     familyId:baseline.familyId,actorUid:baseline.actorUid,
+     cloudWriteCommitted:false});
    }catch(_){return result('SETTINGS_OPERATION_REVIEW_REQUIRED');}
    finally{settingsBusy=false;}
   }
@@ -4804,7 +4873,8 @@ restoreActiveTab();
     const ok=kind==='profile'
      ?['PROFILE_CLOUD_ACK_APPLIED','PROFILE_CLOUD_READBACK_VERIFIED']
        .includes(answer?.status)
-     :answer?.status==='SETTINGS_CLOUD_READBACK_VERIFIED';
+     :['SETTINGS_CLOUD_ACK_APPLIED','SETTINGS_CLOUD_READBACK_VERIFIED']
+      .includes(answer?.status);
     if(answer?.requestId&&!ok)pendingDocumentReview[kind]=answer.requestId;
     documentProgress(kind,pendingDocumentReview[kind]?'pending':
      ok?'success':'failed',answer?.timings||{},answer);

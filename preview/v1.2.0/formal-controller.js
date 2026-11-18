@@ -532,7 +532,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      attached=actionsFactory.create({
       primary:p,commands,documentCommands,documentQueue:documentsGuard,
       allowReference:true,allowQuotes:true,allowGrowth:true,allowProfile:true,
-      allowSettings:false,
+      allowSettings:true,
       onDocumentProgress:(kind,phase,timing={})=>{
        if(mode!=='ready'||actor!==ctx.actorUid||family!==ctx.familyId)return;
        const what=kind==='profile'?'宝宝资料':'设置';
@@ -550,13 +550,54 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       readSettingsBaseline:()=>mode==='ready'
        &&documentSnapshot&&documentScope===actor+'\x00'+family
        ?{...documentSnapshot.documents?.settings,actorUid:actor}:null,
+      onSettingsAck:async(ack)=>{
+       const current=controller.verifiedContext();
+       const key=ctx.actorUid+'\x00'+ctx.familyId;
+       const previous=documentSnapshot?.documents?.settings;
+       if(!current||mode!=='ready'||identityEpoch!==documentEpoch
+         ||actor!==ctx.actorUid||family!==ctx.familyId
+         ||current.actorUid!==ctx.actorUid||current.familyId!==ctx.familyId
+         ||!primaryViewBase||documentScope!==key
+         ||documentSnapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ'
+         ||previous?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ||ack?.kind!=='settings'||ack.familyId!==ctx.familyId
+         ||ack.actorUid!==ctx.actorUid||ack.childId!==previous.childId
+         ||typeof ack.requestId!=='string'||!ack.requestId
+         ||!Number.isSafeInteger(ack.expectedRevision)
+         ||!Number.isSafeInteger(ack.revision)
+         ||ack.expectedRevision!==previous.revision
+         ||ack.revision!==previous.revision+1
+         ||!ack.nextBody||typeof ack.nextBody!=='object'
+         ||Array.isArray(ack.nextBody)||!ack.nextBody.target
+         ||typeof ack.nextBody.target!=='object'
+         ||Array.isArray(ack.nextBody.target)||!ack.nextBody.daily
+         ||typeof ack.nextBody.daily!=='object'
+         ||Array.isArray(ack.nextBody.daily))return 'pending';
+       const revised=Object.freeze({...previous,revision:ack.revision,
+        body:ack.nextBody});
+       if(!settingsChangeVisible(revised,{record:ack.record,
+        expectedRevision:ack.expectedRevision}))return 'pending';
+       const snapshot=Object.freeze({...documentSnapshot,
+        documents:Object.freeze({...documentSnapshot.documents,settings:revised})});
+       try{
+        const updated=documentsOverlay.apply(primaryViewBase,snapshot);
+        if(updated?.sharedBusinessDocumentsVerified!==true
+          ||updated.cloudDocumentsActorScope?.childId!==ack.childId)
+         return 'pending';
+        showCloudView(updated,current);
+       }catch(_){return 'pending';}
+       documentSnapshot=snapshot;
+       return 'ready';
+      },
       onSettingsReadback:async(expected)=>{
        const current=controller.verifiedContext();
        if(!current||!documentsClient||!documentsGuard
          ||current.actorUid!==actor||current.familyId!==family)
         return 'pending';
-       const receipt=await documentsGuard.checkSavedRequest(expected.requestId);
-       if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       if(expected.receiptVerified!==true){
+        const receipt=await documentsGuard.checkSavedRequest(expected.requestId);
+        if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
+       }
        const fresh=await documentsClient.read({
         familyId:current.familyId,actorUid:current.actorUid,
         kind:'settings',readEnabled:true
@@ -929,8 +970,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'参考价保存成功：026 已确认，当前页面价格已更新，家庭账号刷新后可见。'
          :answer?.status==='REFERENCE_CLOUD_READBACK_VERIFIED'
          ?'参考价保存成功：云端回执及实际页面读回均已核验，家庭账号刷新后可看到新值。'
+         :answer?.status==='SETTINGS_CLOUD_ACK_APPLIED'
+         ?'设置已由云端确认，首页及补货计划已立即更新。'
          :answer?.status==='SETTINGS_CLOUD_READBACK_VERIFIED'
          ?'设置已保存并从云端重新读取；首页及补货计划已更新。'
+         :answer?.status==='SETTINGS_UNCHANGED'
+         ?'设置没有变化，无需保存。'
          :answer?.status==='SETTINGS_COMMITTED_READBACK_REQUIRED'
          ?'设置回执已确认，但页面尚未核实最新值；请刷新，不要重复提交。'
          :answer?.status==='SETTINGS_FORM_INVALID'
@@ -1453,8 +1498,8 @@ function browserStart(){
     contract:root.XBOutboxContract,
     cloudWritesEnabled:FORMAL_DOCUMENT_WRITE_ENABLED,
     fastReferenceEnabled:true,fastQuotesEnabled:true,
-    fastGrowthEnabled:true,fastProfileEnabled:true,
-    referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:false
+    fastGrowthEnabled:true,fastProfileEnabled:true,fastSettingsEnabled:true,
+    referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true
    }),
   documentCommandsFactory:root.XBPrimaryDocumentsBusinessCommands,
   batchStocktakeFactory:({controller,host,primary})=>

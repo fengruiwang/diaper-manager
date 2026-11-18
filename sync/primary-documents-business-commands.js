@@ -96,7 +96,7 @@ function create({client,queue,uuid}={}){
     return reply('DOCUMENT_PENDING_REVIEW_REQUIRED');
    // B2 uses the COMPLETE server-verified B1 document for reference/quotes.
    // A partial projection is never an acceptable whole-document write source.
-   const fastKind=['reference','quotes','growth','profile'].includes(kind);
+   const fastKind=['reference','quotes','growth','profile','settings'].includes(kind);
    const reusable=fastKind
     &&verifiedBaseline?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
     &&verifiedBaseline.kind===kind
@@ -108,6 +108,8 @@ function create({client,queue,uuid}={}){
     &&object(verifiedBaseline.body)
     &&(kind==='reference'?object(verifiedBaseline.body.referenceOverrides):
        kind==='profile'?object(verifiedBaseline.body.babyProfile):
+       kind==='settings'?object(verifiedBaseline.body.target)
+        &&object(verifiedBaseline.body.daily):
        Array.isArray(verifiedBaseline.body.items));
    const read=reusable?verifiedBaseline:await client.read({
     familyId,actorUid,kind,readEnabled:true
