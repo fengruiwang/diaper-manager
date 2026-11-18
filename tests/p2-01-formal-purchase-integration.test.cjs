@@ -71,6 +71,12 @@ test('P2-01 original purchase form -> persistent UUID -> RPC -> cloud readback s
  const cloud=sharedCloud(),client=Client.create(cloud.app('dad')),items=[];
  const outbox={
   ready:async()=>items.filter(x=>x.status==='pending'),
+  recordDeltaAck:async(_scope,id,receipt)=>{
+   const op=items.find(x=>x.id===id);assert.ok(op);
+   assert.equal(receipt.operationId,id);assert.equal(receipt.childId,CHILD);
+   op.status='acked';return {operation:op,snapshot:{
+    inventory:{S:receipt.quantity},serverRevisions:{S:receipt.revision}}};
+  },
   recordResult:async(_scope,id,ack)=>{
    const op=items.find(x=>x.id===id);assert.ok(op);
    op.status=ack.kind==='accepted'||ack.kind==='duplicate'?'acked':'pending';
