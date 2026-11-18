@@ -1795,7 +1795,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      if(!after){if(node)node.textContent='已处理部分操作，仍有待核验记录';break;}
      remaining=after.outstanding;
      const message=$('formalSyncState')?.textContent||'';
-     if(/冲突|CONFLICT|拒绝/.test(message)){conflict=true;break;}
+     if(/DOCUMENT_CONFLICT|BATCH_REVISION_CONFLICT|PRIMARY_STOCK_REVISION_CONFLICT|SERVER_REJECTED|原批次存在确定冲突/.test(message)){
+      conflict=true;break;
+     }
      // No progress means ambiguous ACK, conflict or a pending readback.
      if(after.outstanding>=before.outstanding)break;
     }
