@@ -8,7 +8,8 @@ const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
 const BATCH='04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2';
 const SIZES=['NB','S','M','L','XL','XXL'];
-function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false,primaryOutstanding=0}={}){
+function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false,
+ primaryOutstanding=0,baselineSyncStatus='PRIMARY_LOCAL_BASELINE_SYNCED'}={}){
  const stock={NB:100,S:200,M:0,L:0,XL:0,XXL:0};
  const revisions={NB:3,S:7,M:1,L:1,XL:1,XXL:1};
  const receipts=new Map(),queued=new Map(),sent=[],single=[];
@@ -90,7 +91,7 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false,primary
    localRevisions={...verifiedReadModel.revisions};
    Object.assign(displayed,{inventory:{...localInventory},
     revisions:{...localRevisions}});
-   return {status:'PRIMARY_LOCAL_BASELINE_SYNCED'};
+   return {status:baselineSyncStatus};
   },
   flush:async()=>({status:'PRIMARY_CLOUD_SYNCED_VERIFIED'})
  };
@@ -375,4 +376,16 @@ test('T02-P1-02 cross-device refresh updates local six-size baseline before one 
  assert.equal(f.localRevisions.S,9);
  assert.equal(f.queued.get(BATCH).status,'acked');
  assert.equal(f.primaryReads,0);
+});
+
+test('T02-P1-02 recovered 027 receipt is not declared complete when local 009 bridge fails',async()=>{
+ const f=fixture({ackLost:true,
+  baselineSyncStatus:'PRIMARY_LOCAL_BASELINE_UNVERIFIED'});
+ const result=await f.actions.handle({id:'saveStocks',dataset:{}},
+  f.form({NB:120,S:180}));
+ assert.equal(result.status,'BATCH_COMMITTED_READBACK_REQUIRED');
+ assert.equal(result.cloudWriteCommitted,true);
+ assert.equal(f.batchWrites,1);
+ assert.equal(f.queued.get(BATCH).status,'acked');
+ assert.equal(f.uuidCalls,1);
 });
