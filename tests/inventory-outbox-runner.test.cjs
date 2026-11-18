@@ -23,6 +23,17 @@ function fake({operations=[op()],grant=authorized,remoteResult,remoteError,verif
    assert.equal(s.familyId,F);assert.equal(s.actorUid,'uid-dad');
    return queue.filter(x=>x.status==='pending'||x.status==='retry');
   },
+  async recordDeltaAck(s,id,receipt){
+   calls.results.push([id,{kind:receipt.duplicate?'duplicate':'accepted',
+    receiptId:id,quantity:receipt.quantity,revision:receipt.revision}]);
+   if(ackFails)throw new Error('outbox_store:write_failed');
+   const at=queue.findIndex(x=>x.id===id);
+   queue[at]=Contract.applyResult(queue[at],{
+    kind:receipt.duplicate?'duplicate':'accepted',receiptId:id
+   });
+   return {operation:queue[at],snapshot:{inventory:{S:receipt.quantity},
+    serverRevisions:{S:receipt.revision}}};
+  },
   async recordResult(s,id,result){
    calls.results.push([id,result]);
    if(ackFails&&['accepted','duplicate'].includes(result.kind))
@@ -35,7 +46,8 @@ function fake({operations=[op()],grant=authorized,remoteResult,remoteError,verif
   calls.remote.push(req);
   if(remoteError)throw new Error(remoteError);
   if(remoteResult)return remoteResult(req);
-  return {operationId:req.operationId,duplicate:false,quantity:60,revision:1};
+  return {operationId:req.operationId,childId:req.childId,size:req.size,
+   duplicate:false,quantity:60,revision:1};
  }};
  const verifyAccess=async()=>{
   calls.verify++;
@@ -86,7 +98,8 @@ test('explicitly authorized buy replays stable ID and original purchase, then du
  assert.equal(f.queue[1].id,O2);
 });
 test('duplicate ACK has same outcome and does not create a replacement ID',async()=>{
- const f=fake({remoteResult:req=>({operationId:req.operationId,duplicate:true})});
+ const f=fake({remoteResult:req=>({operationId:req.operationId,
+ childId:req.childId,size:req.size,quantity:60,revision:1,duplicate:true})});
  const r=await f.runner.flush(scope,{uploadEnabled:true});
  assert.equal(r.accepted,1);
  assert.equal(f.queue[0].receipt,O1);
