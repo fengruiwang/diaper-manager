@@ -113,7 +113,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let controller=null,primary=null,attached=null,pendingGuard=null,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
- let shownStock=null;
+ let shownStock=null,localInventoryBaselineReady=false;
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
@@ -216,7 +216,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   if(mode!=='ready'||!ctx||!childId||actor!==ctx.actorUid
     ||family!==ctx.familyId||current?.actorUid!==ctx.actorUid
     ||current?.familyId!==ctx.familyId
-    ||primaryViewBase?.childId!==childId
+    ||primaryViewBase?.childId!==childId||!localInventoryBaselineReady
     ||(selected&&(selected.actorUid!==actor
      ||selected.familyId!==family||selected.childId!==childId)))return false;
   const scope=syncScope();
@@ -344,6 +344,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   historyCache?.invalidate?.();
   conflictButton(false);batchConflictButton(false);
   ui.clear();actor=null;family=null;primary=null;shownStock=null;
+  localInventoryBaselineReady=false;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
   primaryViewBase=null;
@@ -1153,6 +1154,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       readStocktakeBaseline:()=>{
        const current=controller.verifiedContext(),selected=primary?.selectedScope?.();
        const base=primaryViewBase;
+       if(!localInventoryBaselineReady)
+        return {status:'PRIMARY_LOCAL_BASELINE_PENDING'};
        if(mode!=='ready'||!current||!selected||!base||!shownStock
          ||identityEpoch!==documentEpoch||actor!==ctx.actorUid
          ||family!==ctx.familyId||current.actorUid!==ctx.actorUid
@@ -1165,6 +1168,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         revisions:{...shownStock.revisions}};
       },
       readPurchaseBaseline:()=>{
+       if(!localInventoryBaselineReady)
+        return {status:'PRIMARY_LOCAL_BASELINE_PENDING'};
        const current=controller.verifiedContext();
        const base=primaryViewBase;
        const selected=primary?.selectedScope?.();
@@ -1186,6 +1191,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        });
       },
       readConsumeBaseline:()=>{
+       if(!localInventoryBaselineReady)
+        return {status:'PRIMARY_LOCAL_BASELINE_PENDING'};
        const current=controller.verifiedContext();
        const base=primaryViewBase,selected=primary?.selectedScope?.();
        if(mode!=='ready'||!current||!selected||!base||!shownStock
@@ -1210,6 +1217,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        });
       },
       readReverseBaseline:record=>{
+       if(!localInventoryBaselineReady)
+        return {status:'PRIMARY_LOCAL_BASELINE_PENDING'};
        const current=controller.verifiedContext(),selected=primary?.selectedScope?.();
        const base=primaryViewBase;
        const original=base?.state?.transactions?.find(t=>
@@ -1500,6 +1509,39 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       ||(selectedNow&&(selectedNow.actorUid!==ctx.actorUid
         ||selectedNow.familyId!==ctx.familyId
         ||selectedNow.childId!==displayBase.childId)))return mode;
+   // Keep the local 009 baseline aligned with this already verified read.
+   // Check the separate 027 queue first; the 009 queue and snapshot are then
+   // checked atomically by the IndexedDB outbox transaction.
+   let localBaselineResult=null;
+   if(typeof primary?.syncVerifiedReadModel==='function'){
+    let batchQueue={status:'BATCH_QUEUE_VERIFIED',outstanding:0};
+    if(batchGuard?.pending){
+     try{batchQueue=await batchGuard.pending();}
+     catch(_){batchQueue={status:'BATCH_QUEUE_UNVERIFIED'};}
+    }
+    const baselineReadModel={...verified,
+     inventory:{...(displayBase.state?.inventory||verified.inventory)},
+     revisions:{...(displayBase.revisions||verified.revisions)}};
+    localBaselineResult=await primary.syncVerifiedReadModel({
+     verifiedReadModel:baselineReadModel,batchQueue
+    });
+    localInventoryBaselineReady=
+     localBaselineResult?.status==='PRIMARY_LOCAL_BASELINE_SYNCED';
+   }else{
+    // Minimal legacy test doubles have no IndexedDB bridge; production
+    // primary-cloud-operations always exposes syncVerifiedReadModel.
+    localInventoryBaselineReady=true;
+   }
+   const postSyncContext=controller?.verifiedContext?.();
+   const postSyncSelected=primary?.selectedScope?.();
+   if(token!==revision||readStartEpoch!==documentEpoch
+     ||postSyncContext?.actorUid!==ctx.actorUid
+     ||postSyncContext?.familyId!==ctx.familyId
+     ||(postSyncSelected&&(postSyncSelected.actorUid!==ctx.actorUid
+       ||postSyncSelected.familyId!==ctx.familyId
+       ||postSyncSelected.childId!==displayBase.childId))){
+    localInventoryBaselineReady=false;return mode;
+   }
    primaryViewBase=displayBase;
    // Do not wait for an additional getSession() call after showing UI.
    showCloudView(data,ctx);
@@ -1514,7 +1556,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    $('formalCurrentFamily').textContent=ctx.familyId;
    screen('ready');syncButtonState();
    void checkPending().catch(()=>{});
-   if(documentsVerified)confirmedFullRead(ctx,verified.childId);
+   if(!localInventoryBaselineReady){
+    const code=localBaselineResult?.status||'PRIMARY_LOCAL_BASELINE_UNVERIFIED';
+    showSync(/PENDING/.test(code)
+     ?'云端库存已刷新，但本机存在待确认操作；原 UUID 和库存快照已保留，请先核验原操作。'
+     :'云端库存已刷新，但本机库存基线尚未通过核验，暂不可继续库存操作；请刷新重试。',
+     'partial');
+   }else if(documentsVerified)confirmedFullRead(ctx,verified.childId);
    else showSync(documentsClient?'库存已更新，正在核验共享数据…':
     '库存已更新，共享数据暂不可用；请点击刷新重试。','partial');
    // Enrich the account label only; cannot gate UI readiness or leak across
