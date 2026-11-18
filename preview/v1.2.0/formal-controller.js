@@ -394,6 +394,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    expectedProfile!==null?'PROFILE_READBACK_PENDING':
    expectedSettings!==null?'SETTINGS_READBACK_PENDING':
    expectedReference!==null?'REFERENCE_READBACK_PENDING':mode;
+  const retainedActor=actor,retainedFamily=family,retainedContext=controller?.verifiedContext?.();
   busy=true;const token=++revision;
   fullReadVerified=false;
   // Retain the verified same-account view during visibility/online rechecks.
@@ -1210,6 +1211,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        if(documentWritesEnabled===true
          &&answer?.status==='DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW')
         conflictButton(true);
+       void checkPending().catch(()=>{});
        $('formalSyncState').textContent=
         answer?.status==='PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED'
          ?'库存盘点成功，库存已更新'
@@ -1381,9 +1383,17 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     !settingsAppear?'SETTINGS_READBACK_PENDING':
     !referenceAppears?'REFERENCE_READBACK_PENDING':mode;
   }catch(_){
+   const current=controller?.verifiedContext?.();
+   if(mode==='ready'&&retainedActor&&retainedFamily
+     &&current?.actorUid===retainedActor&&current.familyId===retainedFamily
+     &&retainedContext?.actorUid===retainedActor
+     &&retainedContext.familyId===retainedFamily){
+    showSync('部分云端数据尚未获取成功，请稍后重试','partial');
+    return 'SYNC_PARTIAL';
+   }
    clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
    return mode;
-  }finally{busy=false;}
+  }finally{busy=false;syncButtonState();}
  }
  async function signOut(){
   if(busy)return 'BUSY';
