@@ -8,7 +8,7 @@ const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
 const BATCH='04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2';
 const SIZES=['NB','S','M','L','XL','XXL'];
-function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false}={}){
+function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false,primaryOutstanding=0}={}){
  const stock={NB:100,S:200,M:0,L:0,XL:0,XXL:0};
  const revisions={NB:3,S:7,M:1,L:1,XL:1,XXL:1};
  const receipts=new Map(),queued=new Map(),sent=[],single=[];
@@ -70,6 +70,8 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false}={}){
  }
  const primary={
   selectedScope:()=>scope,
+  pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',
+   outstanding:primaryOutstanding}),
   read:async()=>{primaryReads++;return {status:'PRIMARY_CLOUD_READ_VERIFIED',
    inventory:{...stock},revisions:{...revisions}};},
   applyBatchInventoryAck:async({changes})=>{
@@ -145,6 +147,26 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false}={}){
   get localInventory(){return localInventory},get localRevisions(){return localRevisions}
  };
 }
+test('B4-02 double click shares a single batch UUID and one 027 write',async()=>{
+ const f=fixture({fast:true});
+ const one=f.actions.handle({id:'saveStocks',dataset:{}},
+  f.form({NB:120,S:180}));
+ const two=f.actions.handle({id:'saveStocks',dataset:{}},
+  f.form({NB:120,S:180}));
+ const [a,b]=await Promise.all([one,two]);
+ assert.equal(a.status,'BATCH_CLOUD_ACK_APPLIED');
+ assert.equal(b.status,'BUSY');
+ assert.equal(f.uuidCalls,1);assert.equal(f.batchWrites,1);
+ assert.equal(f.queued.size,1);
+});
+test('B4-02 pending 009 outbox blocks new 027 before UUID or RPC',async()=>{
+ const f=fixture({fast:true,primaryOutstanding:1});
+ const result=await f.actions.handle({id:'saveStocks',dataset:{}},
+  f.form({NB:120,S:180}));
+ assert.equal(result.status,'BATCH_PENDING_REVIEW_FIRST');
+ assert.equal(f.batchWrites,0);
+ assert.equal(f.queued.size,0);
+});
 test('B4-02 two-size fast batch sends only one 027 and immediately bridges 009 inventory',async()=>{
  const f=fixture({fast:true});
  const ans=await f.actions.handle({id:'saveStocks',dataset:{}},
