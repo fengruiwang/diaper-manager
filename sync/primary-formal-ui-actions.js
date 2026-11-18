@@ -1193,6 +1193,8 @@
    if(action==='consume'){
     const baseline=typeof readConsumeBaseline==='function'
      ?readConsumeBaseline():null;
+    if(baseline?.status==='PRIMARY_LOCAL_BASELINE_PENDING')
+     return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');
     const size=el.dataset?.size;
     if(baseline?.status==='PRIMARY_CONSUME_BASELINE_VERIFIED'){
      if(!SIZES.includes(size))return result('PRIMARY_INVALID_SIZE');
