@@ -532,3 +532,21 @@ test('F-02 other same-size unresolved UUID remains unmodified and blocks unsafe 
  assert.equal((await store.get(dad,O2)).status,'pending');
  assert.equal((await store.readInventory(dad,CHILD)).inventory.S,131);
 });
+
+test('F-02 diagnostic only: 51 ACK historical UUIDs block current reconciliation pagination',async()=>{
+ const idb=idbFake(),store=make(idb,'f02-probe51');
+ await store.initializeInventory(dad,{childId:CHILD,inventory:stock(80),
+  serverRevisions:{S:2},source:'verified-server'});
+ for(let i=1;i<=51;i++){
+  const oid='00000000-0000-4000-8000-'+String(i).padStart(12,'0');
+  await store.enqueue(event(oid));
+  await store.recordResult(dad,oid,{kind:'accepted',receiptId:oid});
+ }
+ await store.enqueue(event(O1));
+ await store.recordResult(dad,O1,{kind:'timeout'});
+ assert.equal((await store.get(dad,O1)).status,'retry');
+ await assert.rejects(()=>store.reconciliationIds(dad,CHILD),
+  /reconciliation_requires_pagination/);
+ assert.equal((await store.get(dad,O1)).status,'retry');
+ assert.equal((await store.stats(dad)).acked,51);
+});
