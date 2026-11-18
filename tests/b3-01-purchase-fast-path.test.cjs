@@ -668,6 +668,23 @@ test('B4-01 saveStocks displays immediate feedback and double click keeps one UU
   assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,1);
   assert.equal(f.buttons.stocktake.disabled,false);
  });
+test('B5-02 stocktake updates the current rendered button after ACK, not a stale node',async()=>{
+ const f=fixture({stocktake:true,delayed:true,stockS:80,stocktakeCount:95});
+ await f.activate();
+ const old=f.buttons.stocktake;
+ f.capture('stocktake');
+ assert.equal(old.disabled,true);
+ const replacement={id:'saveStocks',dataset:{},textContent:'保存实际库存',
+  disabled:false,classList:{contains:()=>false},closest(){return this;}};
+ f.buttons.stocktake=replacement;
+ f.releaseRpc();
+ await tick();await tick();await tick();
+ assert.equal(replacement.disabled,false);
+ assert.equal(replacement.textContent,'保存实际库存');
+ assert.equal(f.feedback.formalStocktakeActionFeedback.textContent,
+  '库存盘点成功，库存已更新');
+ assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,1);
+});
 test('B4-01 unknown ACK holds stocktake button and original UUID',async()=>{
  const f=fixture({stocktake:true,unknownAck:true,stockS:80,stocktakeCount:95});
  await f.activate();
