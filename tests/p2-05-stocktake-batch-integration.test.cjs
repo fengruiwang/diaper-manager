@@ -322,6 +322,22 @@ test('P2-05 unreadable receipt preserves queued batch across client recreation',
  assert.equal(ack.batchId,BATCH);
  assert.equal(f.queued.get(BATCH).status,'acked');
  assert.equal(f.batchWrites,1);
+ // The subsequent normal verified read bridges the recovered 027 receipt
+ // into the 009 snapshot without allocating or submitting another batch.
+ const remote=await Client.create(f.app('dad')).readInventory({familyId:F,childId:CHILD});
+ const sync=await f.primary.syncVerifiedReadModel({
+  verifiedReadModel:{status:'PRIMARY_READ_ONLY_READY',
+   source:'cloudbase-primary-receipt-verified',canWrite:false,
+   legacyPurchasesAppliedToInventory:false,legacyHistory:{complete:true},
+   familyId:F,childId:CHILD,actorUid:'dad',
+   inventory:Object.fromEntries(remote.map(x=>[x.size,x.quantity])),
+   revisions:Object.fromEntries(remote.map(x=>[x.size,x.revision]))},
+  batchQueue:{status:'BATCH_QUEUE_VERIFIED',outstanding:0}
+ });
+ assert.equal(sync.status,'PRIMARY_LOCAL_BASELINE_SYNCED');
+ assert.deepEqual(f.localInventory,f.stock);
+ assert.deepEqual(f.localRevisions,f.revisions);
+ assert.equal(f.uuidCalls,1);
 });
 test('P2-05 default formal and batch gates remain disabled',async()=>{
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);

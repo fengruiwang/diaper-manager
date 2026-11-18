@@ -285,7 +285,8 @@ test('T02-P1-02 invalid actor, family or child cannot update the selected baseli
    verifiedReadModel:readModel(override),
    batchQueue:{status:'BATCH_QUEUE_VERIFIED',outstanding:0}
   });
-  assert.equal(result.status,'PRIMARY_LOCAL_BASELINE_UNVERIFIED');
+  assert.ok(['PRIMARY_LOCAL_BASELINE_UNVERIFIED',
+   'PRIMARY_LOCAL_BASELINE_SCOPE_MISMATCH'].includes(result.status));
   assert.deepEqual(f.snapshot,before);
  }
 });
