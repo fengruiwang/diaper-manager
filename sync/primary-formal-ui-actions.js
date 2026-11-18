@@ -16,7 +16,8 @@
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
-  readPurchaseBaseline=null,readConsumeBaseline=null,onPurchaseAck=null,
+  readPurchaseBaseline=null,readConsumeBaseline=null,
+  readReverseBaseline=null,confirmReverse=()=>false,onPurchaseAck=null,
   notify,formalModeSelected,onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
@@ -47,12 +48,13 @@
   let referenceNeedsReview=null,referenceButtonLabel='';
   let activeReferenceAction=null,referenceResetLabel='';
   // UI-only holds; no UUID, queue, CAS or RPC behaviour is changed.
-  const minimalBusy={purchase:false,consume:false,quotes:false};
-  const minimalReview={purchase:null,consume:null,quotes:null};
+  const minimalBusy={purchase:false,consume:false,reverse:false,quotes:false};
+  const minimalReview={purchase:null,consume:null,reverse:null,quotes:null};
   const minimalLabels={purchase:null,quotes:null};
   let minimalQuoteIntent=null,quoteButton=null,quoteButtonLabel='',quoteAction='add';
   let purchaseButton=null,purchaseButtonLabel='',purchaseFromQuote=false;
   let consumeButton=null,consumeSize='',consumeDay=false;
+  let reverseButton=null,reverseLabel='';
   function quoteFeedback(phase,answer=null){
    const doc=attached?.doc;
    const action=minimalQuoteIntent?.action||quoteAction;
@@ -138,9 +140,29 @@
    for(const button of controls)button.disabled=waiting;
    if(!waiting){consumeButton=null;consumeSize='';consumeDay=false;}
   }
+  function reverseFeedback(phase){
+   const dom=attached?.doc;
+   const controls=[...(dom?.getElementById('historyList')
+     ?.querySelectorAll?.('[data-action="deletetx"]')||[])];
+   if(reverseButton&&!controls.includes(reverseButton))controls.push(reverseButton);
+   const node=dom?.getElementById('formalReverseActionFeedback');
+   if(node)node.textContent=phase==='working'?'正在撤销记录…'
+    :phase==='success'?'记录已撤销，库存已更新'
+    :phase==='pending'?'撤销结果待核验，原请求已保留，请勿重复提交。'
+    :phase==='recovered'?'原撤销请求已核验，库存与历史已更新。'
+    :phase==='cancelled'?'已取消撤销，库存和历史记录没有变化。'
+    :'撤销失败，请检查当前库存或刷新后重试。';
+   const waiting=phase==='working'||phase==='pending';
+   for(const button of controls)button.disabled=waiting;
+   if(reverseButton)reverseButton.textContent=waiting
+    ?phase==='pending'?'等待核验…':'正在撤销记录…'
+    :reverseLabel||'撤销';
+   if(!waiting){reverseButton=null;reverseLabel='';}
+  }
   function minimalFeedback(kind,phase,answer=null){
    if(kind==='quotes')return quoteFeedback(phase,answer);
    if(kind==='consume')return consumeFeedback(phase,answer);
+   if(kind==='reverse')return reverseFeedback(phase,answer);
    const dom=attached?.doc;
    const buttons=[dom?.getElementById('buyNow'),
     ...(dom?.getElementById('quoteList')
@@ -179,7 +201,26 @@
     minimalFeedback(kind,'pending');
     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
    }
+   let prepared=null;
+   if(kind==='reverse'){
+    const record=readTransaction(el.dataset?.id);
+    if(!record||record.origin!=='cloud_post_migration'
+      ||!['buy','use'].includes(record.type)
+      ||record.reversed===true||record.reversedByOperationId
+      ||typeof record.operationId!=='string'){
+     reverseFeedback('failed');
+     notify(result('IMMUTABLE_LEGACY_HISTORY_NOT_REVERSIBLE'));
+     return;
+    }
+    if(!(typeof confirmReverse==='function'&&confirmReverse(record)===true)){
+     reverseFeedback('cancelled');
+     notify(result('PRIMARY_REVERSE_CANCELLED'));return;
+    }
+    prepared={reverseConfirmed:true,reverseRecordId:el.dataset?.id,
+     reversesOperationId:record.operationId};
+   }
    minimalBusy[kind]=true;
+   if(kind==='reverse'){reverseButton=el;reverseLabel=el.textContent||'撤销';}
    if(kind==='consume'){
     consumeButton=el;consumeSize=el.dataset?.size||'';
     consumeDay=el.dataset?.useMode==='day'
@@ -200,7 +241,7 @@
    minimalFeedback(kind,'working');
    // Set the existing invoke busy guard synchronously before a second click.
    let promise;
-   try{promise=handle(el,doc);}
+   try{promise=handle(el,doc,prepared);}
    catch(_){promise=Promise.resolve(result('FORMAL_OPERATION_REVIEW_REQUIRED'));}
    void Promise.resolve(promise).then(answer=>{
     const success=kind==='purchase'
@@ -209,15 +250,21 @@
      :kind==='consume'
       ?['PRIMARY_USE_CLOUD_ACK_APPLIED',
         'PRIMARY_USE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+     :kind==='reverse'
+      ?['PRIMARY_REVERSE_CLOUD_ACK_APPLIED',
+        'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
       :['QUOTES_CLOUD_ACK_APPLIED',
         'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
     if(!success){
-     const id=kind==='purchase'||kind==='consume'
+     const id=['purchase','consume','reverse'].includes(kind)
       ?answer?.operationId:answer?.requestId;
-     if(typeof id==='string'&&id)
+     if(typeof id==='string'&&id&&answer?.rejected!==true)
       minimalReview[kind]=Object.freeze(
-       kind==='purchase'||kind==='consume'
-       ?{operationId:id,kind:kind==='purchase'?'buy':'use'}:{requestId:id,
+       ['purchase','consume','reverse'].includes(kind)
+       ?{operationId:id,kind:kind==='purchase'?'buy':
+          kind==='consume'?'use':'reverse',
+          reversesOperationId:kind==='reverse'
+           ?prepared?.reversesOperationId:null}:{requestId:id,
          action:minimalQuoteIntent?.action,record:minimalQuoteIntent?.record,
          expectedRevision:minimalQuoteIntent?.expectedRevision,
          actorUid:minimalQuoteIntent?.actorUid,
@@ -225,7 +272,8 @@
     }
     minimalFeedback(kind,success?'success':
      minimalReview[kind]?'pending':
-     ['QUOTES_CLEAR_CANCELLED','QUOTES_DELETE_CANCELLED'].includes(answer?.status)
+     ['QUOTES_CLEAR_CANCELLED','QUOTES_DELETE_CANCELLED',
+       'PRIMARY_REVERSE_CANCELLED'].includes(answer?.status)
       ?'cancelled':'failed',answer);
     notify(answer);
    },()=>{
@@ -236,7 +284,7 @@
   async function recoverMinimalButtons({domain}={}){
    const pending=minimalReview[domain];
    if(!pending||minimalBusy[domain])return false;
-   const callback=['purchase','consume'].includes(domain)?onPurchaseReadback:
+   const callback=['purchase','consume','reverse'].includes(domain)?onPurchaseReadback:
     domain==='quotes'?onQuotesReadback:null;
    if(typeof callback!=='function')return false;
    let verified=null;
@@ -422,7 +470,8 @@
    &&operatorApproved()===true;
   const documentsAuthorized=()=>buildAllowsDocumentWrites===true
    &&documentOperatorApproved()===true;
-  async function invoke(action,value,verifiedConsumeBaseline=null){
+  async function invoke(action,value,verifiedConsumeBaseline=null,
+   verifiedReverseBaseline=null){
    if(!purchaseAuthorized())
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(busy)return result('BUSY');
@@ -432,7 +481,8 @@
      &&typeof readPurchaseBaseline==='function'?readPurchaseBaseline():null;
     const queued=await commands.submit(action,value,{
      operatorApproved:true,verifiedPurchaseBaseline:baseline,
-     verifiedConsumeBaseline:action==='consume'?verifiedConsumeBaseline:null
+     verifiedConsumeBaseline:action==='consume'?verifiedConsumeBaseline:null,
+     verifiedReverseBaseline:action==='reverse'?verifiedReverseBaseline:null
     });
     if(purchaseOnly!==true
       ||(action!=='purchase'
@@ -452,13 +502,16 @@
       fastPurchaseId:action==='purchase'&&queued.fastPurchase===true
        ?queued.operationId:null,
       fastConsumeId:action==='consume'&&queued.fastConsume===true
+       ?queued.operationId:null,
+      fastReverseId:action==='reverse'&&queued.fastReverse===true
        ?queued.operationId:null});}
     catch(_){
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     }
     if((action==='purchase'&&synced?.status==='PRIMARY_PURCHASE_ACK_CONFIRMED')
-      ||(action==='consume'&&synced?.status==='PRIMARY_USE_ACK_CONFIRMED')){
+      ||(action==='consume'&&synced?.status==='PRIMARY_USE_ACK_CONFIRMED')
+      ||(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_ACK_CONFIRMED')){
      let applied='pending';
      try{applied=typeof onPurchaseAck==='function'
       ?await onPurchaseAck(synced):'pending';}catch(_){}
@@ -472,9 +525,13 @@
       operationId:queued.operationId,cloudWriteCommitted:true
      });
     }
+    if(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_SERVER_REJECTED')
+     return Object.freeze({status:'PRIMARY_REVERSE_SERVER_REJECTED',
+      operationId:queued.operationId,cloudWriteCommitted:false,rejected:true});
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED'
       &&synced?.status!=='PRIMARY_PURCHASE_ACK_RECOVERED_NEEDS_REFRESH'
-      &&synced?.status!=='PRIMARY_USE_ACK_RECOVERED_NEEDS_REFRESH')
+      &&synced?.status!=='PRIMARY_USE_ACK_RECOVERED_NEEDS_REFRESH'
+      &&synced?.status!=='PRIMARY_REVERSE_ACK_RECOVERED_NEEDS_REFRESH')
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
@@ -1097,10 +1154,19 @@
     const record=readTransaction(el.dataset?.id);
     if(!record||record.origin!=='cloud_post_migration'
       ||!['buy','use'].includes(record.type)
-      ||record.reversed===true||typeof record.operationId!=='string')
+      ||record.reversed===true||record.reversedByOperationId
+      ||typeof record.operationId!=='string')
      return result('IMMUTABLE_LEGACY_HISTORY_NOT_REVERSIBLE');
-    return invoke('reverse',{size:record.size,
-     origin:record.origin,reversesOperationId:record.operationId});
+    const preapproved=preparedDocumentInput?.reverseConfirmed===true
+      &&preparedDocumentInput.reverseRecordId===el.dataset?.id;
+    if(!preapproved
+      &&!(typeof confirmReverse==='function'&&confirmReverse(record)===true))
+     return result('PRIMARY_REVERSE_CANCELLED');
+    const baseline=typeof readReverseBaseline==='function'
+     ?readReverseBaseline(record):null;
+    return invoke('reverse',{size:record.size,type:record.type,
+     origin:record.origin,reversesOperationId:record.operationId},
+     null,baseline);
    }
    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
   }
@@ -1366,6 +1432,9 @@
     }
     if(action==='consume'){
      dispatchMinimal(el,doc,'consume');return;
+    }
+    if(action==='deletetx'){
+     dispatchMinimal(el,doc,'reverse');return;
     }
     if(el.id==='saveQuote'||el.id==='clearQuotes'
       ||action==='deletequote'){

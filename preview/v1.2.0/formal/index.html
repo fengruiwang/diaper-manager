@@ -224,6 +224,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
     <section class="panel" id="history">
       <div class="head"><h2>📒 购买与消耗记录</h2><button class="btn secondary sm" data-action="go" data-target="compare">+ 新增购买</button></div>
       <div class="kpi-grid" id="historyKpis"></div>
+      <div class="fine" id="formalReverseActionFeedback" role="status" aria-live="polite"></div>
       <div class="card" id="historyList"></div>
       <div class="head"><h2>🧾 库存盘点</h2><span class="sub">如果之前已经买过，直接修正库存即可</span></div>
       <div class="card">
@@ -603,7 +604,7 @@ function dateInfo(){
 }
 function stageStock(size){if(m3ReadOnly)return Math.max(0,Math.round(num(state.inventory[size])));const cloud=window.XBM102?.stock(size);return cloud===null||cloud===undefined?Math.max(0,Math.round(num(state.inventory[size]))):cloud}
 function stockDays(size){const days=clamp(num(state.daily[size],1),1,30);return stageStock(size)/days}
-function spend(){if(m3ReadOnly)return state.transactions.filter(t=>t.type==='buy'&&t.reversed!==true).reduce((n,t)=>n+num(t.price),0);const cloud=window.XBM102?.spend();return cloud===null||cloud===undefined?state.transactions.filter(t=>t.type==='buy').reduce((s,t)=>s+num(t.price),0):cloud}
+function spend(){if(m3ReadOnly)return state.transactions.filter(t=>t.type==='buy'&&t.reversed!==true).reduce((n,t)=>n+num(t.price),0);const cloud=window.XBM102?.spend();return cloud===null||cloud===undefined?state.transactions.filter(t=>t.type==='buy'&&t.reversed!==true).reduce((s,t)=>s+num(t.price),0):cloud}
 function firstTarget(){return state.target.NB+state.target.S}
 function firstStock(){return Math.min(stageStock('NB'),state.target.NB)+Math.min(stageStock('S'),state.target.S)}
 function renderKpisLegacy(){const neededNB=Math.max(0,state.target.NB-stageStock('NB'));const neededS=Math.max(0,state.target.S-stageStock('S'));const current=state.currentSize||'NB';const days=stockDays(current);const pct=firstTarget()>0?Math.round(100*firstStock()/firstTarget()):100;
@@ -798,7 +799,7 @@ function renderM102History(){
  renderStockEditor();
 }
 function renderHistory(){if(!m3ReadOnly&&window.XBM102?.isActive()){renderM102History();return;}const buys=state.transactions.filter(t=>t.type==='buy'&&t.reversed!==true),used=state.transactions.filter(t=>t.type==='use'&&t.reversed!==true),thisMonth=buys.filter(t=>String(t.date||'').slice(0,7)===currMonth());const n=buys.reduce((s,x)=>s+num(x.pieces),0);const mean=n?spend()/n:0;const usedPieces=used.reduce((s,x)=>s+num(x.pieces),0);$('historyKpis').innerHTML=`<div class="kpi"><div class="kpi-label">累计已花</div><div class="kpi-value purple">¥${spend().toFixed(0)}</div><div class="kpi-meta">有记录的购买</div></div><div class="kpi"><div class="kpi-label">购买总片数</div><div class="kpi-value">${int(n)}</div><div class="kpi-meta">不含直接盘点录入</div></div><div class="kpi"><div class="kpi-label">平均购入价</div><div class="kpi-value">${mean?money(mean):'—'}</div><div class="kpi-meta">有记录的购买加权平均</div></div><div class="kpi"><div class="kpi-label">本月已花 / 记录消耗</div><div class="kpi-value">¥${thisMonth.reduce((s,x)=>s+num(x.price),0).toFixed(0)}</div><div class="kpi-meta">累计已记消耗 ${int(usedPieces)} 片</div></div>`;
-const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}${m3ReadOnly?'<div class="fine">'+(t.origin==='cloud_post_migration'?(t.type==='use'?'迁移后云端消耗':'迁移后云端采购'):'旧版迁移历史')+'</div>':''}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td>${t.reversed===true?'<span class="fine">已撤销</span>':m3ReadOnly&&t.origin!=='cloud_post_migration'?'<span class="fine">迁移历史不可撤销</span>':'<button class="btn ghost sm" data-action="deletetx" data-id="'+esc(t.id)+'">撤销</button>'}</td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
+const tx=state.transactions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));if(!tx.length){$('historyList').innerHTML='<div class="empty"><b>还没有采购或消耗记录</b>在“单片比价”点击已购买即可建立采购流水；用掉一片可在总览里一键扣减。</div>'}else{$('historyList').innerHTML=`<div class="table-wrap"><table class="tbl"><thead><tr><th>日期</th><th>类型</th><th>尺码</th><th>说明</th><th>片数</th><th>金额</th><th>操作</th></tr></thead><tbody>${tx.slice(0,250).map(t=>`<tr><td>${esc(t.date)}</td><td><span class="tag ${t.type==='buy'?'good':'warn'}">${t.type==='buy'?'购入':'消耗'}</span></td><td>${esc(t.size)}</td><td>${t.type==='buy'?esc((t.brand||'')+' '+(t.series||'')):'日常使用'}${m3ReadOnly?'<div class="fine">'+(t.origin==='cloud_post_migration'?(t.type==='use'?'迁移后云端消耗':'迁移后云端采购'):'旧版迁移历史')+'</div>':''}</td><td>${t.type==='buy'?'+':'−'}${int(t.pieces)}</td><td>${t.type==='buy'?money(t.price):'—'}</td><td>${t.reversed===true?'<span class="fine">已撤销</span>':t.origin!=='cloud_post_migration'||!t.operationId?'<span class="fine">迁移历史不可撤销</span>':'<button class="btn ghost sm" data-action="deletetx" data-id="'+esc(t.id)+'">撤销</button>'}</td></tr>`).join('')}</tbody></table></div>${tx.length>250?'<p class="soft-note">这里只展示最新250条记录，导出备份会保留全部记录。</p>':''}`}
 renderStockEditor()}
 function updateSizeModePreview(){
  const mode=$('sizeMode').value,manual=$('currentSize').value;
@@ -2672,7 +2673,7 @@ restoreActiveTab();
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
   async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false,
-  allowReverse=false,allowStocktake=false,fastPurchaseId=null,fastConsumeId=null}={}){
+  allowReverse=false,allowStocktake=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -2681,8 +2682,8 @@ restoreActiveTab();
    if(uploadEnabled!==true)
     return {status:'upload-disabled',attempted:0,accepted:0,remaining:null};
 
-   const fastId=fastConsumeId??fastPurchaseId;
-   const consume=fastConsumeId!==null;
+   const fastId=fastReverseId??fastConsumeId??fastPurchaseId;
+   const reverse=fastReverseId!==null,consume=!reverse&&fastConsumeId!==null;
    if(fastId===null){
     let grant;
     try{grant=await verifyAccess({familyId:scope.familyId,actorUid:scope.actorUid});}
@@ -2700,8 +2701,9 @@ restoreActiveTab();
    // pending IDB count, and a newly persisted one-time operation UUID.
    if(fastId!==null){
     if(queued.length!==1||queued[0]?.id!==fastId
-      ||queued[0].type!=='inventory.delta'
-      ||queued[0].payload?.kind!==(consume?'use':'buy')
+      ||queued[0].type!==(reverse?'transaction.reverse':'inventory.delta')
+      ||(!reverse&&queued[0].payload?.kind!==(consume?'use':'buy'))
+      ||(reverse&&allowReverse!==true)
       ||(consume&&allowConsume!==true)
       ||queued[0].familyId!==scope.familyId
       ||queued[0].actorUid!==scope.actorUid)
@@ -2718,15 +2720,19 @@ restoreActiveTab();
      await outbox.recordResult(scope,op.id,{
       kind:receipt.duplicate?'duplicate':'accepted',receiptId:op.id
      });
-     return {status:(consume?'consume':'purchase')
+     return {status:(reverse?'reverse':consume?'consume':'purchase')
        +(receipt.duplicate?'-ack-recovered':'-ack-confirmed'),
        attempted:1,accepted:1,
        receipt,operation:op,remaining:0};
     }catch(e){
      if(String(e?.message||'').startsWith('outbox_store:'))
       return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};
-     try{await outbox.recordResult(scope,op.id,{kind:errorCode(e)});}
+     const code=errorCode(e);
+     try{await outbox.recordResult(scope,op.id,{kind:code});}
      catch(_){return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};}
+     if(reverse&&code==='conflict')return {
+      status:'reverse-rejected',attempted:1,accepted:0
+     };
      return {status:'purchase-ack-unknown',attempted:1,accepted:0};
     }
    }
@@ -3353,7 +3359,8 @@ restoreActiveTab();
     ||!outbox?.commitInventory||!outbox?.stats)
    throw Error('primary_operations:primary_outbox_unverified');
   let selected=null,busy=false;
-  const freshPurchaseIds=new Set(),freshConsumeIds=new Set();
+  const freshPurchaseIds=new Set(),freshConsumeIds=new Set(),
+   freshReverseIds=new Set();
   const online=()=>host?.navigator?.onLine!==false;
   function knownRows(rows){
    if(!Array.isArray(rows)||rows.length!==6)
@@ -3476,7 +3483,7 @@ restoreActiveTab();
     selected={familyId:scope.familyId,actorUid:scope.actorUid,
      childId:scope.childId};
     return result('PRIMARY_OUTBOX_READ_ONLY_READY',{childId:scope.childId});
-   }catch(_){selected=null;freshPurchaseIds.clear();freshConsumeIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
+   }catch(_){selected=null;freshPurchaseIds.clear();freshConsumeIds.clear();freshReverseIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
    finally{busy=false;}
   }
   async function read(){
@@ -3505,7 +3512,8 @@ restoreActiveTab();
    finally{busy=false;}
   }
   async function queue(op,{operatorApproved=false,
-    verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null}={}){
+    verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null,
+    verifiedReverseBaseline=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -3516,12 +3524,18 @@ restoreActiveTab();
    busy=true;
    try{
     const ctx=controller.verifiedContext();
-    const kind=op?.payload?.kind;
-    const baseline=kind==='use'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
-    const fast=op?.type==='inventory.delta'&&['buy','use'].includes(kind)
-      &&(kind==='buy'||allowConsume===true)
+    const kind=op?.type==='transaction.reverse'?'reverse':op?.payload?.kind;
+    const baseline=kind==='reverse'?verifiedReverseBaseline:
+     kind==='use'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
+    const fast=((op?.type==='inventory.delta'&&['buy','use'].includes(kind))
+       ||(op?.type==='transaction.reverse'&&kind==='reverse'))
+      &&(kind==='buy'||(kind==='use'&&allowConsume===true)
+       ||(kind==='reverse'&&allowReverse===true))
       &&baseline?.status===(kind==='buy'
-       ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':'PRIMARY_CONSUME_BASELINE_VERIFIED')
+       ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':kind==='use'
+        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
+      &&(kind!=='reverse'||(baseline.originalId===op.payload.reversesOperationId
+        &&baseline.originalSize===op.payload.size))
       &&selected&&ctx?.app
       &&selected.familyId===ctx.familyId&&selected.actorUid===ctx.actorUid
       &&selected.childId===baseline.childId
@@ -3556,6 +3570,18 @@ restoreActiveTab();
         baseline.inventory[size])
         &&snapshot.inventory?.[size]===baseline.inventory[size]))
       return result('PRIMARY_PENDING_OR_CONFLICT_REVIEW_BEFORE_NEW_OPERATION');
+     // The cloud-visible original may come from another device and not be
+     // present in this device's optimistic IDB transaction projection.
+     // Reverse is therefore queued durably without mutating stock until ACK.
+     if(kind==='reverse'){
+      const written=await outbox.enqueue(op);
+      const created=written?.id===op.id&&written.status==='pending';
+      if(created)freshReverseIds.add(op.id);
+      return result(created?'PRIMARY_OPERATION_DURABLY_QUEUED':
+       'PRIMARY_OPERATION_ALREADY_QUEUED',{
+        operationId:op.id,fastReverse:created
+       });
+     }
      const written=await outbox.commitInventory(scope,op);
      if(written.duplicate!==true)
       (kind==='buy'?freshPurchaseIds:freshConsumeIds).add(op.id);
@@ -3585,7 +3611,7 @@ restoreActiveTab();
    }catch(_){return result('PRIMARY_LOCAL_QUEUE_UNVERIFIED');}
    finally{busy=false;}
   }
-  async function flush({operatorApproved=false,fastPurchaseId=null,fastConsumeId=null}={}){
+  async function flush({operatorApproved=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -3594,13 +3620,13 @@ restoreActiveTab();
    busy=true;
    try{
     const ctx=controller.verifiedContext();
-    const fastId=fastConsumeId??fastPurchaseId;
-    const consume=fastConsumeId!==null;
-    const fast=typeof fastId==='string'
-      &&(consume?freshConsumeIds:freshPurchaseIds).has(fastId)
+    const fastId=fastReverseId??fastConsumeId??fastPurchaseId;
+    const reverse=fastReverseId!==null,consume=!reverse&&fastConsumeId!==null;
+    const freshIds=reverse?freshReverseIds:consume?freshConsumeIds:freshPurchaseIds;
+    const fast=typeof fastId==='string'&&freshIds.has(fastId)
       &&selected&&ctx?.app&&selected.familyId===ctx.familyId
       &&selected.actorUid===ctx.actorUid
-      &&(!consume||allowConsume===true);
+      &&(reverse?allowReverse===true:!consume||allowConsume===true);
     if(fastId!==null&&!fast)
      return result('PRIMARY_PENDING_OR_CONFLICT_REVIEW_BEFORE_NEW_OPERATION',
       {operationId:fastId});
@@ -3608,15 +3634,16 @@ restoreActiveTab();
     if(!fast)await authInitialized();
     const remote=inventoryClient.create(scope.app);
     const runner=runnerFactory.create({outbox,remote,verifyAccess:authInitialized});
-    if(fast)(consume?freshConsumeIds:freshPurchaseIds).delete(fastId);
+    if(fast)freshIds.delete(fastId);
     const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20,
      purchaseOnly:purchaseOnly===true,allowConsume:allowConsume===true,
      allowReverse:allowReverse===true,allowStocktake:allowStocktake===true,
      fastPurchaseId:fast&&!consume?fastId:null,
-     fastConsumeId:fast&&consume?fastId:null});
+     fastConsumeId:fast&&consume?fastId:null,
+     fastReverseId:fast&&reverse?fastId:null});
     if(fast){
-     const prefix=consume?'PRIMARY_USE':'PRIMARY_PURCHASE';
-     const receiptPrefix=consume?'consume':'purchase';
+     const prefix=reverse?'PRIMARY_REVERSE':consume?'PRIMARY_USE':'PRIMARY_PURCHASE';
+     const receiptPrefix=reverse?'reverse':consume?'consume':'purchase';
      if(sent?.status===receiptPrefix+'-ack-confirmed'
        &&sent.receipt?.duplicate!==true)
       return result(prefix+'_ACK_CONFIRMED',{
@@ -3624,6 +3651,10 @@ restoreActiveTab();
        receipt:sent.receipt,cloudWriteCommitted:true,
        familyId:scope.familyId,actorUid:scope.actorUid,
        childId:scope.childId
+      });
+     if(reverse&&sent?.status==='reverse-rejected')
+      return result('PRIMARY_REVERSE_SERVER_REJECTED',{
+       operationId:fastId,cloudWriteCommitted:false,rejected:true
       });
      return result(sent?.status===receiptPrefix+'-ack-recovered'
        ?prefix+'_ACK_RECOVERED_NEEDS_REFRESH':
@@ -3758,7 +3789,8 @@ restoreActiveTab();
      expectedRevision,createdAt,payload};
   }
   async function submit(action,value,{operatorApproved=false,
-    verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null}={}){
+    verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null,
+    verifiedReverseBaseline=null}={}){
    if(busy)return ret('BUSY');
    // This is intentionally ahead of UUID generation and read/SDK calls.
    if(primary.cloudWritesEnabled!==true||operatorApproved!==true)
@@ -3769,15 +3801,19 @@ restoreActiveTab();
     if(!scope||!UUID.test(scope.familyId)||!UUID.test(scope.childId)
       ||typeof scope.actorUid!=='string'||!scope.actorUid)
      return ret('PRIMARY_NOT_SELECTED');
-    const baseline=action==='consume'?verifiedConsumeBaseline:
-     verifiedPurchaseBaseline;
-    const fast=['purchase','consume'].includes(action)
+    const baseline=action==='reverse'?verifiedReverseBaseline:
+     action==='consume'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
+    const fast=['purchase','consume','reverse'].includes(action)
       &&baseline?.status===(action==='purchase'
-       ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':'PRIMARY_CONSUME_BASELINE_VERIFIED')
+       ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':action==='consume'
+        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
       &&baseline.familyId===scope.familyId
       &&baseline.actorUid===scope.actorUid
       &&baseline.childId===scope.childId
-      &&baseline.inventory&&baseline.revisions;
+      &&baseline.inventory&&baseline.revisions
+      &&(action!=='reverse'||(baseline.originalId===value?.reversesOperationId
+       &&baseline.originalSize===value?.size
+       &&baseline.originalType===value?.type));
     const fresh=fast?baseline:await primary.read();
     if(!fast&&(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
       ||!fresh.inventory||!fresh.revisions))
@@ -3799,7 +3835,8 @@ restoreActiveTab();
     // Never auto flush from a click; the explicit send action is separate.
     const queued=await primary.queue(operation,{operatorApproved:true,
       verifiedPurchaseBaseline:fast&&action==='purchase'?fresh:null,
-      verifiedConsumeBaseline:fast&&action==='consume'?fresh:null});
+      verifiedConsumeBaseline:fast&&action==='consume'?fresh:null,
+      verifiedReverseBaseline:fast&&action==='reverse'?fresh:null});
     if(!queued||!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued.status)){
      return ret('PRIMARY_QUEUE_UNVERIFIED_PRESERVE_ORIGINAL_ID',
@@ -3808,6 +3845,7 @@ restoreActiveTab();
     return ret(queued.status,{operationId:operation.id,
       fastPurchase:queued.fastPurchase===true,
       fastConsume:queued.fastConsume===true,
+      fastReverse:queued.fastReverse===true,
       cloudWriteCommitted:false});
    }catch(_){return ret('PRIMARY_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
@@ -3837,7 +3875,8 @@ restoreActiveTab();
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
-  readPurchaseBaseline=null,readConsumeBaseline=null,onPurchaseAck=null,
+  readPurchaseBaseline=null,readConsumeBaseline=null,
+  readReverseBaseline=null,confirmReverse=()=>false,onPurchaseAck=null,
   notify,formalModeSelected,onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
@@ -3868,12 +3907,13 @@ restoreActiveTab();
   let referenceNeedsReview=null,referenceButtonLabel='';
   let activeReferenceAction=null,referenceResetLabel='';
   // UI-only holds; no UUID, queue, CAS or RPC behaviour is changed.
-  const minimalBusy={purchase:false,consume:false,quotes:false};
-  const minimalReview={purchase:null,consume:null,quotes:null};
+  const minimalBusy={purchase:false,consume:false,reverse:false,quotes:false};
+  const minimalReview={purchase:null,consume:null,reverse:null,quotes:null};
   const minimalLabels={purchase:null,quotes:null};
   let minimalQuoteIntent=null,quoteButton=null,quoteButtonLabel='',quoteAction='add';
   let purchaseButton=null,purchaseButtonLabel='',purchaseFromQuote=false;
   let consumeButton=null,consumeSize='',consumeDay=false;
+  let reverseButton=null,reverseLabel='';
   function quoteFeedback(phase,answer=null){
    const doc=attached?.doc;
    const action=minimalQuoteIntent?.action||quoteAction;
@@ -3959,9 +3999,29 @@ restoreActiveTab();
    for(const button of controls)button.disabled=waiting;
    if(!waiting){consumeButton=null;consumeSize='';consumeDay=false;}
   }
+  function reverseFeedback(phase){
+   const dom=attached?.doc;
+   const controls=[...(dom?.getElementById('historyList')
+     ?.querySelectorAll?.('[data-action="deletetx"]')||[])];
+   if(reverseButton&&!controls.includes(reverseButton))controls.push(reverseButton);
+   const node=dom?.getElementById('formalReverseActionFeedback');
+   if(node)node.textContent=phase==='working'?'正在撤销记录…'
+    :phase==='success'?'记录已撤销，库存已更新'
+    :phase==='pending'?'撤销结果待核验，原请求已保留，请勿重复提交。'
+    :phase==='recovered'?'原撤销请求已核验，库存与历史已更新。'
+    :phase==='cancelled'?'已取消撤销，库存和历史记录没有变化。'
+    :'撤销失败，请检查当前库存或刷新后重试。';
+   const waiting=phase==='working'||phase==='pending';
+   for(const button of controls)button.disabled=waiting;
+   if(reverseButton)reverseButton.textContent=waiting
+    ?phase==='pending'?'等待核验…':'正在撤销记录…'
+    :reverseLabel||'撤销';
+   if(!waiting){reverseButton=null;reverseLabel='';}
+  }
   function minimalFeedback(kind,phase,answer=null){
    if(kind==='quotes')return quoteFeedback(phase,answer);
    if(kind==='consume')return consumeFeedback(phase,answer);
+   if(kind==='reverse')return reverseFeedback(phase,answer);
    const dom=attached?.doc;
    const buttons=[dom?.getElementById('buyNow'),
     ...(dom?.getElementById('quoteList')
@@ -4000,7 +4060,26 @@ restoreActiveTab();
     minimalFeedback(kind,'pending');
     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
    }
+   let prepared=null;
+   if(kind==='reverse'){
+    const record=readTransaction(el.dataset?.id);
+    if(!record||record.origin!=='cloud_post_migration'
+      ||!['buy','use'].includes(record.type)
+      ||record.reversed===true||record.reversedByOperationId
+      ||typeof record.operationId!=='string'){
+     reverseFeedback('failed');
+     notify(result('IMMUTABLE_LEGACY_HISTORY_NOT_REVERSIBLE'));
+     return;
+    }
+    if(!(typeof confirmReverse==='function'&&confirmReverse(record)===true)){
+     reverseFeedback('cancelled');
+     notify(result('PRIMARY_REVERSE_CANCELLED'));return;
+    }
+    prepared={reverseConfirmed:true,reverseRecordId:el.dataset?.id,
+     reversesOperationId:record.operationId};
+   }
    minimalBusy[kind]=true;
+   if(kind==='reverse'){reverseButton=el;reverseLabel=el.textContent||'撤销';}
    if(kind==='consume'){
     consumeButton=el;consumeSize=el.dataset?.size||'';
     consumeDay=el.dataset?.useMode==='day'
@@ -4021,7 +4100,7 @@ restoreActiveTab();
    minimalFeedback(kind,'working');
    // Set the existing invoke busy guard synchronously before a second click.
    let promise;
-   try{promise=handle(el,doc);}
+   try{promise=handle(el,doc,prepared);}
    catch(_){promise=Promise.resolve(result('FORMAL_OPERATION_REVIEW_REQUIRED'));}
    void Promise.resolve(promise).then(answer=>{
     const success=kind==='purchase'
@@ -4030,15 +4109,21 @@ restoreActiveTab();
      :kind==='consume'
       ?['PRIMARY_USE_CLOUD_ACK_APPLIED',
         'PRIMARY_USE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+     :kind==='reverse'
+      ?['PRIMARY_REVERSE_CLOUD_ACK_APPLIED',
+        'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
       :['QUOTES_CLOUD_ACK_APPLIED',
         'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
     if(!success){
-     const id=kind==='purchase'||kind==='consume'
+     const id=['purchase','consume','reverse'].includes(kind)
       ?answer?.operationId:answer?.requestId;
-     if(typeof id==='string'&&id)
+     if(typeof id==='string'&&id&&answer?.rejected!==true)
       minimalReview[kind]=Object.freeze(
-       kind==='purchase'||kind==='consume'
-       ?{operationId:id,kind:kind==='purchase'?'buy':'use'}:{requestId:id,
+       ['purchase','consume','reverse'].includes(kind)
+       ?{operationId:id,kind:kind==='purchase'?'buy':
+          kind==='consume'?'use':'reverse',
+          reversesOperationId:kind==='reverse'
+           ?prepared?.reversesOperationId:null}:{requestId:id,
          action:minimalQuoteIntent?.action,record:minimalQuoteIntent?.record,
          expectedRevision:minimalQuoteIntent?.expectedRevision,
          actorUid:minimalQuoteIntent?.actorUid,
@@ -4046,7 +4131,8 @@ restoreActiveTab();
     }
     minimalFeedback(kind,success?'success':
      minimalReview[kind]?'pending':
-     ['QUOTES_CLEAR_CANCELLED','QUOTES_DELETE_CANCELLED'].includes(answer?.status)
+     ['QUOTES_CLEAR_CANCELLED','QUOTES_DELETE_CANCELLED',
+       'PRIMARY_REVERSE_CANCELLED'].includes(answer?.status)
       ?'cancelled':'failed',answer);
     notify(answer);
    },()=>{
@@ -4057,7 +4143,7 @@ restoreActiveTab();
   async function recoverMinimalButtons({domain}={}){
    const pending=minimalReview[domain];
    if(!pending||minimalBusy[domain])return false;
-   const callback=['purchase','consume'].includes(domain)?onPurchaseReadback:
+   const callback=['purchase','consume','reverse'].includes(domain)?onPurchaseReadback:
     domain==='quotes'?onQuotesReadback:null;
    if(typeof callback!=='function')return false;
    let verified=null;
@@ -4243,7 +4329,8 @@ restoreActiveTab();
    &&operatorApproved()===true;
   const documentsAuthorized=()=>buildAllowsDocumentWrites===true
    &&documentOperatorApproved()===true;
-  async function invoke(action,value,verifiedConsumeBaseline=null){
+  async function invoke(action,value,verifiedConsumeBaseline=null,
+   verifiedReverseBaseline=null){
    if(!purchaseAuthorized())
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(busy)return result('BUSY');
@@ -4253,7 +4340,8 @@ restoreActiveTab();
      &&typeof readPurchaseBaseline==='function'?readPurchaseBaseline():null;
     const queued=await commands.submit(action,value,{
      operatorApproved:true,verifiedPurchaseBaseline:baseline,
-     verifiedConsumeBaseline:action==='consume'?verifiedConsumeBaseline:null
+     verifiedConsumeBaseline:action==='consume'?verifiedConsumeBaseline:null,
+     verifiedReverseBaseline:action==='reverse'?verifiedReverseBaseline:null
     });
     if(purchaseOnly!==true
       ||(action!=='purchase'
@@ -4273,13 +4361,16 @@ restoreActiveTab();
       fastPurchaseId:action==='purchase'&&queued.fastPurchase===true
        ?queued.operationId:null,
       fastConsumeId:action==='consume'&&queued.fastConsume===true
+       ?queued.operationId:null,
+      fastReverseId:action==='reverse'&&queued.fastReverse===true
        ?queued.operationId:null});}
     catch(_){
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     }
     if((action==='purchase'&&synced?.status==='PRIMARY_PURCHASE_ACK_CONFIRMED')
-      ||(action==='consume'&&synced?.status==='PRIMARY_USE_ACK_CONFIRMED')){
+      ||(action==='consume'&&synced?.status==='PRIMARY_USE_ACK_CONFIRMED')
+      ||(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_ACK_CONFIRMED')){
      let applied='pending';
      try{applied=typeof onPurchaseAck==='function'
       ?await onPurchaseAck(synced):'pending';}catch(_){}
@@ -4293,9 +4384,13 @@ restoreActiveTab();
       operationId:queued.operationId,cloudWriteCommitted:true
      });
     }
+    if(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_SERVER_REJECTED')
+     return Object.freeze({status:'PRIMARY_REVERSE_SERVER_REJECTED',
+      operationId:queued.operationId,cloudWriteCommitted:false,rejected:true});
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED'
       &&synced?.status!=='PRIMARY_PURCHASE_ACK_RECOVERED_NEEDS_REFRESH'
-      &&synced?.status!=='PRIMARY_USE_ACK_RECOVERED_NEEDS_REFRESH')
+      &&synced?.status!=='PRIMARY_USE_ACK_RECOVERED_NEEDS_REFRESH'
+      &&synced?.status!=='PRIMARY_REVERSE_ACK_RECOVERED_NEEDS_REFRESH')
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
@@ -4918,10 +5013,19 @@ restoreActiveTab();
     const record=readTransaction(el.dataset?.id);
     if(!record||record.origin!=='cloud_post_migration'
       ||!['buy','use'].includes(record.type)
-      ||record.reversed===true||typeof record.operationId!=='string')
+      ||record.reversed===true||record.reversedByOperationId
+      ||typeof record.operationId!=='string')
      return result('IMMUTABLE_LEGACY_HISTORY_NOT_REVERSIBLE');
-    return invoke('reverse',{size:record.size,
-     origin:record.origin,reversesOperationId:record.operationId});
+    const preapproved=preparedDocumentInput?.reverseConfirmed===true
+      &&preparedDocumentInput.reverseRecordId===el.dataset?.id;
+    if(!preapproved
+      &&!(typeof confirmReverse==='function'&&confirmReverse(record)===true))
+     return result('PRIMARY_REVERSE_CANCELLED');
+    const baseline=typeof readReverseBaseline==='function'
+     ?readReverseBaseline(record):null;
+    return invoke('reverse',{size:record.size,type:record.type,
+     origin:record.origin,reversesOperationId:record.operationId},
+     null,baseline);
    }
    return result('FORMAL_DOCUMENT_WRITE_CONTRACT_NOT_READY');
   }
@@ -5187,6 +5291,9 @@ restoreActiveTab();
     }
     if(action==='consume'){
      dispatchMinimal(el,doc,'consume');return;
+    }
+    if(action==='deletetx'){
+     dispatchMinimal(el,doc,'reverse');return;
     }
     if(el.id==='saveQuote'||el.id==='clearQuotes'
       ||action==='deletequote'){

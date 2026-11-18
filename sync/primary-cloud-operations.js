@@ -33,7 +33,8 @@
     ||!outbox?.commitInventory||!outbox?.stats)
    throw Error('primary_operations:primary_outbox_unverified');
   let selected=null,busy=false;
-  const freshPurchaseIds=new Set(),freshConsumeIds=new Set();
+  const freshPurchaseIds=new Set(),freshConsumeIds=new Set(),
+   freshReverseIds=new Set();
   const online=()=>host?.navigator?.onLine!==false;
   function knownRows(rows){
    if(!Array.isArray(rows)||rows.length!==6)
@@ -156,7 +157,7 @@
     selected={familyId:scope.familyId,actorUid:scope.actorUid,
      childId:scope.childId};
     return result('PRIMARY_OUTBOX_READ_ONLY_READY',{childId:scope.childId});
-   }catch(_){selected=null;freshPurchaseIds.clear();freshConsumeIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
+   }catch(_){selected=null;freshPurchaseIds.clear();freshConsumeIds.clear();freshReverseIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
    finally{busy=false;}
   }
   async function read(){
@@ -185,7 +186,8 @@
    finally{busy=false;}
   }
   async function queue(op,{operatorApproved=false,
-    verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null}={}){
+    verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null,
+    verifiedReverseBaseline=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -196,12 +198,18 @@
    busy=true;
    try{
     const ctx=controller.verifiedContext();
-    const kind=op?.payload?.kind;
-    const baseline=kind==='use'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
-    const fast=op?.type==='inventory.delta'&&['buy','use'].includes(kind)
-      &&(kind==='buy'||allowConsume===true)
+    const kind=op?.type==='transaction.reverse'?'reverse':op?.payload?.kind;
+    const baseline=kind==='reverse'?verifiedReverseBaseline:
+     kind==='use'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
+    const fast=((op?.type==='inventory.delta'&&['buy','use'].includes(kind))
+       ||(op?.type==='transaction.reverse'&&kind==='reverse'))
+      &&(kind==='buy'||(kind==='use'&&allowConsume===true)
+       ||(kind==='reverse'&&allowReverse===true))
       &&baseline?.status===(kind==='buy'
-       ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':'PRIMARY_CONSUME_BASELINE_VERIFIED')
+       ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':kind==='use'
+        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
+      &&(kind!=='reverse'||(baseline.originalId===op.payload.reversesOperationId
+        &&baseline.originalSize===op.payload.size))
       &&selected&&ctx?.app
       &&selected.familyId===ctx.familyId&&selected.actorUid===ctx.actorUid
       &&selected.childId===baseline.childId
@@ -236,6 +244,18 @@
         baseline.inventory[size])
         &&snapshot.inventory?.[size]===baseline.inventory[size]))
       return result('PRIMARY_PENDING_OR_CONFLICT_REVIEW_BEFORE_NEW_OPERATION');
+     // The cloud-visible original may come from another device and not be
+     // present in this device's optimistic IDB transaction projection.
+     // Reverse is therefore queued durably without mutating stock until ACK.
+     if(kind==='reverse'){
+      const written=await outbox.enqueue(op);
+      const created=written?.id===op.id&&written.status==='pending';
+      if(created)freshReverseIds.add(op.id);
+      return result(created?'PRIMARY_OPERATION_DURABLY_QUEUED':
+       'PRIMARY_OPERATION_ALREADY_QUEUED',{
+        operationId:op.id,fastReverse:created
+       });
+     }
      const written=await outbox.commitInventory(scope,op);
      if(written.duplicate!==true)
       (kind==='buy'?freshPurchaseIds:freshConsumeIds).add(op.id);
@@ -265,7 +285,7 @@
    }catch(_){return result('PRIMARY_LOCAL_QUEUE_UNVERIFIED');}
    finally{busy=false;}
   }
-  async function flush({operatorApproved=false,fastPurchaseId=null,fastConsumeId=null}={}){
+  async function flush({operatorApproved=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -274,13 +294,13 @@
    busy=true;
    try{
     const ctx=controller.verifiedContext();
-    const fastId=fastConsumeId??fastPurchaseId;
-    const consume=fastConsumeId!==null;
-    const fast=typeof fastId==='string'
-      &&(consume?freshConsumeIds:freshPurchaseIds).has(fastId)
+    const fastId=fastReverseId??fastConsumeId??fastPurchaseId;
+    const reverse=fastReverseId!==null,consume=!reverse&&fastConsumeId!==null;
+    const freshIds=reverse?freshReverseIds:consume?freshConsumeIds:freshPurchaseIds;
+    const fast=typeof fastId==='string'&&freshIds.has(fastId)
       &&selected&&ctx?.app&&selected.familyId===ctx.familyId
       &&selected.actorUid===ctx.actorUid
-      &&(!consume||allowConsume===true);
+      &&(reverse?allowReverse===true:!consume||allowConsume===true);
     if(fastId!==null&&!fast)
      return result('PRIMARY_PENDING_OR_CONFLICT_REVIEW_BEFORE_NEW_OPERATION',
       {operationId:fastId});
@@ -288,15 +308,16 @@
     if(!fast)await authInitialized();
     const remote=inventoryClient.create(scope.app);
     const runner=runnerFactory.create({outbox,remote,verifyAccess:authInitialized});
-    if(fast)(consume?freshConsumeIds:freshPurchaseIds).delete(fastId);
+    if(fast)freshIds.delete(fastId);
     const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20,
      purchaseOnly:purchaseOnly===true,allowConsume:allowConsume===true,
      allowReverse:allowReverse===true,allowStocktake:allowStocktake===true,
      fastPurchaseId:fast&&!consume?fastId:null,
-     fastConsumeId:fast&&consume?fastId:null});
+     fastConsumeId:fast&&consume?fastId:null,
+     fastReverseId:fast&&reverse?fastId:null});
     if(fast){
-     const prefix=consume?'PRIMARY_USE':'PRIMARY_PURCHASE';
-     const receiptPrefix=consume?'consume':'purchase';
+     const prefix=reverse?'PRIMARY_REVERSE':consume?'PRIMARY_USE':'PRIMARY_PURCHASE';
+     const receiptPrefix=reverse?'reverse':consume?'consume':'purchase';
      if(sent?.status===receiptPrefix+'-ack-confirmed'
        &&sent.receipt?.duplicate!==true)
       return result(prefix+'_ACK_CONFIRMED',{
@@ -304,6 +325,10 @@
        receipt:sent.receipt,cloudWriteCommitted:true,
        familyId:scope.familyId,actorUid:scope.actorUid,
        childId:scope.childId
+      });
+     if(reverse&&sent?.status==='reverse-rejected')
+      return result('PRIMARY_REVERSE_SERVER_REJECTED',{
+       operationId:fastId,cloudWriteCommitted:false,rejected:true
       });
      return result(sent?.status===receiptPrefix+'-ack-recovered'
        ?prefix+'_ACK_RECOVERED_NEEDS_REFRESH':

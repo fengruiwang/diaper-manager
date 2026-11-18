@@ -924,7 +924,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        &&purchaseOperatorApproved()===true,
       buildAllowsDocumentWrites:documentWritesEnabled===true,
       documentOperatorApproved:()=>documentWritesEnabled===true,
-      purchaseOnly:true,allowConsume:true,allowReverse:false,
+      purchaseOnly:true,allowConsume:true,allowReverse:true,
       allowStocktake:false,readStocktakeBaseline:()=>mode==='ready'?shownStock:null,
       readPurchaseBaseline:()=>{
        const current=controller.verifiedContext();
@@ -971,6 +971,38 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         daily:{...(settings?.daily||base.state.daily||{})}
        });
       },
+      readReverseBaseline:record=>{
+       const current=controller.verifiedContext(),selected=primary?.selectedScope?.();
+       const base=primaryViewBase;
+       const original=base?.state?.transactions?.find(t=>
+        t.operationId===record?.operationId);
+       if(mode!=='ready'||!current||!selected||!base||!shownStock
+         ||identityEpoch!==documentEpoch
+         ||actor!==ctx.actorUid||family!==ctx.familyId
+         ||current.actorUid!==ctx.actorUid||current.familyId!==ctx.familyId
+         ||selected.familyId!==ctx.familyId
+         ||selected.actorUid!==ctx.actorUid||selected.childId!==base.childId
+         ||base.familyId!==ctx.familyId||base.actorUid!==ctx.actorUid
+         ||base.status!=='PRIMARY_READ_ONLY_READY'
+         ||!base.state?.inventory||!shownStock.revisions
+         ||!original||original.origin!=='cloud_post_migration'
+         ||!['buy','use'].includes(original.type)||original.reversed===true
+         ||original.reversedByOperationId||original.size!==record.size
+         ||original.type!==record.type||original.id!==record.id)
+        return null;
+       return Object.freeze({
+        status:'PRIMARY_REVERSE_BASELINE_VERIFIED',
+        familyId:ctx.familyId,actorUid:ctx.actorUid,
+        childId:base.childId,inventory:{...base.state.inventory},
+        revisions:{...shownStock.revisions},
+        originalId:original.operationId,originalSize:original.size,
+        originalType:original.type
+       });
+      },
+      confirmReverse:record=>host.confirm?.(
+       record.type==='buy'
+        ?'确认撤销这条采购记录吗？库存将相应调整。'
+        :'确认撤销这条消耗记录吗？库存将相应调整。')===true,
       onPurchaseAck:async(ack)=>{
        const current=controller.verifiedContext();
        const selected=primary?.selectedScope?.();
@@ -984,14 +1016,17 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ||base.familyId!==ctx.familyId||base.actorUid!==ctx.actorUid
          ||ack.familyId!==ctx.familyId||ack.actorUid!==ctx.actorUid
          ||ack.childId!==base.childId||op?.familyId!==ctx.familyId
-         ||op.actorUid!==ctx.actorUid||op.type!=='inventory.delta'
-         ||!['buy','use'].includes(payload?.kind)
-         ||payload.childId!==base.childId
+         ||op.actorUid!==ctx.actorUid
+         ||(op.type!=='inventory.delta'&&op.type!=='transaction.reverse')
+         ||(op.type==='inventory.delta'
+           &&!['buy','use'].includes(payload?.kind))
+         ||payload?.childId!==base.childId
          ||receipt?.operationId!==op.id||ack.operationId!==op.id
          ||receipt.childId!==base.childId
          ||receipt.size!==payload.size||!SIZES.includes(receipt.size)
          ||receipt.duplicate===true
-         ||!Number.isSafeInteger(payload.amount)||payload.amount<1
+         ||(op.type==='inventory.delta'
+           &&(!Number.isSafeInteger(payload.amount)||payload.amount<1))
          ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
          ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1
          ||!Number.isSafeInteger(shownStock?.revisions?.[payload.size])
@@ -1004,9 +1039,16 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ||(payload.kind==='use'
           &&(!Number.isSafeInteger(payload.amount)||payload.amount<1
            ||!root.XBPrimaryBusinessDate?.fromTimestamp))
+         ||(op.type==='transaction.reverse'
+          &&(typeof payload.reversesOperationId!=='string'
+           ||!base.state?.transactions?.some(t=>
+            t.operationId===payload.reversesOperationId
+            &&t.origin==='cloud_post_migration'
+            &&['buy','use'].includes(t.type)&&t.size===payload.size
+            &&t.reversed!==true&&!t.reversedByOperationId)))
          ||base.state?.transactions?.some(x=>x.operationId===op.id))
         return 'pending';
-       const p=payload.purchase;
+       const reversing=op.type==='transaction.reverse',p=payload.purchase;
        const row=payload.kind==='buy'?{
         id:'cloud:'+op.id,type:'buy',
         date:p.purchaseDate,brand:p.brand,series:p.series,
@@ -1014,7 +1056,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         price:p.totalFen/100,operationId:op.id,
         reversed:false,reversedByOperationId:null,
         origin:'cloud_post_migration'
-       }:{
+       }:reversing?null:{
         id:'cloud:'+op.id,type:'use',
         date:root.XBPrimaryBusinessDate.fromTimestamp(payload.occurredAt),
         size:payload.size,pieces:payload.amount,price:0,
@@ -1024,18 +1066,27 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        };
        const inventory={...base.state.inventory,[payload.size]:receipt.quantity};
        const revisions={...base.revisions,[payload.size]:receipt.revision};
+       const transactions=reversing
+        ?base.state.transactions.map(t=>
+         t.operationId===payload.reversesOperationId
+          ?{...t,reversed:true,reversedByOperationId:op.id}:t)
+        :[row,...base.state.transactions];
        const nextBase=Object.freeze({...base,
-        state:Object.freeze({...base.state,
-         inventory,transactions:[row,...base.state.transactions]}),
+        state:Object.freeze({...base.state,inventory,transactions}),
         revisions:Object.freeze(revisions),
-        historyCount:(base.historyCount??base.state.transactions.length)+1});
+        historyCount:(base.historyCount??base.state.transactions.length)
+         +(reversing?0:1)});
        let view;
        try{
         view=documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
           &&documentScope===ctx.actorUid+'\x00'+ctx.familyId
          ?documentsOverlay.apply(nextBase,documentSnapshot):nextBase;
         if(view.state.inventory[payload.size]!==receipt.quantity
-          ||!view.state.transactions.some(x=>x.operationId===op.id))
+          ||!(reversing
+            ?view.state.transactions.some(t=>
+              t.operationId===payload.reversesOperationId
+              &&t.reversed===true&&t.reversedByOperationId===op.id)
+            :view.state.transactions.some(x=>x.operationId===op.id)))
          return 'pending';
         showCloudView(view,current);
        }catch(_){return 'pending';}
@@ -1165,6 +1216,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
           'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_USE_CLOUD_ACK_APPLIED',
           'PRIMARY_USE_CLOUD_READBACK_VERIFIED',
+          'PRIMARY_REVERSE_CLOUD_ACK_APPLIED',
           'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
          ?'云端操作已确认，库存及记录已更新。'
          :'云端操作状态：'+String(answer?.status||'UNVERIFIED')
@@ -1563,10 +1615,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      &&await attached?.recoverMinimalButtons?.({domain:'purchase'});
     const releasedConsume=next==='ready'
      &&await attached?.recoverMinimalButtons?.({domain:'consume'});
+    const releasedReverse=next==='ready'
+     &&await attached?.recoverMinimalButtons?.({domain:'reverse'});
     $('formalSyncState').textContent=releasedPurchase
      ?'原采购请求已核验并显示在库存中，可以继续操作。'
      :releasedConsume
       ?'原消耗请求已核验，库存和消耗记录已更新，可以继续操作。'
+     :releasedReverse
+      ?'原撤销请求已核验，库存和历史状态已更新，可以继续操作。'
      :next==='ready'
       ?'云端已核验，采购与消耗库存已刷新。'
       :'云端操作已确认，页面读取仍需重试。';
@@ -1657,7 +1713,7 @@ function browserStart(){
    runnerFactory:root.XBInventoryOutboxRunner,
    syncFactory:root.XBInventorySyncReader,
    cloudWritesEnabled:cloudWritesEnabled===true,
-   purchaseOnly:true,allowConsume:true,allowReverse:false,
+   purchaseOnly:true,allowConsume:true,allowReverse:true,
     allowStocktake:false
   }),
   commandsFactory:root.XBPrimaryBusinessCommands,

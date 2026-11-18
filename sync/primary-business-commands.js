@@ -81,7 +81,8 @@
      expectedRevision,createdAt,payload};
   }
   async function submit(action,value,{operatorApproved=false,
-    verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null}={}){
+    verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null,
+    verifiedReverseBaseline=null}={}){
    if(busy)return ret('BUSY');
    // This is intentionally ahead of UUID generation and read/SDK calls.
    if(primary.cloudWritesEnabled!==true||operatorApproved!==true)
@@ -92,15 +93,19 @@
     if(!scope||!UUID.test(scope.familyId)||!UUID.test(scope.childId)
       ||typeof scope.actorUid!=='string'||!scope.actorUid)
      return ret('PRIMARY_NOT_SELECTED');
-    const baseline=action==='consume'?verifiedConsumeBaseline:
-     verifiedPurchaseBaseline;
-    const fast=['purchase','consume'].includes(action)
+    const baseline=action==='reverse'?verifiedReverseBaseline:
+     action==='consume'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
+    const fast=['purchase','consume','reverse'].includes(action)
       &&baseline?.status===(action==='purchase'
-       ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':'PRIMARY_CONSUME_BASELINE_VERIFIED')
+       ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':action==='consume'
+        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
       &&baseline.familyId===scope.familyId
       &&baseline.actorUid===scope.actorUid
       &&baseline.childId===scope.childId
-      &&baseline.inventory&&baseline.revisions;
+      &&baseline.inventory&&baseline.revisions
+      &&(action!=='reverse'||(baseline.originalId===value?.reversesOperationId
+       &&baseline.originalSize===value?.size
+       &&baseline.originalType===value?.type));
     const fresh=fast?baseline:await primary.read();
     if(!fast&&(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
       ||!fresh.inventory||!fresh.revisions))
@@ -122,7 +127,8 @@
     // Never auto flush from a click; the explicit send action is separate.
     const queued=await primary.queue(operation,{operatorApproved:true,
       verifiedPurchaseBaseline:fast&&action==='purchase'?fresh:null,
-      verifiedConsumeBaseline:fast&&action==='consume'?fresh:null});
+      verifiedConsumeBaseline:fast&&action==='consume'?fresh:null,
+      verifiedReverseBaseline:fast&&action==='reverse'?fresh:null});
     if(!queued||!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued.status)){
      return ret('PRIMARY_QUEUE_UNVERIFIED_PRESERVE_ORIGINAL_ID',
@@ -131,6 +137,7 @@
     return ret(queued.status,{operationId:operation.id,
       fastPurchase:queued.fastPurchase===true,
       fastConsume:queued.fastConsume===true,
+      fastReverse:queued.fastReverse===true,
       cloudWriteCommitted:false});
    }catch(_){return ret('PRIMARY_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
