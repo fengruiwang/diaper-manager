@@ -190,6 +190,89 @@
     };
    });
   }
+  // Ordinary 009 delta ACK and its authoritative stock/revision are one
+  // durable commit. A locally projected quantity is never treated as server
+  // truth. Retain the original UUID on any failed or aborted transaction.
+  async function recordDeltaAck(scopeInput,operationId,receipt){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   if(!receipt||receipt.operationId!==oid
+     ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
+     ||receipt.quantity>100000
+     ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
+    fail('delta_receipt_invalid');
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const req=operations.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     try{
+      const op=req.result;
+      checkIdentity(op,scope);
+      const p=op.payload||{};
+      if(op.type!=='inventory.delta'||!['buy','use'].includes(p.kind)
+        ||!Number.isSafeInteger(p.amount)||p.amount<1
+        ||receipt.childId!==p.childId||receipt.size!==p.size)
+       fail('delta_receipt_scope_or_type');
+      const key=identityKey(scope,p.childId);
+      const snapReq=snapshots.get(key);
+      snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+      snapReq.onsuccess=()=>{
+       try{
+        const snap=snapReq.result,size=p.size;
+        if(!snap||snap.source!=='verified-server'
+          ||snap.familyId!==scope.familyId||snap.actorUid!==scope.actorUid
+          ||snap.childId!==p.childId
+          ||!Number.isSafeInteger(snap.serverRevisions?.[size]))
+         fail('delta_snapshot_unverified');
+        // A repeated ACK for an already completed UUID is idempotent:
+        // neither inventory nor revision may be applied twice.
+        if(op.status==='acked'){
+         if(op.receipt!==oid||receipt.revision>snap.serverRevisions[size])
+          fail('delta_ack_recheck_required');
+         complete({operation:op,snapshot:snap,duplicate:true});return;
+        }
+        if(op.status!=='pending'&&op.status!=='retry')
+         fail('delta_receipt_state_invalid');
+        if(receipt.revision<=snap.serverRevisions[size])
+         fail('delta_snapshot_not_current');
+        const other=operations.index('by_identity').getAll([
+         scope.familyId,scope.actorUid]);
+        other.onerror=()=>abort(new Error('outbox_store:read_failed'));
+        other.onsuccess=()=>{
+         try{
+          // An already projected, unresolved same-size operation must not
+          // have its speculative quantity silently replaced by this ACK.
+          if((other.result||[]).some(x=>x.id!==oid
+            &&OUTSTANDING.has(x.status)
+            &&x.payload?.childId===p.childId&&x.payload?.size===size))
+           fail('delta_other_pending_same_size');
+          const updated=contract.applyResult(op,{
+           kind:receipt.duplicate===true?'duplicate':'accepted',receiptId:oid
+          });
+          if(updated.id!==op.id||updated.familyId!==op.familyId
+            ||updated.actorUid!==op.actorUid
+            ||updated._signature!==op._signature)
+           fail('immutable_operation_changed');
+          const next={...snap,
+           inventory:{...snap.inventory,[size]:receipt.quantity},
+           serverRevisions:{...snap.serverRevisions,[size]:receipt.revision}};
+          let writes=0;
+          const finish=()=>{if(++writes===2)
+           complete({operation:updated,snapshot:next,duplicate:false});};
+          const putOp=operations.put(updated);
+          putOp.onerror=()=>abort(new Error('outbox_store:write_failed'));
+          putOp.onsuccess=finish;
+          const putSnap=snapshots.put({...next,key});
+          putSnap.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+          putSnap.onsuccess=finish;
+         }catch(e){abort(e);}
+        };
+       }catch(e){abort(e);}
+      };
+     }catch(e){abort(e);}
+    };
+   },[STORE,SNAPSHOTS]);
+  }
   // Atomic local handoff after a verified 009 reverse receipt. The original
   // cloud transaction may not exist in this device's IDB projection.
   async function recordReverseAck(scopeInput,operationId,receipt){
@@ -603,7 +686,7 @@
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,recordStocktakeAck,abandonSingleStocktakeConflict,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,applyVerifiedBatchInventory,commitInventory,reconciliationIds,reconcileInventory});
+  return Object.freeze({enqueue,get,list,ready,recordResult,recordDeltaAck,recordReverseAck,recordStocktakeAck,abandonSingleStocktakeConflict,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,applyVerifiedBatchInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;
