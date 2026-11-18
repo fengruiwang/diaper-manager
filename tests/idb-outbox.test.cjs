@@ -22,29 +22,34 @@ function fakeIndexedDB(){
    const r={result:null,onupgradeneeded:null,onsuccess:null,onerror:null,onblocked:null};
    queueMicrotask(()=>{
     let backing=databases.get(name),fresh=!backing;
-    if(fresh){backing={records:new Map(),indexes:new Set()};databases.set(name,backing);}
+    if(fresh){backing={stores:new Map(),indexes:new Set()};databases.set(name,backing);}
     const db={
      objectStoreNames:{contains:n=>backing.indexes.has(n)},
      createObjectStore(n){
-      if(!['operations','inventory_snapshots'].includes(n))throw Error('unexpected store');
+      if(!['operations','inventory_snapshots'].includes(n))
+       throw Error('unexpected store');
       backing.indexes.add(n);
+      if(!backing.stores.has(n))backing.stores.set(n,new Map());
       return {createIndex(index){backing.indexes.add(index)}};
      },
      close(){},
      transaction(names,mode){
-      if(!Array.isArray(names)||names.length!==1||names[0]!=='operations')throw Error('unexpected store');
-      let copy=new Map([...backing.records].map(([k,v])=>[k,clone(v)]));
+      if(!Array.isArray(names)||!names.length
+        ||names.some(n=>!backing.stores.has(n)))
+       throw Error('unexpected stores');
+      const copies=new Map(names.map(n=>[n,
+       new Map([...backing.stores.get(n)].map(([k,v])=>[k,clone(v)]))]));
       let outstanding=0,aborted=false,finished=false;
       const tx={oncomplete:null,onabort:null,onerror:null,abort(){
        if(aborted||finished)return;
-       aborted=true;
-       queueMicrotask(()=>tx.onabort?.());
+       aborted=true;queueMicrotask(()=>tx.onabort?.());
       }};
       function scheduleFinish(){
        setTimeout(()=>{
         if(finished||aborted||outstanding)return;
         finished=true;
-        if(mode==='readwrite')backing.records=copy;
+        if(mode==='readwrite')
+         for(const [store,records] of copies)backing.stores.set(store,records);
         tx.oncomplete?.();
        },0);
       }
@@ -53,30 +58,34 @@ function fakeIndexedDB(){
        outstanding++;
        queueMicrotask(()=>{
         if(aborted){outstanding--;return;}
-        try{
-         r.result=work();
-         r.onsuccess?.({target:r});
-        }catch(error){
-         r.error=error;
-         r.onerror?.({target:r});
-         tx.abort();
-        }finally{outstanding--;scheduleFinish();}
+        try{r.result=work();r.onsuccess?.({target:r});}
+        catch(error){r.error=error;r.onerror?.({target:r});tx.abort();}
+        finally{outstanding--;scheduleFinish();}
        });
        return r;
       }
-      tx.objectStore=()=>({
-       get:id=>req(()=>clone(copy.get(id))),
-       add:value=>req(()=>{
-        if(copy.has(value.id))throw Error('ConstraintError');
-        copy.set(value.id,clone(value));return value.id;
-       }),
-       put:value=>req(()=>{copy.set(value.id,clone(value));return value.id}),
-       index:index=>{
+      tx.objectStore=name=>{
+       if(!copies.has(name))throw Error('store_not_in_transaction');
+       const records=copies.get(name);
+       const keyOf=value=>name==='operations'?value.id:value.key;
+       const store={
+        get:key=>req(()=>clone(records.get(key))),
+        add:value=>req(()=>{
+         const key=keyOf(value);
+         if(records.has(key))throw Error('ConstraintError');
+         records.set(key,clone(value));return key;
+        }),
+        put:value=>req(()=>{
+         const key=keyOf(value);records.set(key,clone(value));return key;
+        })
+       };
+       if(name==='operations')store.index=index=>{
         if(index!=='by_identity')throw Error('unexpected index');
-        return {getAll:key=>req(()=>[...copy.values()].filter(v=>v.familyId===key[0]
-         &&v.actorUid===key[1]).map(clone))};
-       }
-      });
+        return {getAll:key=>req(()=>[...records.values()]
+         .filter(v=>v.familyId===key[0]&&v.actorUid===key[1]).map(clone))};
+       };
+       return store;
+      };
       scheduleFinish();
       return tx;
      }
@@ -87,7 +96,7 @@ function fakeIndexedDB(){
    });
    return r;
   },
-  _read(name){return databases.get(name)?.records}
+  _read(name,store='operations'){return databases.get(name)?.stores.get(store);}
  };
 }
 function make(factory,name='idb-test'){
@@ -189,4 +198,116 @@ test('input failures and transaction aborts do not mark operation persisted',asy
  await x.enqueue(op(O1));
  await assert.rejects(()=>x.enqueue(op(O1,{createdAt:'2026-11-10T08:31:00Z'})),/same_id_different_payload/);
  assert.equal((await x.ready(scope)).length,1);
+});
+
+const CHILD='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
+const SIZES=['NB','S','M','L','XL','XXL'];
+function stock(s=100){return Object.fromEntries(SIZES.map(k=>[k,k==='S'?s:0]));}
+function revisions(s=2){return Object.fromEntries(SIZES.map(k=>[k,k==='S'?s:1]));}
+function delta(id=O1,child=CHILD){
+ return Contract.createOperation({id,type:'inventory.delta',familyId:F,
+  actorUid:'user-dad',expectedRevision:null,
+  createdAt:'2026-11-18T10:00:00.000Z',
+  payload:{childId:child,kind:'buy',size:'S',amount:5,
+   purchase:{brand:'好奇',series:'小森林',totalFen:500,
+    purchaseDate:'2026-11-18'}}});
+}
+function verifiedUpdate(s=120,rev=3,child=CHILD){
+ return {childId:child,inventory:stock(s),serverRevisions:revisions(rev)};
+}
+test('T02-P1-02 verified refresh updates an existing six-size snapshot and preserves local fields',async()=>{
+ const f=fakeIndexedDB(),x=make(f,'refresh-update');
+ const initial=await x.initializeInventory(scope,{childId:CHILD,
+  inventory:stock(100),serverRevisions:revisions(2),source:'verified-server'});
+ const op=delta();
+ await x.commitInventory(scope,op);
+ await x.recordDeltaAck(scope,O1,{operationId:O1,childId:CHILD,
+  size:'S',quantity:105,revision:3,duplicate:false});
+ const before=await x.readInventory(scope,CHILD);
+ const result=await x.updateVerifiedInventory(scope,verifiedUpdate(120,4));
+ assert.equal(result.status,'UPDATED');
+ const after=await x.readInventory(scope,CHILD);
+ assert.equal(after.inventory.S,120);
+ assert.equal(after.serverRevisions.S,4);
+ assert.equal(after.source,'verified-server');
+ assert.equal(after.localRevision,before.localRevision);
+ assert.deepEqual(after.transactions,before.transactions);
+ assert.equal(after.transactions.length,1);
+ assert.equal(after.transactions[0].id,O1);
+ assert.equal(after.familyId,initial.familyId);
+ assert.equal(after.actorUid,initial.actorUid);
+ assert.equal(after.childId,CHILD);
+ assert.equal(after.key,undefined,'snapshot key remains storage metadata only');
+});
+test('T02-P1-02 pending, retry, conflict and blocked 009 operations prevent baseline replacement',async()=>{
+ const cases=[
+  ['pending',null],['retry',{kind:'timeout'}],
+  ['conflict',{kind:'conflict'}],['blocked',{kind:'forbidden'}]
+ ];
+ for(const [status,result] of cases){
+  const x=make(fakeIndexedDB(),'queue-'+status);
+  await x.initializeInventory(scope,{childId:CHILD,inventory:stock(100),
+   serverRevisions:revisions(2),source:'verified-server'});
+  await x.enqueue(delta());
+  if(result)await x.recordResult(scope,O1,result);
+  const before=await x.readInventory(scope,CHILD);
+  const answer=await x.updateVerifiedInventory(scope,verifiedUpdate(160,3));
+  assert.equal(answer.status,'LOCAL_OPERATIONS_PENDING',status);
+  assert.equal(answer.outstanding,1);
+  const after=await x.readInventory(scope,CHILD);
+  assert.deepEqual(after,before);
+  const rows=await x.list(scope,{includeAcked:true});
+  assert.equal(rows[0].id,O1);
+  assert.equal(rows[0].status,status);
+  assert.equal(rows[0]._signature,delta()._signature);
+ });
+});
+test('T02-P1-02 ACKed and abandoned history does not block a verified baseline update or initialization',async()=>{
+ const x=make(fakeIndexedDB(),'terminal-history');
+ await x.enqueue(delta(O1));
+ await x.recordResult(scope,O1,{kind:'accepted',receiptId:O1});
+ const stocktake=Contract.createOperation({id:O2,type:'inventory.count',
+  familyId:F,actorUid:'user-dad',expectedRevision:2,
+  createdAt:'2026-11-18T10:01:00.000Z',
+  payload:{childId:CHILD,kind:'stocktake',size:'S',count:90}});
+ await x.enqueue(stocktake);
+ await x.abandonSingleStocktakeConflict(scope,O2);
+ const initial=await x.initializeInventory(scope,{childId:CHILD,
+  inventory:stock(100),serverRevisions:revisions(2),source:'verified-server'});
+ assert.equal(initial.inventory.S,100);
+ const answer=await x.updateVerifiedInventory(scope,verifiedUpdate(110,3));
+ assert.equal(answer.status,'UPDATED');
+ assert.equal((await x.readInventory(scope,CHILD)).inventory.S,110);
+ const history=await x.list(scope,{includeAcked:true});
+ assert.deepEqual(history.map(x=>x.status).sort(),['abandoned','acked']);
+});
+test('T02-P1-02 lower server revision and equal-revision quantity mismatch never overwrite the snapshot',async()=>{
+ const x=make(fakeIndexedDB(),'revision-guard');
+ await x.initializeInventory(scope,{childId:CHILD,inventory:stock(100),
+  serverRevisions:revisions(3),source:'verified-server'});
+ const lower=await x.updateVerifiedInventory(scope,verifiedUpdate(90,2));
+ assert.equal(lower.status,'SERVER_REVISION_ROLLBACK');
+ assert.equal((await x.readInventory(scope,CHILD)).inventory.S,100);
+ const mismatch=await x.updateVerifiedInventory(scope,verifiedUpdate(90,3));
+ assert.equal(mismatch.status,'SERVER_REVISION_QUANTITY_MISMATCH');
+ assert.equal((await x.readInventory(scope,CHILD)).inventory.S,100);
+ const newer=await x.updateVerifiedInventory(scope,verifiedUpdate(110,4));
+ assert.equal(newer.status,'UPDATED');
+ assert.equal((await x.readInventory(scope,CHILD)).inventory.S,110);
+});
+test('T02-P1-02 family, actor and child scopes cannot update another snapshot',async()=>{
+ const x=make(fakeIndexedDB(),'scope-guard');
+ await x.initializeInventory(scope,{childId:CHILD,inventory:stock(100),
+  serverRevisions:revisions(2),source:'verified-server'});
+ const otherChild='e7d936c8-00c1-45c9-8d2e-6f1424f97c91';
+ const wrongActor=await x.updateVerifiedInventory(otherScope,
+  verifiedUpdate(160,3,CHILD));
+ const wrongFamily=await x.updateVerifiedInventory(remoteScope,
+  verifiedUpdate(160,3,CHILD));
+ const wrongChild=await x.updateVerifiedInventory(scope,
+  verifiedUpdate(160,3,otherChild));
+ assert.equal(wrongActor.status,'SNAPSHOT_NOT_INITIALIZED');
+ assert.equal(wrongFamily.status,'SNAPSHOT_NOT_INITIALIZED');
+ assert.equal(wrongChild.status,'SNAPSHOT_NOT_INITIALIZED');
+ assert.equal((await x.readInventory(scope,CHILD)).inventory.S,100);
 });
