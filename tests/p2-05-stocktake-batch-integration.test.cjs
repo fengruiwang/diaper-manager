@@ -85,7 +85,7 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false}={}){
  };
  const idbStore={
   async enqueue(op){if(queued.has(op.id))throw Error('duplicate_id');
-   queued.set(op.id,{...op});return {duplicate:false};},
+   queued.set(op.id,{...op});return {...op,duplicate:false};},
   async ready(){return [...queued.values()].filter(x=>x.status==='pending'||x.status==='retry');},
   async stats(){const list=[...queued.values()];return{
    total:list.length,outstanding:list.filter(x=>x.status!=='acked').length,
@@ -108,7 +108,7 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false}={}){
   buildAllowsWrites:enabled,operatorApproved:()=>enabled,purchaseOnly:true,
   allowConsume:true,allowReverse:true,allowStocktake:true,
    allowBatchStocktake:true,fastBatchStocktake:fast,
-  readStocktakeBaseline:()=>displayed,batchStocktake:bridge,
+  readStocktakeBaseline:()=>({...scope,...displayed}),batchStocktake:bridge,
   createBatchId:()=>{uuidCalls++;return BATCH;},
   onBatchAck:async({batchId,changes,items})=>{
    assert.equal(batchId,BATCH);assert.equal(changes.length,items.length);
