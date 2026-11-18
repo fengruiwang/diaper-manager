@@ -220,6 +220,6 @@ test('P2-04 leaves production and formal write gates off; bundled sources stay i
  const controller=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8');
  assert.match(controller,/allowStocktake:true/);
- assert.match(controller,/allowStocktake:true,readStocktakeBaseline/);
+ assert.match(controller,/allowStocktake:true,allowBatchStocktake:true,fastBatchStocktake:true/);
  assert.match(controller,/batchStocktake:batchGuard/);
 });
