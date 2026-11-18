@@ -1,0 +1,33 @@
+name: XiaoBao T03-P2-01 V1.2.0 rc5 full-write candidate (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+    paths:
+      - 'release-candidate/pages-v1.2.0-rc5/**'
+      - 'scripts/build-pages-v120-rc5.cjs'
+      - 'tests/pages-v120-rc5.test.cjs'
+      - '.github/workflows/pages-v120-rc5.yml'
+permissions:
+  contents: read
+jobs:
+  rc5-candidate:
+    name: RC5 full-write package parity and local HTTP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify deterministic RC5 package
+        run: node scripts/build-pages-v120-rc5.cjs --check
+      - name: Verify full write routes, T03 recovery and isolated HTTP package
+        run: node --test tests/pages-v120-rc5.test.cjs
+      - name: Archive RC5 package only - no Tencent upload or Pages deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-V1.2.0-RC5-FULL-WRITE
+          path: release-candidate/pages-v1.2.0-rc5/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

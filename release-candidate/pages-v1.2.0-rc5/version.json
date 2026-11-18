@@ -1,0 +1,7 @@
+{
+  "version": "1.2.0-rc.5",
+  "channel": "release-candidate",
+  "source_sha": "95052656b463a33cfd74394e6acace87f67ec458",
+  "released": "2026-11-19",
+  "notes": "V1.2.0 全部已实现业务写入开放；009/027盘点恢复修复；CloudBase正常账号及家庭权限保持有效；隔离候选，未部署"
+}
