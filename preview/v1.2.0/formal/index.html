@@ -207,6 +207,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
       <div class="head"><h2>📊 我的候选价格</h2><button class="btn ghost sm" id="clearQuotes">清空候选</button></div>
       <div class="card" id="quoteList"></div>
       <div class="fine" id="formalQuoteListFeedback" role="status" aria-live="polite"></div>
+      <div class="fine" id="formalQuotePurchaseFeedback" role="status" aria-live="polite"></div>
       <p class="soft-note">输入整单实际支付总价，片数应包含实际收到的赠品片数。参考价格取自本工具的内置好价库，可以自行调整；纸尿裤与拉拉裤请核对具体商品是否一致。</p>
       <div class="head"><h2>📚 参考好价速查表</h2><span class="sub">按品牌 / 尺码查找，支持修改自己的参考价</span></div>
       <div class="card">
@@ -2670,7 +2671,7 @@ restoreActiveTab();
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
   async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false,
-  allowReverse=false,allowStocktake=false}={}){
+  allowReverse=false,allowStocktake=false,fastPurchaseId=null}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -2679,20 +2680,51 @@ restoreActiveTab();
    if(uploadEnabled!==true)
     return {status:'upload-disabled',attempted:0,accepted:0,remaining:null};
 
-   let grant;
-   try{grant=await verifyAccess({familyId:scope.familyId,actorUid:scope.actorUid});}
-   catch(_){
-    return {status:'verification-unavailable',attempted:0,accepted:0,remaining:null};
-   }
-   // Must come from a fresh authenticated cloud read; NOT a cached alias or
-   // an operator-selected role in localStorage.
-   if(!grant||grant.familyId!==scope.familyId||grant.actorUid!==scope.actorUid
+   if(fastPurchaseId===null){
+    let grant;
+    try{grant=await verifyAccess({familyId:scope.familyId,actorUid:scope.actorUid});}
+    catch(_){
+     return {status:'verification-unavailable',attempted:0,accepted:0,remaining:null};
+    }
+    if(!grant||grant.familyId!==scope.familyId||grant.actorUid!==scope.actorUid
       ||grant.appCode!=='xb'||grant.member!==true)
-    return {status:'permission-unverified',attempted:0,accepted:0,remaining:null};
-   if(grant.initialized!==true)
-    return {status:'family-not-initialized',attempted:0,accepted:0,remaining:null};
-
+     return {status:'permission-unverified',attempted:0,accepted:0,remaining:null};
+    if(grant.initialized!==true)
+     return {status:'family-not-initialized',attempted:0,accepted:0,remaining:null};
+   }
    const queued=await outbox.ready(scope);
+   // The trusted caller already checked the current login, displayed stock,
+   // pending IDB count, and a newly persisted one-time operation UUID.
+   if(fastPurchaseId!==null){
+    if(queued.length!==1||queued[0]?.id!==fastPurchaseId
+      ||queued[0].type!=='inventory.delta'
+      ||queued[0].payload?.kind!=='buy'
+      ||queued[0].familyId!==scope.familyId
+      ||queued[0].actorUid!==scope.actorUid)
+     return {status:'fast-purchase-not-single-pending',attempted:0,accepted:0};
+    const op=queued[0];
+    try{
+     const receipt=await remote.applyOperation(toRemote(op));
+     if(receipt?.operationId!==op.id
+       ||receipt.childId!==op.payload.childId
+       ||receipt.size!==op.payload.size
+       ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
+       ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
+      return {status:'purchase-ack-unverified',attempted:1,accepted:0};
+     await outbox.recordResult(scope,op.id,{
+      kind:receipt.duplicate?'duplicate':'accepted',receiptId:op.id
+     });
+     return {status:receipt.duplicate?'purchase-ack-recovered':
+       'purchase-ack-confirmed',attempted:1,accepted:1,
+       receipt,operation:op,remaining:0};
+    }catch(e){
+     if(String(e?.message||'').startsWith('outbox_store:'))
+      return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};
+     try{await outbox.recordResult(scope,op.id,{kind:errorCode(e)});}
+     catch(_){return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};}
+     return {status:'purchase-ack-unknown',attempted:1,accepted:0};
+    }
+   }
    // A purchase-only release must not dispatch pre-existing non-buy operations.
    if(purchaseOnly===true&&queued.some(op=>
      !(op?.type==='inventory.delta'
@@ -3316,6 +3348,7 @@ restoreActiveTab();
     ||!outbox?.commitInventory||!outbox?.stats)
    throw Error('primary_operations:primary_outbox_unverified');
   let selected=null,busy=false;
+  const freshPurchaseIds=new Set();
   const online=()=>host?.navigator?.onLine!==false;
   function knownRows(rows){
    if(!Array.isArray(rows)||rows.length!==6)
@@ -3438,7 +3471,7 @@ restoreActiveTab();
     selected={familyId:scope.familyId,actorUid:scope.actorUid,
      childId:scope.childId};
     return result('PRIMARY_OUTBOX_READ_ONLY_READY',{childId:scope.childId});
-   }catch(_){selected=null;return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
+   }catch(_){selected=null;freshPurchaseIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
    finally{busy=false;}
   }
   async function read(){
@@ -3466,7 +3499,8 @@ restoreActiveTab();
    }catch(_){return result('PRIMARY_CLOUD_READ_UNVERIFIED');}
    finally{busy=false;}
   }
-  async function queue(op,{operatorApproved=false}={}){
+  async function queue(op,{operatorApproved=false,
+    verifiedPurchaseBaseline=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -3476,7 +3510,15 @@ restoreActiveTab();
    if(!online())return result('OFFLINE_FORMAL_QUEUE_NOT_APPROVED');
    busy=true;
    try{
-    const scope=await current();
+    const ctx=controller.verifiedContext();
+    const fast=op?.type==='inventory.delta'&&op?.payload?.kind==='buy'
+      &&verifiedPurchaseBaseline?.status==='PRIMARY_PURCHASE_BASELINE_VERIFIED'
+      &&selected&&ctx?.app
+      &&selected.familyId===ctx.familyId&&selected.actorUid===ctx.actorUid
+      &&selected.childId===verifiedPurchaseBaseline.childId
+      &&verifiedPurchaseBaseline.familyId===selected.familyId
+      &&verifiedPurchaseBaseline.actorUid===selected.actorUid;
+    const scope=fast?{app:ctx.app,...selected}:await current();
     if(purchaseOnly===true
       &&!(op?.type==='inventory.delta'
        &&(op?.payload?.kind==='buy'
@@ -3493,6 +3535,25 @@ restoreActiveTab();
     // used by M1-02 verify the immutable operation prior to IDB commit.
     const runner=runnerFactory.create({outbox,remote,verifyAccess:authInitialized});
     remote.normalizeOperation(runner.toRemote(op));
+    if(fast){
+     const [pending,snapshot]=await Promise.all([
+      outbox.stats(scope),outbox.readInventory(scope,scope.childId)
+     ]);
+     if(pending.outstanding!==0||!snapshot
+       ||snapshot.source!=='verified-server'
+       ||snapshot.familyId!==scope.familyId||snapshot.actorUid!==scope.actorUid
+       ||snapshot.childId!==scope.childId
+       ||!SIZES.every(size=>Number.isSafeInteger(
+        verifiedPurchaseBaseline.inventory[size])
+        &&snapshot.inventory?.[size]===verifiedPurchaseBaseline.inventory[size]))
+      return result('PRIMARY_PENDING_OR_CONFLICT_REVIEW_BEFORE_NEW_OPERATION');
+     const written=await outbox.commitInventory(scope,op);
+     if(written.duplicate!==true)freshPurchaseIds.add(op.id);
+     return result(written.duplicate?'PRIMARY_OPERATION_ALREADY_QUEUED':
+       'PRIMARY_OPERATION_DURABLY_QUEUED',{
+        operationId:op.id,fastPurchase:written.duplicate!==true
+       });
+    }
     await authInitialized();
     // Prevent one device from basing a new use/stocktake on yesterday's
     // snapshot. Reuse the existing ACK-aware reconciliation just as M1-02
@@ -3513,7 +3574,7 @@ restoreActiveTab();
    }catch(_){return result('PRIMARY_LOCAL_QUEUE_UNVERIFIED');}
    finally{busy=false;}
   }
-  async function flush({operatorApproved=false}={}){
+  async function flush({operatorApproved=false,fastPurchaseId=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -3521,13 +3582,36 @@ restoreActiveTab();
    if(busy)return result('BUSY');
    busy=true;
    try{
-    const scope=await current();
-    await authInitialized();
+    const ctx=controller.verifiedContext();
+    const fast=typeof fastPurchaseId==='string'
+      &&freshPurchaseIds.has(fastPurchaseId)&&selected&&ctx?.app
+      &&selected.familyId===ctx.familyId&&selected.actorUid===ctx.actorUid;
+    if(fastPurchaseId!==null&&!fast)
+     return result('PRIMARY_PENDING_OR_CONFLICT_REVIEW_BEFORE_NEW_OPERATION',
+      {operationId:fastPurchaseId});
+    const scope=fast?{app:ctx.app,...selected}:await current();
+    if(!fast)await authInitialized();
     const remote=inventoryClient.create(scope.app);
     const runner=runnerFactory.create({outbox,remote,verifyAccess:authInitialized});
+    if(fast)freshPurchaseIds.delete(fastPurchaseId);
     const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20,
      purchaseOnly:purchaseOnly===true,allowConsume:allowConsume===true,
-     allowReverse:allowReverse===true,allowStocktake:allowStocktake===true});
+     allowReverse:allowReverse===true,allowStocktake:allowStocktake===true,
+     fastPurchaseId:fast?fastPurchaseId:null});
+    if(fast){
+     if(sent?.status==='purchase-ack-confirmed'
+       &&sent.receipt?.duplicate!==true)
+      return result('PRIMARY_PURCHASE_ACK_CONFIRMED',{
+       operationId:fastPurchaseId,operation:sent.operation,
+       receipt:sent.receipt,cloudWriteCommitted:true,
+       familyId:scope.familyId,actorUid:scope.actorUid,
+       childId:scope.childId
+      });
+     return result(sent?.status==='purchase-ack-recovered'
+       ?'PRIMARY_PURCHASE_ACK_RECOVERED_NEEDS_REFRESH':
+       'PRIMARY_ACK_UNKNOWN_PRESERVE_ID_AND_QUEUE',
+       {operationId:fastPurchaseId});
+    }
     if(!sent||['manual-review-required','permission-denied','auth-required',
       'network-or-server-failure','unsupported-pending-type']
       .includes(sent.status))
@@ -3655,7 +3739,8 @@ restoreActiveTab();
    return {id,type,familyId:scope.familyId,actorUid:scope.actorUid,
      expectedRevision,createdAt,payload};
   }
-  async function submit(action,value,{operatorApproved=false}={}){
+  async function submit(action,value,{operatorApproved=false,
+    verifiedPurchaseBaseline=null}={}){
    if(busy)return ret('BUSY');
    // This is intentionally ahead of UUID generation and read/SDK calls.
    if(primary.cloudWritesEnabled!==true||operatorApproved!==true)
@@ -3666,9 +3751,15 @@ restoreActiveTab();
     if(!scope||!UUID.test(scope.familyId)||!UUID.test(scope.childId)
       ||typeof scope.actorUid!=='string'||!scope.actorUid)
      return ret('PRIMARY_NOT_SELECTED');
-    const fresh=await primary.read();
-    if(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
-      ||!fresh.inventory||!fresh.revisions)
+    const fast=action==='purchase'
+      &&verifiedPurchaseBaseline?.status==='PRIMARY_PURCHASE_BASELINE_VERIFIED'
+      &&verifiedPurchaseBaseline.familyId===scope.familyId
+      &&verifiedPurchaseBaseline.actorUid===scope.actorUid
+      &&verifiedPurchaseBaseline.childId===scope.childId
+      &&verifiedPurchaseBaseline.inventory&&verifiedPurchaseBaseline.revisions;
+    const fresh=fast?verifiedPurchaseBaseline:await primary.read();
+    if(!fast&&(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
+      ||!fresh.inventory||!fresh.revisions))
      return ret('PRIMARY_FRESH_STOCK_UNVERIFIED');
     if(action==='consume'&&SIZES.includes(value?.size)
       &&Number.isSafeInteger(value?.count)&&value.count>=1
@@ -3685,13 +3776,15 @@ restoreActiveTab();
     const operation=input(action,value,scope,fresh.revisions);
     // queue() persists stable immutable operation into the primary-only IDB.
     // Never auto flush from a click; the explicit send action is separate.
-    const queued=await primary.queue(operation,{operatorApproved:true});
+    const queued=await primary.queue(operation,{operatorApproved:true,
+      verifiedPurchaseBaseline:fast?fresh:null});
     if(!queued||!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued.status)){
      return ret('PRIMARY_QUEUE_UNVERIFIED_PRESERVE_ORIGINAL_ID',
       {operationId:operation.id});
     }
     return ret(queued.status,{operationId:operation.id,
+      fastPurchase:queued.fastPurchase===true,
       cloudWriteCommitted:false});
    }catch(_){return ret('PRIMARY_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
@@ -3721,6 +3814,7 @@ restoreActiveTab();
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
+  readPurchaseBaseline=null,onPurchaseAck=null,
   notify,formalModeSelected,onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
@@ -3755,6 +3849,7 @@ restoreActiveTab();
   const minimalReview={purchase:null,quotes:null};
   const minimalLabels={purchase:null,quotes:null};
   let minimalQuoteIntent=null,quoteButton=null,quoteButtonLabel='',quoteAction='add';
+  let purchaseButton=null,purchaseButtonLabel='',purchaseFromQuote=false;
   function quoteFeedback(phase,answer=null){
    const doc=attached?.doc;
    const action=minimalQuoteIntent?.action||quoteAction;
@@ -3811,22 +3906,36 @@ restoreActiveTab();
   function minimalFeedback(kind,phase,answer=null){
    if(kind==='quotes')return quoteFeedback(phase,answer);
    const dom=attached?.doc;
-   const button=dom?.getElementById(kind==='purchase'?'buyNow':'saveQuote');
-   const text=dom?.getElementById('formalCompareActionFeedback');
-   if(!button)return;
-   if(!minimalLabels[kind])minimalLabels[kind]=button.textContent||
-    (kind==='purchase'?'已购买 · 立即入库':'加入候选价');
-   const name=kind==='purchase'?'采购':'候选价';
-   if(text)text.textContent=phase==='working'?'正在保存'+name+'…':
-    phase==='success'?name+'保存成功，云端回执与页面读回已确认。':
-    phase==='pending'?'正在核验，请勿重复提交；原请求已保留，请使用“核验待处理”。':
-    phase==='recovered'?'原'+name+'请求已核验，可继续操作。':
-    errorText(String(answer?.status||''),kind);
+   const buttons=[dom?.getElementById('buyNow'),
+    ...(dom?.getElementById('quoteList')
+      ?.querySelectorAll?.('[data-action="buyquote"]')||[])].filter(Boolean);
+   if(purchaseButton&&!buttons.includes(purchaseButton))buttons.push(purchaseButton);
+   const node=dom?.getElementById(purchaseFromQuote
+    ?'formalQuotePurchaseFeedback':'formalCompareActionFeedback');
+   const status=String(answer?.status||'');
+   if(node)node.textContent=phase==='working'
+    ?purchaseFromQuote?'正在将候选价入库…':'正在采购入库…'
+    :phase==='success'
+     ?purchaseFromQuote?'候选商品已入库':'采购入库成功，库存已更新'
+    :phase==='pending'
+     ?'入库状态待核验，原 operation UUID 已保留，请勿重复提交。'
+    :phase==='recovered'?'原采购操作已核验，可继续操作。'
+    :/CONFLICT|REVISION/.test(status)
+     ?'库存版本已变化，请获取云端最新后重新检查。'
+    :errorText(status,'purchase');
    const waiting=phase==='working'||phase==='pending';
-   button.disabled=waiting;
-   button.textContent=waiting?(phase==='working'?'正在保存…':'等待核验…'):
-    phase==='success'&&kind==='quotes'?'加入候选价':minimalLabels[kind];
-   if(!waiting)minimalLabels[kind]=null;
+   for(const button of buttons){
+    if(button)button.disabled=waiting;
+   }
+   if(purchaseButton){
+    purchaseButton.textContent=waiting
+     ?phase==='pending'?'等待核验…':
+      purchaseFromQuote?'正在将候选价入库…':'正在采购入库…'
+     :purchaseButtonLabel;
+   }
+   if(!waiting){
+    purchaseButton=null;purchaseButtonLabel='';purchaseFromQuote=false;
+   }
   }
   function dispatchMinimal(el,doc,kind){
    if(minimalBusy[kind])return;
@@ -3835,6 +3944,11 @@ restoreActiveTab();
     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
    }
    minimalBusy[kind]=true;
+   if(kind==='purchase'){
+    purchaseButton=el;
+    purchaseButtonLabel=el.textContent||'入库';
+    purchaseFromQuote=el.dataset?.action==='buyquote';
+   }
    if(kind==='quotes'){
     minimalQuoteIntent=null;quoteButton=el;
     quoteButtonLabel=el.textContent||'加入候选价';
@@ -3848,10 +3962,11 @@ restoreActiveTab();
    try{promise=handle(el,doc);}
    catch(_){promise=Promise.resolve(result('FORMAL_OPERATION_REVIEW_REQUIRED'));}
    void Promise.resolve(promise).then(answer=>{
-    const success=answer?.status===(kind==='purchase'
-     ?'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED':
-      'QUOTES_CLOUD_READBACK_VERIFIED')
-     ||kind==='quotes'&&answer?.status==='QUOTES_CLOUD_ACK_APPLIED';
+    const success=kind==='purchase'
+     ?['PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
+       'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+     :['QUOTES_CLOUD_ACK_APPLIED',
+       'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
     if(!success){
      const id=kind==='purchase'?answer?.operationId:answer?.requestId;
      if(typeof id==='string'&&id)
@@ -4067,7 +4182,11 @@ restoreActiveTab();
    if(busy)return result('BUSY');
    busy=true;
    try{
-    const queued=await commands.submit(action,value,{operatorApproved:true});
+    const baseline=action==='purchase'
+     &&typeof readPurchaseBaseline==='function'?readPurchaseBaseline():null;
+    const queued=await commands.submit(action,value,{
+     operatorApproved:true,verifiedPurchaseBaseline:baseline
+    });
     if(purchaseOnly!==true
       ||(action!=='purchase'
        &&!(allowConsume===true&&action==='consume')
@@ -4082,12 +4201,30 @@ restoreActiveTab();
      return queued;
     // RPC retries reuse the same durable UUID; never create a second buy.
     let synced;
-    try{synced=await primary.flush({operatorApproved:true});}
+    try{synced=await primary.flush({operatorApproved:true,
+      fastPurchaseId:action==='purchase'&&queued.fastPurchase===true
+       ?queued.operationId:null});}
     catch(_){
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     }
-    if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
+    if(action==='purchase'
+      &&synced?.status==='PRIMARY_PURCHASE_ACK_CONFIRMED'){
+     let applied='pending';
+     try{applied=typeof onPurchaseAck==='function'
+      ?await onPurchaseAck(synced):'pending';}catch(_){}
+     if(applied==='ready')return Object.freeze({
+      status:'PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
+      operationId:queued.operationId,cloudWriteCommitted:true
+     });
+     // This was a real commit; only the local view still needs recovery.
+     return Object.freeze({
+      status:'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
+      operationId:queued.operationId,cloudWriteCommitted:true
+     });
+    }
+    if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED'
+      &&synced?.status!=='PRIMARY_PURCHASE_ACK_RECOVERED_NEEDS_REFRESH')
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
@@ -4957,7 +5094,7 @@ restoreActiveTab();
     if(el.id==='saveSizePreferences'||el.id==='savePlans'||el.dataset?.preset){
      dispatchDocumentSave(el,doc,'settings');return;
     }
-    if(el.id==='buyNow'){
+    if(el.id==='buyNow'||action==='buyquote'){
      dispatchMinimal(el,doc,'purchase');return;
     }
     if(el.id==='saveQuote'||el.id==='clearQuotes'

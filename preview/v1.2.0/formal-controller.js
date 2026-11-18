@@ -8,7 +8,7 @@
 const FORMAL_WRITE_ENABLED=false;
 const FORMAL_DOCUMENT_WRITE_ENABLED=true;
 // Purchase release is prepared but OFF until separate operator authorization.
-const FORMAL_PURCHASE_ENABLED=false;
+const FORMAL_PURCHASE_ENABLED=true;
 const SIZES=['NB','S','M','L','XL','XXL'];
 const OTP_COOLDOWN_MS=60000;
 // Five parallel server-authorized document RPCs, with no full-body second pass.
@@ -924,8 +924,88 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        &&purchaseOperatorApproved()===true,
       buildAllowsDocumentWrites:documentWritesEnabled===true,
       documentOperatorApproved:()=>documentWritesEnabled===true,
-      purchaseOnly:true,allowConsume:true,allowReverse:true,
-      allowStocktake:true,readStocktakeBaseline:()=>mode==='ready'?shownStock:null,
+      purchaseOnly:true,allowConsume:false,allowReverse:false,
+      allowStocktake:false,readStocktakeBaseline:()=>mode==='ready'?shownStock:null,
+      readPurchaseBaseline:()=>{
+       const current=controller.verifiedContext();
+       const base=primaryViewBase;
+       const selected=primary?.selectedScope?.();
+       if(mode!=='ready'||!current||!selected||!base||!shownStock
+         ||actor!==ctx.actorUid||family!==ctx.familyId
+         ||identityEpoch!==documentEpoch
+         ||current.actorUid!==ctx.actorUid||current.familyId!==ctx.familyId
+         ||selected.familyId!==ctx.familyId
+         ||selected.actorUid!==ctx.actorUid
+         ||selected.childId!==base.childId
+         ||base.familyId!==ctx.familyId||base.actorUid!==ctx.actorUid
+         ||base.status!=='PRIMARY_READ_ONLY_READY'
+         ||!base.state?.inventory||!shownStock.revisions)return null;
+       return Object.freeze({
+        status:'PRIMARY_PURCHASE_BASELINE_VERIFIED',
+        familyId:ctx.familyId,actorUid:ctx.actorUid,
+        childId:base.childId,inventory:{...base.state.inventory},
+        revisions:{...shownStock.revisions}
+       });
+      },
+      onPurchaseAck:async(ack)=>{
+       const current=controller.verifiedContext();
+       const selected=primary?.selectedScope?.();
+       const op=ack?.operation,payload=op?.payload,
+        receipt=ack?.receipt,base=primaryViewBase;
+       if(!current||mode!=='ready'||identityEpoch!==documentEpoch
+         ||actor!==ctx.actorUid||family!==ctx.familyId
+         ||current.actorUid!==ctx.actorUid||current.familyId!==ctx.familyId
+         ||!selected||selected.childId!==base?.childId
+         ||!base||base.status!=='PRIMARY_READ_ONLY_READY'
+         ||base.familyId!==ctx.familyId||base.actorUid!==ctx.actorUid
+         ||ack.familyId!==ctx.familyId||ack.actorUid!==ctx.actorUid
+         ||ack.childId!==base.childId||op?.familyId!==ctx.familyId
+         ||op.actorUid!==ctx.actorUid||op.type!=='inventory.delta'
+         ||payload?.kind!=='buy'||payload.childId!==base.childId
+         ||receipt?.operationId!==op.id||ack.operationId!==op.id
+         ||receipt.childId!==base.childId
+         ||receipt.size!==payload.size||!SIZES.includes(receipt.size)
+         ||receipt.duplicate===true
+         ||!Number.isSafeInteger(payload.amount)||payload.amount<1
+         ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
+         ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1
+         ||!Number.isSafeInteger(shownStock?.revisions?.[payload.size])
+         ||receipt.revision<=shownStock.revisions[payload.size]
+         ||!payload.purchase||!Number.isSafeInteger(payload.purchase.totalFen)
+         ||!payload.purchase.purchaseDate
+         ||base.state?.transactions?.some(x=>x.operationId===op.id))
+        return 'pending';
+       const p=payload.purchase;
+       const row={id:'cloud:'+op.id,type:'buy',
+        date:p.purchaseDate,brand:p.brand,series:p.series,
+        size:payload.size,pieces:payload.amount,
+        price:p.totalFen/100,operationId:op.id,
+        reversed:false,reversedByOperationId:null,
+        origin:'cloud_post_migration'};
+       const inventory={...base.state.inventory,[payload.size]:receipt.quantity};
+       const revisions={...base.revisions,[payload.size]:receipt.revision};
+       const nextBase=Object.freeze({...base,
+        state:Object.freeze({...base.state,
+         inventory,transactions:[row,...base.state.transactions]}),
+        revisions:Object.freeze(revisions),
+        historyCount:(base.historyCount??base.state.transactions.length)+1});
+       let view;
+       try{
+        view=documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
+          &&documentScope===ctx.actorUid+'\x00'+ctx.familyId
+         ?documentsOverlay.apply(nextBase,documentSnapshot):nextBase;
+        if(view.state.inventory[payload.size]!==receipt.quantity
+          ||!view.state.transactions.some(x=>x.operationId===op.id))
+         return 'pending';
+        showCloudView(view,current);
+       }catch(_){return 'pending';}
+       primaryViewBase=nextBase;
+       shownStock=Object.freeze({
+        inventory:Object.freeze({...inventory}),
+        revisions:Object.freeze({...revisions})
+       });
+       return 'ready';
+      },
       onPurchaseReadback:({operationId,kind,reversesOperationId,
        size,count,expectedRevision})=>restore({
        expectedPurchaseId:kind==='buy'?operationId:null,
@@ -1041,7 +1121,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'共享文档已有其他设备更新，请刷新后重新编辑；未覆盖新数据。'
          :answer?.status==='DOCUMENT_PENDING_REVIEW_REQUIRED'
          ?'上次共享文档请求尚未核实，请使用待同步重试，不要重复保存。'
-         :['PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+         :['PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
+          'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_USE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
          ?'云端采购、消耗或撤销已确认，正式库存及记录已重新读取。'
@@ -1483,6 +1564,7 @@ function browserStart(){
  });
  const app=create({
   host:root,doc,scriptLoader:loader,
+  purchaseOperatorApproved:()=>FORMAL_PURCHASE_ENABLED,
   loginController:root.XBM1PreviewModule,
   projection:root.XBPrimaryUIProjection,ui:root.XBM3UI,
   documentsFactory:app=>root.XBPrimaryDocumentsClient?.create({
@@ -1530,8 +1612,8 @@ function browserStart(){
    runnerFactory:root.XBInventoryOutboxRunner,
    syncFactory:root.XBInventorySyncReader,
    cloudWritesEnabled:cloudWritesEnabled===true,
-   purchaseOnly:true,allowConsume:true,allowReverse:true,
-    allowStocktake:true
+   purchaseOnly:true,allowConsume:false,allowReverse:false,
+    allowStocktake:false
   }),
   commandsFactory:root.XBPrimaryBusinessCommands,
   actionsFactory:root.XBPrimaryFormalUIActions

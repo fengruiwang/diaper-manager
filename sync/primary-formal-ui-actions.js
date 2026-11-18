@@ -16,6 +16,7 @@
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
+  readPurchaseBaseline=null,onPurchaseAck=null,
   notify,formalModeSelected,onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
@@ -50,6 +51,7 @@
   const minimalReview={purchase:null,quotes:null};
   const minimalLabels={purchase:null,quotes:null};
   let minimalQuoteIntent=null,quoteButton=null,quoteButtonLabel='',quoteAction='add';
+  let purchaseButton=null,purchaseButtonLabel='',purchaseFromQuote=false;
   function quoteFeedback(phase,answer=null){
    const doc=attached?.doc;
    const action=minimalQuoteIntent?.action||quoteAction;
@@ -106,22 +108,36 @@
   function minimalFeedback(kind,phase,answer=null){
    if(kind==='quotes')return quoteFeedback(phase,answer);
    const dom=attached?.doc;
-   const button=dom?.getElementById(kind==='purchase'?'buyNow':'saveQuote');
-   const text=dom?.getElementById('formalCompareActionFeedback');
-   if(!button)return;
-   if(!minimalLabels[kind])minimalLabels[kind]=button.textContent||
-    (kind==='purchase'?'已购买 · 立即入库':'加入候选价');
-   const name=kind==='purchase'?'采购':'候选价';
-   if(text)text.textContent=phase==='working'?'正在保存'+name+'…':
-    phase==='success'?name+'保存成功，云端回执与页面读回已确认。':
-    phase==='pending'?'正在核验，请勿重复提交；原请求已保留，请使用“核验待处理”。':
-    phase==='recovered'?'原'+name+'请求已核验，可继续操作。':
-    errorText(String(answer?.status||''),kind);
+   const buttons=[dom?.getElementById('buyNow'),
+    ...(dom?.getElementById('quoteList')
+      ?.querySelectorAll?.('[data-action="buyquote"]')||[])].filter(Boolean);
+   if(purchaseButton&&!buttons.includes(purchaseButton))buttons.push(purchaseButton);
+   const node=dom?.getElementById(purchaseFromQuote
+    ?'formalQuotePurchaseFeedback':'formalCompareActionFeedback');
+   const status=String(answer?.status||'');
+   if(node)node.textContent=phase==='working'
+    ?purchaseFromQuote?'正在将候选价入库…':'正在采购入库…'
+    :phase==='success'
+     ?purchaseFromQuote?'候选商品已入库':'采购入库成功，库存已更新'
+    :phase==='pending'
+     ?'入库状态待核验，原 operation UUID 已保留，请勿重复提交。'
+    :phase==='recovered'?'原采购操作已核验，可继续操作。'
+    :/CONFLICT|REVISION/.test(status)
+     ?'库存版本已变化，请获取云端最新后重新检查。'
+    :errorText(status,'purchase');
    const waiting=phase==='working'||phase==='pending';
-   button.disabled=waiting;
-   button.textContent=waiting?(phase==='working'?'正在保存…':'等待核验…'):
-    phase==='success'&&kind==='quotes'?'加入候选价':minimalLabels[kind];
-   if(!waiting)minimalLabels[kind]=null;
+   for(const button of buttons){
+    if(button)button.disabled=waiting;
+   }
+   if(purchaseButton){
+    purchaseButton.textContent=waiting
+     ?phase==='pending'?'等待核验…':
+      purchaseFromQuote?'正在将候选价入库…':'正在采购入库…'
+     :purchaseButtonLabel;
+   }
+   if(!waiting){
+    purchaseButton=null;purchaseButtonLabel='';purchaseFromQuote=false;
+   }
   }
   function dispatchMinimal(el,doc,kind){
    if(minimalBusy[kind])return;
@@ -130,6 +146,11 @@
     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
    }
    minimalBusy[kind]=true;
+   if(kind==='purchase'){
+    purchaseButton=el;
+    purchaseButtonLabel=el.textContent||'入库';
+    purchaseFromQuote=el.dataset?.action==='buyquote';
+   }
    if(kind==='quotes'){
     minimalQuoteIntent=null;quoteButton=el;
     quoteButtonLabel=el.textContent||'加入候选价';
@@ -143,10 +164,11 @@
    try{promise=handle(el,doc);}
    catch(_){promise=Promise.resolve(result('FORMAL_OPERATION_REVIEW_REQUIRED'));}
    void Promise.resolve(promise).then(answer=>{
-    const success=answer?.status===(kind==='purchase'
-     ?'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED':
-      'QUOTES_CLOUD_READBACK_VERIFIED')
-     ||kind==='quotes'&&answer?.status==='QUOTES_CLOUD_ACK_APPLIED';
+    const success=kind==='purchase'
+     ?['PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
+       'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+     :['QUOTES_CLOUD_ACK_APPLIED',
+       'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
     if(!success){
      const id=kind==='purchase'?answer?.operationId:answer?.requestId;
      if(typeof id==='string'&&id)
@@ -362,7 +384,11 @@
    if(busy)return result('BUSY');
    busy=true;
    try{
-    const queued=await commands.submit(action,value,{operatorApproved:true});
+    const baseline=action==='purchase'
+     &&typeof readPurchaseBaseline==='function'?readPurchaseBaseline():null;
+    const queued=await commands.submit(action,value,{
+     operatorApproved:true,verifiedPurchaseBaseline:baseline
+    });
     if(purchaseOnly!==true
       ||(action!=='purchase'
        &&!(allowConsume===true&&action==='consume')
@@ -377,12 +403,30 @@
      return queued;
     // RPC retries reuse the same durable UUID; never create a second buy.
     let synced;
-    try{synced=await primary.flush({operatorApproved:true});}
+    try{synced=await primary.flush({operatorApproved:true,
+      fastPurchaseId:action==='purchase'&&queued.fastPurchase===true
+       ?queued.operationId:null});}
     catch(_){
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     }
-    if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED')
+    if(action==='purchase'
+      &&synced?.status==='PRIMARY_PURCHASE_ACK_CONFIRMED'){
+     let applied='pending';
+     try{applied=typeof onPurchaseAck==='function'
+      ?await onPurchaseAck(synced):'pending';}catch(_){}
+     if(applied==='ready')return Object.freeze({
+      status:'PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
+      operationId:queued.operationId,cloudWriteCommitted:true
+     });
+     // This was a real commit; only the local view still needs recovery.
+     return Object.freeze({
+      status:'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
+      operationId:queued.operationId,cloudWriteCommitted:true
+     });
+    }
+    if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED'
+      &&synced?.status!=='PRIMARY_PURCHASE_ACK_RECOVERED_NEEDS_REFRESH')
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
@@ -1252,7 +1296,7 @@
     if(el.id==='saveSizePreferences'||el.id==='savePlans'||el.dataset?.preset){
      dispatchDocumentSave(el,doc,'settings');return;
     }
-    if(el.id==='buyNow'){
+    if(el.id==='buyNow'||action==='buyquote'){
      dispatchMinimal(el,doc,'purchase');return;
     }
     if(el.id==='saveQuote'||el.id==='clearQuotes'

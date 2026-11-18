@@ -42,7 +42,7 @@
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
   async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false,
-  allowReverse=false,allowStocktake=false}={}){
+  allowReverse=false,allowStocktake=false,fastPurchaseId=null}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -51,20 +51,51 @@
    if(uploadEnabled!==true)
     return {status:'upload-disabled',attempted:0,accepted:0,remaining:null};
 
-   let grant;
-   try{grant=await verifyAccess({familyId:scope.familyId,actorUid:scope.actorUid});}
-   catch(_){
-    return {status:'verification-unavailable',attempted:0,accepted:0,remaining:null};
-   }
-   // Must come from a fresh authenticated cloud read; NOT a cached alias or
-   // an operator-selected role in localStorage.
-   if(!grant||grant.familyId!==scope.familyId||grant.actorUid!==scope.actorUid
+   if(fastPurchaseId===null){
+    let grant;
+    try{grant=await verifyAccess({familyId:scope.familyId,actorUid:scope.actorUid});}
+    catch(_){
+     return {status:'verification-unavailable',attempted:0,accepted:0,remaining:null};
+    }
+    if(!grant||grant.familyId!==scope.familyId||grant.actorUid!==scope.actorUid
       ||grant.appCode!=='xb'||grant.member!==true)
-    return {status:'permission-unverified',attempted:0,accepted:0,remaining:null};
-   if(grant.initialized!==true)
-    return {status:'family-not-initialized',attempted:0,accepted:0,remaining:null};
-
+     return {status:'permission-unverified',attempted:0,accepted:0,remaining:null};
+    if(grant.initialized!==true)
+     return {status:'family-not-initialized',attempted:0,accepted:0,remaining:null};
+   }
    const queued=await outbox.ready(scope);
+   // The trusted caller already checked the current login, displayed stock,
+   // pending IDB count, and a newly persisted one-time operation UUID.
+   if(fastPurchaseId!==null){
+    if(queued.length!==1||queued[0]?.id!==fastPurchaseId
+      ||queued[0].type!=='inventory.delta'
+      ||queued[0].payload?.kind!=='buy'
+      ||queued[0].familyId!==scope.familyId
+      ||queued[0].actorUid!==scope.actorUid)
+     return {status:'fast-purchase-not-single-pending',attempted:0,accepted:0};
+    const op=queued[0];
+    try{
+     const receipt=await remote.applyOperation(toRemote(op));
+     if(receipt?.operationId!==op.id
+       ||receipt.childId!==op.payload.childId
+       ||receipt.size!==op.payload.size
+       ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
+       ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
+      return {status:'purchase-ack-unverified',attempted:1,accepted:0};
+     await outbox.recordResult(scope,op.id,{
+      kind:receipt.duplicate?'duplicate':'accepted',receiptId:op.id
+     });
+     return {status:receipt.duplicate?'purchase-ack-recovered':
+       'purchase-ack-confirmed',attempted:1,accepted:1,
+       receipt,operation:op,remaining:0};
+    }catch(e){
+     if(String(e?.message||'').startsWith('outbox_store:'))
+      return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};
+     try{await outbox.recordResult(scope,op.id,{kind:errorCode(e)});}
+     catch(_){return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};}
+     return {status:'purchase-ack-unknown',attempted:1,accepted:0};
+    }
+   }
    // A purchase-only release must not dispatch pre-existing non-buy operations.
    if(purchaseOnly===true&&queued.some(op=>
      !(op?.type==='inventory.delta'
