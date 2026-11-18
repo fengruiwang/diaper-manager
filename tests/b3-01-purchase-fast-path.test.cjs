@@ -14,6 +14,7 @@ const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const C='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
 const ID='04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2';
 const ORIG='87e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2';
+const NEXT='57e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2';
 const SIZES=['NB','S','M','L','XL','XXL'];
 const clone=x=>JSON.parse(JSON.stringify(x));
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -25,7 +26,7 @@ assert.ok(ackStart>0&&ackEnd>ackStart,'real formal purchase ACK callback');
 function fixture({fromQuote=false,unknownAck=false,delayed=false,
  consume=false,stockS=140,dailyS=8,useCount=1,
  reverse=false,reverseKind='buy',legacy=false,alreadyReversed=false,
- cancel=false,reject=false,remoteOnly=false}={}){
+ cancel=false,reject=false,remoteOnly=false,nextKind=null}={}){
  let stock={NB:80,S:stockS,M:0,L:0,XL:0,XXL:0};
  let revisions={NB:1,S:2,M:0,L:0,XL:0,XXL:0};
  const server={inventory:clone(stock),revisions:clone(revisions)};
@@ -42,11 +43,18 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
     assert.equal(name,'xb_apply_inventory_operation');
     assert.equal(arg.p_family_id,F);
     assert.equal(arg.p_child_id,C);
-    assert.equal(arg.p_kind,reverse?'reverse':consume?'use':'buy');
-    assert.equal(arg.p_operation_id,ID);
-    assert.equal(arg.p_amount,reverse?null:consume?useCount:60);
+    const next=arg.p_operation_id===NEXT;
+    assert.equal(arg.p_kind,next?nextKind:reverse?'reverse':consume?'use':'buy');
+    assert.equal(arg.p_operation_id,next?NEXT:ID);
+    assert.equal(arg.p_amount,next?(nextKind==='use'?1:10):
+     reverse?null:consume?useCount:60);
     assert.equal(arg.p_size,'S');
-    if(reverse){
+    if(next){
+     assert.equal(arg.p_reverses_operation_id,null);
+     if(nextKind==='use')assert.equal(arg.p_purchase,null);
+     else assert.deepEqual(arg.p_purchase,{brand:'好奇',series:'小森林',
+      total_fen:1000,purchase_date:'2026-11-12'});
+    }else if(reverse){
      assert.equal(arg.p_reverses_operation_id,ORIG);
      assert.equal(arg.p_purchase,null);
     }else if(consume)assert.equal(arg.p_purchase,null);
@@ -56,13 +64,15 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
     });
     if(gate)await gate;
     if(reject)return {error:{code:'23514',message:'stock out of bounds'}};
-    server.inventory.S+=reverse?(reverseKind==='buy'?-60:9):
+    server.inventory.S+=next?(nextKind==='use'?-1:10):
+     reverse?(reverseKind==='buy'?-60:9):
      consume?-arg.p_amount:60;
     server.revisions.S++;
     if(unknownAck)throw Error('NETWORK_ERROR');
     return {data:{accepted:true,operation_id:ID,child_id:C,
      size:'S',result_quantity:server.inventory.S,
-     result_revision:server.revisions.S,duplicate:false}};
+     result_revision:server.revisions.S,duplicate:false,
+     ...(next?{operation_id:NEXT}:{})}};
    },
    from(){throw Error('unexpected inventory SQL SELECT');}
   })
@@ -98,6 +108,15 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   async recordResult(_scope,id,result){
    trace.push('idb.ack');
    rows.set(id,Contract.applyResult(rows.get(id),result));
+  },
+  async recordReverseAck(_scope,id,receipt){
+   trace.push('idb.reverseAck');
+   assert.equal(rows.get(id).type,'transaction.reverse');
+   rows.set(id,Contract.applyResult(rows.get(id),{
+    kind:'accepted',receiptId:id}));
+   local={...local,inventory:{...local.inventory,
+    [receipt.size]:receipt.quantity},serverRevisions:{
+     ...local.serverRevisions,[receipt.size]:receipt.revision}};
   }
  };
  const primary=Ops.create({
@@ -117,7 +136,7 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   inventoryReconciler:{build(){}},
   runnerFactory:Runner,syncFactory:{create(){throw Error('unexpected reconcile');}},
   cloudWritesEnabled:true,purchaseOnly:true,
-  allowConsume:consume,allowReverse:reverse,allowStocktake:false
+  allowConsume:consume||nextKind==='use',allowReverse:reverse,allowStocktake:false
  });
  const base={
   status:'PRIMARY_READ_ONLY_READY',source:'cloudbase-primary-receipt-verified',
@@ -268,7 +287,8 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   },
   releaseRpc:()=>resolveRpc?.(),
   get readback(){return readback;},
-  get uuidCount(){return uuidCount;}
+  get uuidCount(){return uuidCount;},
+  get localSnapshot(){return clone(local);}
  };
 }
 function fast(f){
@@ -546,6 +566,46 @@ test('B3-03 reverse use: restore server stock and original use status',async()=>
  assert.equal(f.renders.at(-1).state.transactions.filter(t=>
   t.type==='use'&&!t.reversed).length,0);
 });
+
+for(const [originalKind,nextKind,startingStock] of [
+ ['buy','buy',140],['use','use',71]
+]){
+ test('B3-03 reverse '+originalKind+' then immediate '+nextKind+
+  ' uses 009 without refresh',async()=>{
+  const f=fixture({reverse:true,reverseKind:originalKind,
+   stockS:startingStock,nextKind});
+  await f.activate();
+  assert.equal((await f.reverseClick()).status,'PRIMARY_REVERSE_CLOUD_ACK_APPLIED');
+  assert.equal(f.localSnapshot.inventory.S,80);
+  assert.equal(f.localSnapshot.serverRevisions.S,3);
+  const op=Contract.createOperation({
+   id:NEXT,type:'inventory.delta',familyId:F,actorUid:'A',
+   createdAt:'2026-11-12T08:31:00.000Z',
+   payload:{childId:C,size:'S',kind:nextKind,
+    amount:nextKind==='use'?1:10,
+    occurredAt:'2026-11-12T08:31:00.000Z',
+    ...(nextKind==='buy'?{purchase:{brand:'好奇',series:'小森林',
+     totalFen:1000,purchaseDate:'2026-11-12'}}:{})}
+  });
+  const baseline={status:nextKind==='buy'
+   ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':'PRIMARY_CONSUME_BASELINE_VERIFIED',
+   familyId:F,actorUid:'A',childId:C,
+   inventory:clone(f.env.primaryViewBase.state.inventory),
+   revisions:clone(f.env.shownStock.revisions)};
+  const queued=await f.primary.queue(op,{operatorApproved:true,
+   ...(nextKind==='buy'
+    ?{verifiedPurchaseBaseline:baseline}:{verifiedConsumeBaseline:baseline})});
+  assert.equal(queued.status,'PRIMARY_OPERATION_DURABLY_QUEUED');
+  const sent=await f.primary.flush({operatorApproved:true,
+   ...(nextKind==='buy'?{fastPurchaseId:NEXT}:{fastConsumeId:NEXT})});
+  assert.equal(sent.status,nextKind==='buy'
+   ?'PRIMARY_PURCHASE_ACK_CONFIRMED':'PRIMARY_USE_ACK_CONFIRMED');
+  assert.equal(f.trace.filter(x=>
+   x==='rpc.xb_apply_inventory_operation').length,2);
+  assert.equal(f.trace.filter(x=>x==='idb.reverseAck').length,1);
+  assert.equal(f.trace.some(x=>/reconcil|xb_read_inventory/.test(x)),false);
+ });
+}
 test('B3-03 old migrated transaction cannot be reversed',async()=>{
  const f=fixture({reverse:true,legacy:true});await f.activate();
  const ans=await f.reverseClick();
