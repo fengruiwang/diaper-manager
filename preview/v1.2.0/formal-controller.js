@@ -121,7 +121,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let documentEpoch=0,documentReadSerial=0;
  let documentReadTask=null,fullyReadAt=null,fullReadVerified=false;
  let documentClientCache=null;
- let refreshBusy=false,pendingReviewSerial=0;
+ let refreshBusy=false,pendingReviewSerial=0,syncActionBusy=false;
+ let pendingCount=0,pendingCountsVerified=false;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
  const syncTime=()=>new Intl.DateTimeFormat('zh-CN',{
   timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',
@@ -133,8 +134,29 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   const bar=$('formalNotice');
   if(bar?.dataset)bar.dataset.syncPhase=phase;
  }
+ function syncButtonState(){
+  const connected=host.navigator?.onLine!==false;
+  const scoped=mode==='ready'&&Boolean(actor&&family&&primary);
+  const blocked=syncActionBusy||refreshBusy||busy;
+  const get=$('formalGetCloudLatest'),send=$('formalSubmitPending');
+  const top=$('formalSyncNow'),count=$('formalPendingCount');
+  if(get)get.disabled=!scoped||!connected||blocked;
+  if(send)send.disabled=!scoped||!connected||blocked
+   ||!pendingCountsVerified||pendingCount===0;
+  if(top){
+   top.hidden=!scoped||!connected
+    ||(!pendingCountsVerified&&pendingCount===0)
+    ||(pendingCountsVerified&&pendingCount===0);
+   top.disabled=!scoped||!connected||blocked
+    ||!pendingCountsVerified||pendingCount===0;
+  }
+  if(count)count.textContent=pendingCountsVerified
+   ?'待同步：'+pendingCount+' 项':'待同步：状态待核验';
+ }
  async function checkPending(){
-  if(mode!=='ready'||!actor||!family)return;
+  if(mode!=='ready'||!actor||!family||host.navigator?.onLine===false){
+   pendingCountsVerified=false;pendingCount=0;syncButtonState();return null;
+  }
   const key=actor+'\x00'+family,epoch=documentEpoch,serial=++pendingReviewSerial;
   const domains=[
    {enabled:purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true,
@@ -148,17 +170,16 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    try{return x.guard?.pending?await x.guard.pending():null;}catch(_){return null;}
   }));
   if(mode!=='ready'||documentEpoch!==epoch||serial!==pendingReviewSerial
-    ||key!==actor+'\x00'+family)return;
-  const uncertain=results.some((x,i)=>x?.status!==domains[i].expected
-    ||!Number.isSafeInteger(x.outstanding)||x.outstanding<0);
-  const outstanding=results.some(x=>Number.isSafeInteger(x?.outstanding)
-    &&x.outstanding>0);
-  const needsReview=uncertain||outstanding;
-  const btn=$('formalSyncNow');
-  if(btn){btn.hidden=!needsReview;btn.disabled=!needsReview;}
-  if(outstanding)showSync('有操作待确认，请点击“核验待处理”。','pending');
-  else if(uncertain)showSync('同步状态暂未核实，请点击“核验待处理”。','partial');
+    ||key!==actor+'\x00'+family)return null;
+  const verified=results.every((x,i)=>x?.status===domains[i].expected
+   &&Number.isSafeInteger(x.outstanding)&&x.outstanding>=0);
+  pendingCountsVerified=verified;
+  pendingCount=verified?results.reduce((n,x)=>n+x.outstanding,0):0;
+  syncButtonState();
+  if(!verified)showSync('待同步队列状态尚未核实，请先核验。','partial');
+  else if(pendingCount>0)showSync('有 '+pendingCount+' 项待处理操作。','pending');
   else if(fullReadVerified&&fullyReadAt)showSync('已同步 · '+syncTime(),'synced');
+  return verified?{status:'verified',outstanding:pendingCount}:null;
  }
  function confirmedFullRead(){
   fullyReadAt=new Date();fullReadVerified=true;
@@ -286,6 +307,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   documentReadTask=null;fullyReadAt=null;fullReadVerified=false;
   documentClientCache?.client?.invalidateReadScope?.();
   documentClientCache=null;
+  pendingCount=0;pendingCountsVerified=false;syncButtonState();
   if(attached){attached.detach();attached=null;}
   $('formalCurrentAccount').textContent='—';
   $('formalCurrentFamily').textContent='—';
