@@ -586,22 +586,26 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if(token!==revision||readStartEpoch!==documentEpoch)return mode;
     const stocktakeReadbackRequested=expectedStocktake!==null
       ||expectedBatch!==null;
-    const readIdentityMismatch=readContext?.actorUid!==ctx.actorUid
-      ||readContext?.familyId!==ctx.familyId
-      ||(verified?.status==='PRIMARY_READ_ONLY_READY'
-        &&(verified.familyId!==ctx.familyId
-          ||verified.actorUid!==ctx.actorUid
-          ||typeof verified.childId!=='string'||!verified.childId))
-      ||(selectedAfterRead
-        &&(selectedAfterRead.actorUid!==ctx.actorUid
-          ||selectedAfterRead.familyId!==ctx.familyId
-          ||selectedAfterRead.childId!==verified?.childId))
-      ||(stocktakeReadbackRequested&&!selectedAfterRead);
-    if(readIdentityMismatch){
+    const contextChanged=readContext?.actorUid!==ctx.actorUid
+      ||readContext?.familyId!==ctx.familyId;
+    const selectedChanged=Boolean(selectedAfterRead
+      &&(selectedAfterRead.actorUid!==ctx.actorUid
+        ||selectedAfterRead.familyId!==ctx.familyId
+        ||selectedAfterRead.childId!==verified?.childId));
+    const readModelIdentityChanged=verified?.status==='PRIMARY_READ_ONLY_READY'
+      &&(verified.familyId!==ctx.familyId
+        ||verified.actorUid!==ctx.actorUid
+        ||typeof verified.childId!=='string'||!verified.childId);
+    if(stocktakeReadbackRequested
+      &&(contextChanged||selectedChanged||readModelIdentityChanged
+        ||!selectedAfterRead)){
      clear();
      screen('unverified','账号、家庭或正式宝宝作用域已变化，盘点结果未完成核验。');
      return mode;
     }
+    // Preserve the existing superseded-read behavior for ordinary refreshes.
+    // Strict identity failure above is scoped to the 009/027 recovery handoff.
+    if(contextChanged||selectedChanged)return mode;
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
     clear();screen('unverified',notes[verified?.status]||
