@@ -99,6 +99,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  commandsFactory,actionsFactory,projection,ui,scriptLoader,
  documentsFactory=null,documentsOverlay=null,
  documentOpsFactory=null,documentCommandsFactory=null,
+ historyCache=null,
  batchStocktakeFactory=null,
  purchaseReleaseEnabled=FORMAL_PURCHASE_ENABLED,
  purchaseOperatorApproved=()=>false,
@@ -340,6 +341,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    &&found.items.length>0);
  }
  function clear(){
+  historyCache?.invalidate?.();
   conflictButton(false);batchConflictButton(false);
   ui.clear();actor=null;family=null;primary=null;shownStock=null;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
@@ -514,7 +516,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return mode;
    }
    if(actor!==ctx.actorUid||family!==ctx.familyId)clear();
-   const verified=await bounded(()=>readModelFactory(ctx.app).read({
+   const verified=await bounded(()=>readModelFactory(ctx.app,historyCache).read({
     familyId:ctx.familyId,actorUid:ctx.actorUid,limit:50
    }),20000);
    // An RPC ACK alone is not proof that the purchase appears in the
@@ -1971,6 +1973,7 @@ function browserStart(){
   purchaseOperatorApproved:()=>FORMAL_PURCHASE_ENABLED,
   loginController:root.XBM1PreviewModule,
   projection:root.XBPrimaryUIProjection,ui:root.XBM3UI,
+  historyCache:root.XBPrimaryCloudReadModel.createHistoryCache(),
   documentsFactory:app=>root.XBPrimaryDocumentsClient?.create({
    app,accessPreflight:root.XBCloudbaseAccessPreflight,
    childReader:root.XBCloudbaseChildReader,scopeGuard:root.XBChildScopeGuard,
@@ -1995,12 +1998,13 @@ function browserStart(){
     contract:root.XBOutboxContract,
     cloudWritesEnabled:primary.cloudWritesEnabled===true
    }),
-  readModelFactory:cloud=>root.XBPrimaryCloudReadModel.create({
+  readModelFactory:(cloud,historyCache)=>root.XBPrimaryCloudReadModel.create({
    app:cloud,childReader:root.XBCloudbaseChildReader,
    scopeGuard:root.XBChildScopeGuard,
    accessPreflight:root.XBCloudbaseAccessPreflight,
    inventoryClient:root.XBInventoryClient,
-   legacyHistoryReader:root.XBLegacyHistoryReader
+   legacyHistoryReader:root.XBLegacyHistoryReader,
+   historyCache
   }),
   primaryFactory:({controller,host,cloudWritesEnabled=false})=>root.XBPrimaryCloudOperations.create({
    controller,host,

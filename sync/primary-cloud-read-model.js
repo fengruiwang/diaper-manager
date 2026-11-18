@@ -15,6 +15,25 @@
  'use strict';
  const SIZES=['NB','S','M','L','XL','XXL'];
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const SOURCE_SHA=/^[0-9a-f]{64}$/;
+ // A controller-owned, process-memory-only cache. No history leaves this
+ // module except a fresh JSON copy. Only a full successful primary read can
+ // populate it, and invalidation also blocks an older in-flight reader.
+ const historyCacheSlots=new WeakMap();
+ function createHistoryCache(){
+  const handle=Object.freeze({invalidate(){
+   const slot=historyCacheSlots.get(handle);
+   if(slot){slot.version++;slot.entry=null;}
+  }});
+  historyCacheSlots.set(handle,{version:0,entry:null});
+  return handle;
+ }
+ function verifiedHistory(value){
+  return value?.complete===true&&value.canEdit===false&&value.canUpload===false
+   &&value.hasMore===false&&value.offset===0&&Array.isArray(value.rows)
+   &&Number.isSafeInteger(value.total)&&value.total>=0
+   &&value.total===value.rows.length;
+ }
  function fail(code){throw Error('primary_view:'+code);}
  function numbers(rows){
   if(!Array.isArray(rows)||rows.length!==6)fail('incomplete_inventory');
@@ -34,7 +53,7 @@
   return SIZES.every(s=>x.inventory[s]===y.inventory[s]&&x.revisions[s]===y.revisions[s]);
  }
  function create({app,childReader,scopeGuard,accessPreflight,
-  inventoryClient,legacyHistoryReader}={}){
+  inventoryClient,legacyHistoryReader,historyCache=null}={}){
   if(!app||!childReader?.create||!scopeGuard?.requireLegacyMigrationTarget
      ||!accessPreflight?.create||!inventoryClient?.create
      ||!legacyHistoryReader?.create||typeof app.rdb!=='function')
@@ -42,6 +61,22 @@
   const children=childReader.create(app,scopeGuard);
   const inventory=inventoryClient.create(app);
   const legacy=legacyHistoryReader.create(app);
+  const slot=historyCacheSlots.get(historyCache)||null;
+  // This small RLS SELECT is a source digest hint, NOT a migration receipt.
+  // Fresh readSettings() verifies the committed receipt and that this
+  // settings row's source SHA matches it. The fresh profile also has to match.
+  async function verifiedSource(familyId,childId){
+   try{
+    const result=await app.rdb().from('xb_legacy_settings')
+     .select('family_id,child_id,source_sha256')
+     .eq('family_id',familyId).eq('child_id',childId).limit(2);
+    const row=result?.data?.length===1?result.data[0]:null;
+    if(result?.error||!row||row.family_id!==familyId
+      ||row.child_id!==childId||!SOURCE_SHA.test(row.source_sha256))
+     return null;
+    return row.source_sha256;
+   }catch(_){return null;}
+  }
   async function read({familyId,actorUid,limit=50}={}){
    if(!UUID.test(String(familyId))||typeof actorUid!=='string'
      ||!actorUid||actorUid.length>128||!Number.isSafeInteger(limit)||limit<1||limit>50)
@@ -77,20 +112,52 @@
     :{familyId,childId};
    // A completed receipt is required BEFORE showing any stock in a formal UI.
    // SQL 024 does not exist in the real database until independently approved.
-   let settings,history;
+   let settings,history,sourceHash=null,profileEarly=null,cacheVersion=slot?.version;
    try{
-    [settings,history]=await Promise.all([
-     legacy.readSettings(scope),legacy.readAll({...scope,kind:'all',limit})
-    ]);
+    if(slot){
+     // Each complete refresh still validates the current receipt/settings
+     // and fetches the live profile. Only the 50-item history pages are reused.
+     [settings,profileEarly,sourceHash]=await Promise.all([
+      legacy.readSettings(scope),
+      app.rdb().from('xb_baby_profiles').select('family_id,child_id,profile_data')
+       .eq('family_id',familyId).eq('child_id',childId).limit(2),
+      verifiedSource(familyId,childId)
+     ]);
+     const profileSha=profileEarly?.data?.length===1
+      &&profileEarly.data[0]?.family_id===familyId
+      &&profileEarly.data[0]?.child_id===childId
+      ?profileEarly.data[0]?.profile_data?.legacySourceSha256:null;
+     const sourceValid=SOURCE_SHA.test(sourceHash||'')
+      &&sourceHash===profileSha;
+     const candidate=slot.entry;
+     const matches=sourceValid&&candidate?.app===app
+      &&candidate.familyId===familyId&&candidate.actorUid===actorUid
+      &&candidate.childId===childId&&candidate.sourceHash===sourceHash;
+     if(candidate&&!matches){
+      // Source / actor / family / child changed, so older in-flight reads
+      // cannot repopulate a now-invalid scope.
+      slot.version++;slot.entry=null;cacheVersion=slot.version;
+     }
+     if(matches){
+      try{
+       const saved=JSON.parse(candidate.serialized);
+       if(verifiedHistory(saved))history=saved;
+      }catch(_){/* malformed in-memory cache is a miss, not success */}
+     }
+     if(!history)history=await legacy.readAll({...scope,kind:'all',limit});
+    }else{
+     // Uncached adapter callers retain the original parallel read path.
+     [settings,history]=await Promise.all([
+      legacy.readSettings(scope),legacy.readAll({...scope,kind:'all',limit})
+     ]);
+    }
    }catch(e){
     // Do not echo RPC/SDK exceptions: they may contain private row details.
     return Object.freeze({status:'MIGRATION_READ_NOT_READY',canWrite:false,
       noDataImported:true});
    }
    if(settings.complete!==true||settings.canEdit!==false
-      ||settings.canUpload!==false||history.complete!==true
-      ||history.canEdit!==false||history.canUpload!==false
-      ||history.hasMore!==false||history.rows.length!==history.total)
+      ||settings.canUpload!==false||!verifiedHistory(history))
     fail('legacy_receipt_unverified');
    // Only the selected PRIMARY is ever used in all cloud data queries.
    const before=await inventory.readReconciliation({...scope,operationIds:[]});
@@ -100,7 +167,7 @@
    const [currentPurchases,currentUses,profileQuery]=await Promise.all([
     inventory.readPurchases(scope),
     inventory.readUses(scope),
-    app.rdb().from('xb_baby_profiles')
+    slot?Promise.resolve(profileEarly):app.rdb().from('xb_baby_profiles')
      .select('family_id,child_id,profile_data')
      .eq('family_id',familyId).eq('child_id',childId).limit(2)
    ]);
@@ -123,6 +190,15 @@
    const profile=profileQuery.data[0].profile_data;
    if(!profile.babyProfile||typeof profile.babyProfile!=='object'
      ||Array.isArray(profile.babyProfile))fail('formal_profile_unverified');
+   // Populate only after complete primary verification (including the
+   // second authoritative stock snapshot), never after a partial page or
+   // failed receipt check. Only the immutable legacy history is serialized.
+   if(slot&&SOURCE_SHA.test(sourceHash||'')
+     &&profile.legacySourceSha256===sourceHash
+     &&slot.version===cacheVersion){
+    slot.entry={app,familyId,actorUid,childId,sourceHash,
+     serialized:JSON.stringify(history)};
+   }
    // Never sum historical purchases into inventory. They are archival facts,
    // and original v1.1.2 stocktake is already the authoritative baseline.
    return Object.freeze({
@@ -144,7 +220,7 @@
   }
   return Object.freeze({read});
  }
- const api=Object.freeze({create,numbers,equalStock});
+ const api=Object.freeze({create,numbers,equalStock,createHistoryCache});
  if(root)root.XBPrimaryCloudReadModel=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
