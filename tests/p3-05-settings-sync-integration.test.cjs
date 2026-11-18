@@ -386,10 +386,10 @@ test('P3-05 resetAll is still blocked; original localStorage handlers captured',
  assert.match(source,/if\(settingsWriteEvent\)return invokeSettings/);
  attached.detach();
 });
-test('P3-05 source mirror keeps all document kinds and leaves settings disabled',async()=>{
+test('B2-04 source mirror keeps five document kinds and opens settings',async()=>{
  const controller=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8');
- assert.match(controller,/allowSettings:false/);
+ assert.match(controller,/allowSettings:true/);
  assert.match(controller,/settingsChangeVisible/);
  assert.match(controller,/expectedSettings/);
  assert.match(controller,/onSettingsReadback/);

@@ -840,8 +840,7 @@
    try{
     const baseline=typeof readSettingsBaseline==='function'
      ?readSettingsBaseline():null;
-    if(!baseline||baseline.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
-      ||baseline.kind!=='settings'||typeof baseline.familyId!=='string'
+    if(!baseline||typeof baseline.familyId!=='string'
       ||typeof baseline.actorUid!=='string'
       ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
       ||!baseline.body?.target||!baseline.body?.daily)

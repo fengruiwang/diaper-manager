@@ -105,7 +105,7 @@ test('P4-03B Feature and test bundle enable shared documents; purchase remains O
  assert.match(src,/const FORMAL_WRITE_ENABLED=false/);
  assert.match(src,/const FORMAL_DOCUMENT_WRITE_ENABLED=true/);
  assert.match(src,/const FORMAL_PURCHASE_ENABLED=false/);
- assert.match(src,/referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:false/);
+ assert.match(src,/referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true/);
 });
 test('P4-03B reference-only queue denies other four kinds before IDB or RPC',async()=>{
  const f=mockReference();

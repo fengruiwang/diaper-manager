@@ -4545,8 +4545,7 @@ restoreActiveTab();
    try{
     const baseline=typeof readSettingsBaseline==='function'
      ?readSettingsBaseline():null;
-    if(!baseline||baseline.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
-      ||baseline.kind!=='settings'||typeof baseline.familyId!=='string'
+    if(!baseline||typeof baseline.familyId!=='string'
       ||typeof baseline.actorUid!=='string'
       ||!Number.isSafeInteger(baseline.revision)||baseline.revision<0
       ||!baseline.body?.target||!baseline.body?.daily)
@@ -5379,7 +5378,7 @@ const ans=(status,more={})=>Object.freeze({status,...more});
 function create({controller,host,documentsClient,outboxFactory,contract,
  cloudWritesEnabled=false,referenceOnly=false,referenceAndQuotes=false,
  fastReferenceEnabled=false,fastQuotesEnabled=false,
- fastGrowthEnabled=false,fastProfileEnabled=false,
+ fastGrowthEnabled=false,fastProfileEnabled=false,fastSettingsEnabled=false,
  allowGrowth=false,allowProfile=false,allowSettings=false}={}){
  if(!controller?.verifiedContext||!documentsClient?.read
    ||!documentsClient?.put||!documentsClient?.checkRequest
@@ -5395,7 +5394,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
  const freshDocumentIds=new Map(); // scoped, volatile first-send proof
  const fastKind=kind=>({
   reference:fastReferenceEnabled,quotes:fastQuotesEnabled,
-  growth:fastGrowthEnabled,profile:fastProfileEnabled
+  growth:fastGrowthEnabled,profile:fastProfileEnabled,settings:fastSettingsEnabled
  })[kind]===true;
  const enabledKind=kind=>referenceAndQuotes===true
   ?kind==='reference'||kind==='quotes'||(allowGrowth===true&&kind==='growth')
@@ -5434,7 +5433,7 @@ function create({controller,host,documentsClient,outboxFactory,contract,
   try{
    const scope=identity();
    let state;
-   if(['reference','quotes','growth','profile'].includes(kind)
+   if(['reference','quotes','growth','profile','settings'].includes(kind)
      &&verifiedBaseline!==null){
     const body=verifiedBaseline.body;
     const bodyValid=kind==='reference'
@@ -5443,7 +5442,11 @@ function create({controller,host,documentsClient,outboxFactory,contract,
      :kind==='profile'
       ?body&&body.babyProfile&&typeof body.babyProfile==='object'
        &&!Array.isArray(body.babyProfile)
-      :body&&Array.isArray(body.items);
+      :kind==='settings'
+       ?body&&body.target&&typeof body.target==='object'
+        &&!Array.isArray(body.target)&&body.daily
+        &&typeof body.daily==='object'&&!Array.isArray(body.daily)
+       :body&&Array.isArray(body.items);
     if(verifiedBaseline.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
       ||verifiedBaseline.kind!==kind||verifiedBaseline.familyId!==scope.familyId
       ||verifiedBaseline.actorUid!==scope.actorUid
@@ -5798,7 +5801,7 @@ function create({client,queue,uuid}={}){
     return reply('DOCUMENT_PENDING_REVIEW_REQUIRED');
    // B2 uses the COMPLETE server-verified B1 document for reference/quotes.
    // A partial projection is never an acceptable whole-document write source.
-   const fastKind=['reference','quotes','growth','profile'].includes(kind);
+   const fastKind=['reference','quotes','growth','profile','settings'].includes(kind);
    const reusable=fastKind
     &&verifiedBaseline?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
     &&verifiedBaseline.kind===kind
@@ -5810,6 +5813,8 @@ function create({client,queue,uuid}={}){
     &&object(verifiedBaseline.body)
     &&(kind==='reference'?object(verifiedBaseline.body.referenceOverrides):
        kind==='profile'?object(verifiedBaseline.body.babyProfile):
+       kind==='settings'?object(verifiedBaseline.body.target)
+        &&object(verifiedBaseline.body.daily):
        Array.isArray(verifiedBaseline.body.items));
    const read=reusable?verifiedBaseline:await client.read({
     familyId,actorUid,kind,readEnabled:true
@@ -5999,7 +6004,7 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
    try{
     // The current, B1-verified reference scope avoids repeated client SELECT.
     // SQL 026 still enforces authenticated family access and CAS.
-    const fast=['reference','quotes','growth','profile'].includes(input.kind)
+    const fast=['reference','quotes','growth','profile','settings'].includes(input.kind)
      &&(input.fastDocument===true||input.fastReference===true)
      &&verifiedReadScope?.familyId===input.familyId
      &&verifiedReadScope?.actorUid===input.actorUid;

@@ -124,7 +124,7 @@ test('P4-03E settings save disables BOTH settings buttons and presets, blocks du
  f.click('saveSizePreferences');
  assert.ok([f.buttons.saveSizePreferences,f.buttons.savePlans,
   f.buttons.cautious,f.buttons.relaxed].every(x=>x.disabled));
- assert.match(f.buttons.saveSizePreferences.textContent,/正在检查/);
+ assert.match(f.buttons.saveSizePreferences.textContent,/正在保存/);
  f.click('savePlans');f.preset('relaxed');f.click('saveSizePreferences');
  assert.equal(f.calls.submit,1);
  assert.equal(f.calls.send,0);
