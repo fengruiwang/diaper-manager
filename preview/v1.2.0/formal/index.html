@@ -229,6 +229,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
       <div class="head"><h2>🧾 库存盘点</h2><span class="sub">如果之前已经买过，直接修正库存即可</span></div>
       <div class="card">
         <div id="stockEditForm"></div>
+        <div class="fine" id="formalStocktakeActionFeedback" role="status" aria-live="polite"></div>
         <div class="action-row"><button class="btn" id="saveStocks">保存实际库存</button><span class="fine">盘点修改不会自动生成采购支出记录。</span></div>
       </div>
     </section>
@@ -2435,6 +2436,61 @@ restoreActiveTab();
     };
    },[STORE,SNAPSHOTS]);
   }
+  async function recordStocktakeAck(scopeInput,operationId,receipt){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   if(!receipt||receipt.operationId!==oid
+     ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
+     ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
+    fail('stocktake_receipt_invalid');
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const req=operations.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     try{
+      const op=req.result;
+      checkIdentity(op,scope);
+      if(op.type!=='inventory.count'||op.status!=='pending'
+        ||receipt.childId!==op.payload?.childId
+        ||receipt.size!==op.payload?.size
+        ||receipt.duplicate===true
+        ||op.payload?.kind==='stocktake_batch'
+        ||op.payload?.count!==receipt.quantity
+        )fail('stocktake_receipt_scope_or_state');
+      const key=identityKey(scope,op.payload.childId);
+      const snapReq=snapshots.get(key);
+      snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+      snapReq.onsuccess=()=>{
+       try{
+        const snap=snapReq.result,size=op.payload.size;
+        if(!snap||snap.source!=='verified-server'
+          ||snap.familyId!==scope.familyId||snap.actorUid!==scope.actorUid
+          ||snap.childId!==op.payload.childId
+          ||!Number.isSafeInteger(snap.serverRevisions?.[size])
+          ||receipt.revision<=snap.serverRevisions[size]
+          ||op.expectedRevision!==snap.serverRevisions[size])
+         fail('stocktake_snapshot_not_current');
+        const updated=contract.applyResult(op,{kind:'accepted',receiptId:oid});
+        if(updated.id!==op.id||updated.familyId!==op.familyId
+          ||updated.actorUid!==op.actorUid||updated._signature!==op._signature)
+         fail('immutable_operation_changed');
+        const next={...snap,
+         inventory:{...snap.inventory,[size]:receipt.quantity},
+         serverRevisions:{...snap.serverRevisions,[size]:receipt.revision}};
+        let done=0;
+        const finish=()=>{if(++done===2)complete({operation:updated,snapshot:next});};
+        const putOp=operations.put(updated);
+        putOp.onerror=()=>abort(new Error('outbox_store:write_failed'));
+        putOp.onsuccess=finish;
+        const putSnap=snapshots.put({...next,key});
+        putSnap.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+        putSnap.onsuccess=finish;
+       }catch(e){abort(e);}
+      };
+     }catch(e){abort(e);}
+    };
+   },[STORE,SNAPSHOTS]);
+  }
   async function abandonDocumentConflict(scopeInput,operationId){
    const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
    return run('readwrite',(store,complete,abort)=>{
@@ -2672,7 +2728,7 @@ restoreActiveTab();
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
+  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,recordStocktakeAck,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;
@@ -2726,7 +2782,7 @@ restoreActiveTab();
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
   async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false,
-  allowReverse=false,allowStocktake=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null}={}){
+  allowReverse=false,allowStocktake=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null,fastStocktakeId=null}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -2735,8 +2791,9 @@ restoreActiveTab();
    if(uploadEnabled!==true)
     return {status:'upload-disabled',attempted:0,accepted:0,remaining:null};
 
-   const fastId=fastReverseId??fastConsumeId??fastPurchaseId;
-   const reverse=fastReverseId!==null,consume=!reverse&&fastConsumeId!==null;
+   const fastId=fastStocktakeId??fastReverseId??fastConsumeId??fastPurchaseId;
+   const stocktake=fastStocktakeId!==null,reverse=!stocktake&&fastReverseId!==null,
+    consume=!stocktake&&!reverse&&fastConsumeId!==null;
    if(fastId===null){
     let grant;
     try{grant=await verifyAccess({familyId:scope.familyId,actorUid:scope.actorUid});}
@@ -2754,8 +2811,10 @@ restoreActiveTab();
    // pending IDB count, and a newly persisted one-time operation UUID.
    if(fastId!==null){
     if(queued.length!==1||queued[0]?.id!==fastId
-      ||queued[0].type!==(reverse?'transaction.reverse':'inventory.delta')
-      ||(!reverse&&queued[0].payload?.kind!==(consume?'use':'buy'))
+      ||queued[0].type!==(stocktake?'inventory.count':reverse?'transaction.reverse':'inventory.delta')
+      ||(!reverse&&!stocktake&&queued[0].payload?.kind!==(consume?'use':'buy'))
+      ||(stocktake&&(allowStocktake!==true||queued[0].payload?.kind==='stocktake_batch'
+        ||!Number.isSafeInteger(queued[0].expectedRevision)))
       ||(reverse&&allowReverse!==true)
       ||(consume&&allowConsume!==true)
       ||queued[0].familyId!==scope.familyId
@@ -2770,13 +2829,16 @@ restoreActiveTab();
        ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
        ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
       return {status:'purchase-ack-unverified',attempted:1,accepted:0};
-     if(reverse&&receipt.duplicate!==true
+     if(stocktake&&receipt.duplicate!==true
+       &&typeof outbox.recordStocktakeAck==='function')
+      await outbox.recordStocktakeAck(scope,op.id,receipt);
+     else if(reverse&&receipt.duplicate!==true
        &&typeof outbox.recordReverseAck==='function')
       await outbox.recordReverseAck(scope,op.id,receipt);
      else await outbox.recordResult(scope,op.id,{
       kind:receipt.duplicate?'duplicate':'accepted',receiptId:op.id
      });
-     return {status:(reverse?'reverse':consume?'consume':'purchase')
+     return {status:(stocktake?'stocktake':reverse?'reverse':consume?'consume':'purchase')
        +(receipt.duplicate?'-ack-recovered':'-ack-confirmed'),
        attempted:1,accepted:1,
        receipt,operation:op,remaining:0};
@@ -2786,6 +2848,9 @@ restoreActiveTab();
      const code=errorCode(e);
      try{await outbox.recordResult(scope,op.id,{kind:code});}
      catch(_){return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};}
+     if(stocktake&&code==='conflict')return {
+       status:'stocktake-rejected',attempted:1,accepted:0
+      };
      if(reverse&&code==='conflict')return {
       status:'reverse-rejected',attempted:1,accepted:0
      };
@@ -3416,7 +3481,7 @@ restoreActiveTab();
    throw Error('primary_operations:primary_outbox_unverified');
   let selected=null,busy=false;
   const freshPurchaseIds=new Set(),freshConsumeIds=new Set(),
-   freshReverseIds=new Set();
+   freshReverseIds=new Set(),freshStocktakeIds=new Set();
   const online=()=>host?.navigator?.onLine!==false;
   function knownRows(rows){
    if(!Array.isArray(rows)||rows.length!==6)
@@ -3539,7 +3604,7 @@ restoreActiveTab();
     selected={familyId:scope.familyId,actorUid:scope.actorUid,
      childId:scope.childId};
     return result('PRIMARY_OUTBOX_READ_ONLY_READY',{childId:scope.childId});
-   }catch(_){selected=null;freshPurchaseIds.clear();freshConsumeIds.clear();freshReverseIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
+   }catch(_){selected=null;freshPurchaseIds.clear();freshConsumeIds.clear();freshReverseIds.clear();freshStocktakeIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
    finally{busy=false;}
   }
   async function read(){
@@ -3569,7 +3634,7 @@ restoreActiveTab();
   }
   async function queue(op,{operatorApproved=false,
     verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null,
-    verifiedReverseBaseline=null}={}){
+    verifiedReverseBaseline=null,verifiedStocktakeBaseline=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -3580,16 +3645,24 @@ restoreActiveTab();
    busy=true;
    try{
     const ctx=controller.verifiedContext();
-    const kind=op?.type==='transaction.reverse'?'reverse':op?.payload?.kind;
-    const baseline=kind==='reverse'?verifiedReverseBaseline:
+    const kind=op?.type==='transaction.reverse'?'reverse':
+     op?.type==='inventory.count'?'stocktake':op?.payload?.kind;
+    const baseline=kind==='stocktake'?verifiedStocktakeBaseline:
+     kind==='reverse'?verifiedReverseBaseline:
      kind==='use'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
     const fast=((op?.type==='inventory.delta'&&['buy','use'].includes(kind))
-       ||(op?.type==='transaction.reverse'&&kind==='reverse'))
+       ||(op?.type==='transaction.reverse'&&kind==='reverse')
+       ||(op?.type==='inventory.count'&&kind==='stocktake'&&op.payload?.kind!=='stocktake_batch'))
       &&(kind==='buy'||(kind==='use'&&allowConsume===true)
-       ||(kind==='reverse'&&allowReverse===true))
+       ||(kind==='reverse'&&allowReverse===true)
+       ||(kind==='stocktake'&&allowStocktake===true))
       &&baseline?.status===(kind==='buy'
        ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':kind==='use'
-        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
+        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':kind==='stocktake'
+        ?'PRIMARY_STOCKTAKE_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
+      &&(kind!=='stocktake'||(op.expectedRevision===baseline.revisions?.[op.payload.size]
+       &&Number.isSafeInteger(op.payload.count)&&op.payload.count>=0
+       &&op.payload.count<=100000))
       &&(kind!=='reverse'||(baseline.originalId===op.payload.reversesOperationId
         &&baseline.originalSize===op.payload.size))
       &&selected&&ctx?.app
@@ -3629,13 +3702,14 @@ restoreActiveTab();
      // The cloud-visible original may come from another device and not be
      // present in this device's optimistic IDB transaction projection.
      // Reverse is therefore queued durably without mutating stock until ACK.
-     if(kind==='reverse'){
+     if(kind==='reverse'||kind==='stocktake'){
       const written=await outbox.enqueue(op);
       const created=written?.id===op.id&&written.status==='pending';
-      if(created)freshReverseIds.add(op.id);
+      if(created)(kind==='reverse'?freshReverseIds:freshStocktakeIds).add(op.id);
       return result(created?'PRIMARY_OPERATION_DURABLY_QUEUED':
        'PRIMARY_OPERATION_ALREADY_QUEUED',{
-        operationId:op.id,fastReverse:created
+        operationId:op.id,fastReverse:kind==='reverse'&&created,
+        fastStocktake:kind==='stocktake'&&created
        });
      }
      const written=await outbox.commitInventory(scope,op);
@@ -3667,7 +3741,7 @@ restoreActiveTab();
    }catch(_){return result('PRIMARY_LOCAL_QUEUE_UNVERIFIED');}
    finally{busy=false;}
   }
-  async function flush({operatorApproved=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null}={}){
+  async function flush({operatorApproved=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null,fastStocktakeId=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -3676,13 +3750,16 @@ restoreActiveTab();
    busy=true;
    try{
     const ctx=controller.verifiedContext();
-    const fastId=fastReverseId??fastConsumeId??fastPurchaseId;
-    const reverse=fastReverseId!==null,consume=!reverse&&fastConsumeId!==null;
-    const freshIds=reverse?freshReverseIds:consume?freshConsumeIds:freshPurchaseIds;
+    const fastId=fastStocktakeId??fastReverseId??fastConsumeId??fastPurchaseId;
+    const stocktake=fastStocktakeId!==null,reverse=!stocktake&&fastReverseId!==null,
+     consume=!stocktake&&!reverse&&fastConsumeId!==null;
+    const freshIds=stocktake?freshStocktakeIds:reverse?freshReverseIds:
+     consume?freshConsumeIds:freshPurchaseIds;
     const fast=typeof fastId==='string'&&freshIds.has(fastId)
       &&selected&&ctx?.app&&selected.familyId===ctx.familyId
       &&selected.actorUid===ctx.actorUid
-      &&(reverse?allowReverse===true:!consume||allowConsume===true);
+      &&(stocktake?allowStocktake===true:reverse?allowReverse===true:
+       !consume||allowConsume===true);
     if(fastId!==null&&!fast)
      return result('PRIMARY_PENDING_OR_CONFLICT_REVIEW_BEFORE_NEW_OPERATION',
       {operationId:fastId});
@@ -3694,12 +3771,14 @@ restoreActiveTab();
     const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20,
      purchaseOnly:purchaseOnly===true,allowConsume:allowConsume===true,
      allowReverse:allowReverse===true,allowStocktake:allowStocktake===true,
-     fastPurchaseId:fast&&!consume?fastId:null,
+     fastPurchaseId:fast&&!consume&&!reverse&&!stocktake?fastId:null,
      fastConsumeId:fast&&consume?fastId:null,
-     fastReverseId:fast&&reverse?fastId:null});
+     fastReverseId:fast&&reverse?fastId:null,
+     fastStocktakeId:fast&&stocktake?fastId:null});
     if(fast){
-     const prefix=reverse?'PRIMARY_REVERSE':consume?'PRIMARY_USE':'PRIMARY_PURCHASE';
-     const receiptPrefix=reverse?'reverse':consume?'consume':'purchase';
+     const prefix=stocktake?'PRIMARY_STOCKTAKE':reverse?'PRIMARY_REVERSE':
+      consume?'PRIMARY_USE':'PRIMARY_PURCHASE';
+     const receiptPrefix=stocktake?'stocktake':reverse?'reverse':consume?'consume':'purchase';
      if(sent?.status===receiptPrefix+'-ack-confirmed'
        &&sent.receipt?.duplicate!==true)
       return result(prefix+'_ACK_CONFIRMED',{
@@ -3707,6 +3786,10 @@ restoreActiveTab();
        receipt:sent.receipt,cloudWriteCommitted:true,
        familyId:scope.familyId,actorUid:scope.actorUid,
        childId:scope.childId
+      });
+     if(stocktake&&sent?.status==='stocktake-rejected')
+      return result('PRIMARY_STOCK_REVISION_CONFLICT',{
+       operationId:fastId,cloudWriteCommitted:false,rejected:true
       });
      if(reverse&&sent?.status==='reverse-rejected')
       return result('PRIMARY_REVERSE_SERVER_REJECTED',{
@@ -3846,7 +3929,7 @@ restoreActiveTab();
   }
   async function submit(action,value,{operatorApproved=false,
     verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null,
-    verifiedReverseBaseline=null}={}){
+    verifiedReverseBaseline=null,verifiedStocktakeBaseline=null}={}){
    if(busy)return ret('BUSY');
    // This is intentionally ahead of UUID generation and read/SDK calls.
    if(primary.cloudWritesEnabled!==true||operatorApproved!==true)
@@ -3857,16 +3940,19 @@ restoreActiveTab();
     if(!scope||!UUID.test(scope.familyId)||!UUID.test(scope.childId)
       ||typeof scope.actorUid!=='string'||!scope.actorUid)
      return ret('PRIMARY_NOT_SELECTED');
-    const baseline=action==='reverse'?verifiedReverseBaseline:
+    const baseline=action==='stocktake'?verifiedStocktakeBaseline:
+     action==='reverse'?verifiedReverseBaseline:
      action==='consume'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
-    const fast=['purchase','consume','reverse'].includes(action)
+    const fast=['purchase','consume','reverse','stocktake'].includes(action)
       &&baseline?.status===(action==='purchase'
        ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':action==='consume'
-        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
+        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':action==='stocktake'
+        ?'PRIMARY_STOCKTAKE_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
       &&baseline.familyId===scope.familyId
       &&baseline.actorUid===scope.actorUid
       &&baseline.childId===scope.childId
       &&baseline.inventory&&baseline.revisions
+      &&(action!=='stocktake'||baseline.revisions[value?.size]===value?.expectedRevision)
       &&(action!=='reverse'||(baseline.originalId===value?.reversesOperationId
        &&baseline.originalSize===value?.size
        &&baseline.originalType===value?.type));
@@ -3892,7 +3978,8 @@ restoreActiveTab();
     const queued=await primary.queue(operation,{operatorApproved:true,
       verifiedPurchaseBaseline:fast&&action==='purchase'?fresh:null,
       verifiedConsumeBaseline:fast&&action==='consume'?fresh:null,
-      verifiedReverseBaseline:fast&&action==='reverse'?fresh:null});
+      verifiedReverseBaseline:fast&&action==='reverse'?fresh:null,
+      verifiedStocktakeBaseline:fast&&action==='stocktake'?fresh:null});
     if(!queued||!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued.status)){
      return ret('PRIMARY_QUEUE_UNVERIFIED_PRESERVE_ORIGINAL_ID',
@@ -3902,6 +3989,7 @@ restoreActiveTab();
       fastPurchase:queued.fastPurchase===true,
       fastConsume:queued.fastConsume===true,
       fastReverse:queued.fastReverse===true,
+      fastStocktake:queued.fastStocktake===true,
       cloudWriteCommitted:false});
    }catch(_){return ret('PRIMARY_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}
@@ -3963,13 +4051,14 @@ restoreActiveTab();
   let referenceNeedsReview=null,referenceButtonLabel='';
   let activeReferenceAction=null,referenceResetLabel='';
   // UI-only holds; no UUID, queue, CAS or RPC behaviour is changed.
-  const minimalBusy={purchase:false,consume:false,reverse:false,quotes:false};
-  const minimalReview={purchase:null,consume:null,reverse:null,quotes:null};
+  const minimalBusy={purchase:false,consume:false,reverse:false,stocktake:false,quotes:false};
+  const minimalReview={purchase:null,consume:null,reverse:null,stocktake:null,quotes:null};
   const minimalLabels={purchase:null,quotes:null};
   let minimalQuoteIntent=null,quoteButton=null,quoteButtonLabel='',quoteAction='add';
   let purchaseButton=null,purchaseButtonLabel='',purchaseFromQuote=false;
   let consumeButton=null,consumeSize='',consumeDay=false;
   let reverseButton=null,reverseLabel='';
+  let stocktakeButton=null,stocktakeLabel='';
   function quoteFeedback(phase,answer=null){
    const doc=attached?.doc;
    const action=minimalQuoteIntent?.action||quoteAction;
@@ -4074,7 +4163,29 @@ restoreActiveTab();
     :reverseLabel||'撤销';
    if(!waiting){reverseButton=null;reverseLabel='';}
   }
+  function stocktakeFeedback(phase,answer=null){
+   const el=stocktakeButton||attached?.doc.getElementById('saveStocks');
+   const node=attached?.doc.getElementById('formalStocktakeActionFeedback');
+   const status=String(answer?.status||'');
+   if(node)node.textContent=phase==='working'?'正在保存库存盘点…'
+    :phase==='success'?'库存盘点成功，库存已更新'
+    :phase==='pending'?'盘点结果待核验，原请求已保留，请勿重复提交'
+    :phase==='recovered'?'原盘点请求已核验，库存已更新'
+    :status==='PRIMARY_STOCK_UNCHANGED'?'库存没有变化，无需保存'
+    :status==='MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED'
+     ?'多尺码批量盘点功能尚未开放，请等待下一阶段。'
+    :/CONFLICT|REVISION/.test(status)
+     ?'库存已发生变化，请获取云端最新后重新盘点'
+    :/INVALID|INCOMPLETE/.test(status)?'库存数量无效，请输入 0 至 100000 的整数'
+    :'盘点未保存，请检查网络或库存数据';
+   const waiting=phase==='working'||phase==='pending';
+   if(el){el.disabled=waiting;el.textContent=waiting
+     ?phase==='pending'?'等待核验…':'正在保存库存盘点…'
+     :stocktakeLabel||'保存实际库存';}
+   if(!waiting){stocktakeButton=null;stocktakeLabel='';}
+  }
   function minimalFeedback(kind,phase,answer=null){
+   if(kind==='stocktake')return stocktakeFeedback(phase,answer);
    if(kind==='quotes')return quoteFeedback(phase,answer);
    if(kind==='consume')return consumeFeedback(phase,answer);
    if(kind==='reverse')return reverseFeedback(phase,answer);
@@ -4143,6 +4254,7 @@ restoreActiveTab();
    }
    minimalBusy[kind]=true;
    if(kind==='reverse'){reverseButton=el;reverseLabel=el.textContent||'撤销';}
+    if(kind==='stocktake'){stocktakeButton=el;stocktakeLabel=el.textContent||'保存实际库存';}
    if(kind==='consume'){
     consumeButton=el;consumeSize=el.dataset?.size||'';
     consumeDay=el.dataset?.useMode==='day'
@@ -4172,19 +4284,22 @@ restoreActiveTab();
      :kind==='consume'
       ?['PRIMARY_USE_CLOUD_ACK_APPLIED',
         'PRIMARY_USE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+     :kind==='stocktake'
+      ?['PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED',
+        'PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
      :kind==='reverse'
       ?['PRIMARY_REVERSE_CLOUD_ACK_APPLIED',
         'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
       :['QUOTES_CLOUD_ACK_APPLIED',
         'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
     if(!success){
-     const id=['purchase','consume','reverse'].includes(kind)
+     const id=['purchase','consume','reverse','stocktake'].includes(kind)
       ?answer?.operationId:answer?.requestId;
      if(typeof id==='string'&&id&&answer?.rejected!==true)
       minimalReview[kind]=Object.freeze(
-       ['purchase','consume','reverse'].includes(kind)
+       ['purchase','consume','reverse','stocktake'].includes(kind)
        ?{operationId:id,kind:kind==='purchase'?'buy':
-          kind==='consume'?'use':'reverse',
+          kind==='consume'?'use':kind==='stocktake'?'stocktake':'reverse',
           reversesOperationId:kind==='reverse'
            ?prepared?.reversesOperationId:null}:{requestId:id,
          action:minimalQuoteIntent?.action,record:minimalQuoteIntent?.record,
@@ -4206,7 +4321,7 @@ restoreActiveTab();
   async function recoverMinimalButtons({domain}={}){
    const pending=minimalReview[domain];
    if(!pending||minimalBusy[domain])return false;
-   const callback=['purchase','consume','reverse'].includes(domain)?onPurchaseReadback:
+   const callback=['purchase','consume','reverse','stocktake'].includes(domain)?onPurchaseReadback:
     domain==='quotes'?onQuotesReadback:null;
    if(typeof callback!=='function')return false;
    let verified=null;
@@ -4393,7 +4508,7 @@ restoreActiveTab();
   const documentsAuthorized=()=>buildAllowsDocumentWrites===true
    &&documentOperatorApproved()===true;
   async function invoke(action,value,verifiedConsumeBaseline=null,
-   verifiedReverseBaseline=null){
+   verifiedReverseBaseline=null,verifiedStocktakeBaseline=null){
    if(!purchaseAuthorized())
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(busy)return result('BUSY');
@@ -4404,7 +4519,8 @@ restoreActiveTab();
     const queued=await commands.submit(action,value,{
      operatorApproved:true,verifiedPurchaseBaseline:baseline,
      verifiedConsumeBaseline:action==='consume'?verifiedConsumeBaseline:null,
-     verifiedReverseBaseline:action==='reverse'?verifiedReverseBaseline:null
+     verifiedReverseBaseline:action==='reverse'?verifiedReverseBaseline:null,
+     verifiedStocktakeBaseline:action==='stocktake'?verifiedStocktakeBaseline:null
     });
     if(purchaseOnly!==true
       ||(action!=='purchase'
@@ -4426,6 +4542,8 @@ restoreActiveTab();
       fastConsumeId:action==='consume'&&queued.fastConsume===true
        ?queued.operationId:null,
       fastReverseId:action==='reverse'&&queued.fastReverse===true
+       ?queued.operationId:null,
+      fastStocktakeId:action==='stocktake'&&queued.fastStocktake===true
        ?queued.operationId:null});}
     catch(_){
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
@@ -4433,7 +4551,8 @@ restoreActiveTab();
     }
     if((action==='purchase'&&synced?.status==='PRIMARY_PURCHASE_ACK_CONFIRMED')
       ||(action==='consume'&&synced?.status==='PRIMARY_USE_ACK_CONFIRMED')
-      ||(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_ACK_CONFIRMED')){
+      ||(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_ACK_CONFIRMED')
+      ||(action==='stocktake'&&synced?.status==='PRIMARY_STOCKTAKE_ACK_CONFIRMED')){
      let applied='pending';
      try{applied=typeof onPurchaseAck==='function'
       ?await onPurchaseAck(synced):'pending';}catch(_){}
@@ -4447,13 +4566,16 @@ restoreActiveTab();
       operationId:queued.operationId,cloudWriteCommitted:true
      });
     }
+    if(action==='stocktake'&&synced?.status==='PRIMARY_STOCK_REVISION_CONFLICT')
+     return Object.freeze({...synced,status:'PRIMARY_STOCK_REVISION_CONFLICT'});
     if(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_SERVER_REJECTED')
      return Object.freeze({status:'PRIMARY_REVERSE_SERVER_REJECTED',
       operationId:queued.operationId,cloudWriteCommitted:false,rejected:true});
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED'
       &&synced?.status!=='PRIMARY_PURCHASE_ACK_RECOVERED_NEEDS_REFRESH'
       &&synced?.status!=='PRIMARY_USE_ACK_RECOVERED_NEEDS_REFRESH'
-      &&synced?.status!=='PRIMARY_REVERSE_ACK_RECOVERED_NEEDS_REFRESH')
+      &&synced?.status!=='PRIMARY_REVERSE_ACK_RECOVERED_NEEDS_REFRESH'
+      &&synced?.status!=='PRIMARY_STOCKTAKE_ACK_RECOVERED_NEEDS_REFRESH')
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
@@ -4483,11 +4605,10 @@ restoreActiveTab();
      ?readStocktakeBaseline():null;
     if(allowStocktake===true&&(!displayed?.inventory||!displayed?.revisions))
      return result('PRIMARY_STOCK_BASELINE_UNVERIFIED');
-    const read=await primary.read();
-    if(read?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
-      ||!read.inventory||!read.revisions)
+    const read=displayed||await primary.read();
+    if(!read?.inventory||!read?.revisions)
      return result('PRIMARY_STOCK_UNVERIFIED');
-    const baseline=displayed||read,changed=[];
+    const baseline=read,changed=[];
     for(const size of SIZES){
      const field=doc.getElementById('inv_'+size);
      if(!field||typeof field.value!=='string'||field.value.trim()==='')
@@ -4503,13 +4624,18 @@ restoreActiveTab();
      if(n!==baseline.inventory[size])changed.push({size,count:n});
     }
     if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
+    if(changed.length>1&&allowStocktake===true)
+     return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
     if(changed.some(x=>read.revisions[x.size]!==baseline.revisions[x.size]
       ||read.inventory[x.size]!==baseline.inventory[x.size]))
      return result('PRIMARY_STOCK_REVISION_CONFLICT');
     if(changed.length===1){
      const item=changed[0];
-     return invoke('stocktake',displayed?
-      {...item,expectedRevision:baseline.revisions[item.size]}:item);
+     return invoke('stocktake',{...item,
+      expectedRevision:baseline.revisions[item.size]},null,null,
+      allowStocktake===true?{
+       status:'PRIMARY_STOCKTAKE_BASELINE_VERIFIED',...baseline
+      }:null);
     }
     // Never split one original six-size Save into multiple single-size RPCs.
     if(!batchStocktake?.queue||typeof createBatchId!=='function')
@@ -5357,6 +5483,9 @@ restoreActiveTab();
     }
     if(action==='deletetx'){
      dispatchMinimal(el,doc,'reverse');return;
+    }
+    if(el.id==='saveStocks'){
+     dispatchMinimal(el,doc,'stocktake');return;
     }
     if(el.id==='saveQuote'||el.id==='clearQuotes'
       ||action==='deletequote'){
