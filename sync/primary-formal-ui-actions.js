@@ -34,9 +34,9 @@
   onProfileAck=null,
   allowSettings=false,readSettingsBaseline=null,onSettingsReadback=null,
   onSettingsAck=null,
-  batchStocktake=null,createBatchId=null,onBatchReadback=null,
+  batchStocktake=null,createBatchId=null,onBatchReadback=null,onBatchAck=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
-  allowStocktake=false,allowBatchStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
+  allowStocktake=false,allowBatchStocktake=false,fastBatchStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -55,7 +55,7 @@
   let purchaseButton=null,purchaseButtonLabel='',purchaseFromQuote=false;
   let consumeButton=null,consumeSize='',consumeDay=false;
   let reverseButton=null,reverseLabel='';
-  let stocktakeButton=null,stocktakeLabel='';
+  let stocktakeButton=null,stocktakeLabel='',stocktakeBatchAction=false;
   function quoteFeedback(phase,answer=null){
    const doc=attached?.doc;
    const action=minimalQuoteIntent?.action||quoteAction;
@@ -164,9 +164,9 @@
    const el=stocktakeButton||attached?.doc.getElementById('saveStocks');
    const node=attached?.doc.getElementById('formalStocktakeActionFeedback');
    const status=String(answer?.status||'');
-   if(node)node.textContent=phase==='working'?'正在保存库存盘点…'
-    :phase==='success'?'库存盘点成功，库存已更新'
-    :phase==='pending'?'盘点结果待核验，原请求已保留，请勿重复提交'
+   if(node)node.textContent=phase==='working'?(stocktakeBatchAction?'正在批量保存库存…':'正在保存库存盘点…')
+    :phase==='success'?(stocktakeBatchAction?'批量盘点成功，库存已更新':'库存盘点成功，库存已更新')
+    :phase==='pending'?(stocktakeBatchAction?'批量盘点结果待核验，原批次已保留，请勿重复提交':'盘点结果待核验，原请求已保留，请勿重复提交')
     :phase==='recovered'?'原盘点请求已核验，库存已更新'
     :status==='PRIMARY_STOCK_UNCHANGED'?'库存没有变化，无需保存'
     :status==='MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED'
@@ -179,7 +179,7 @@
    if(el){el.disabled=waiting;el.textContent=waiting
      ?phase==='pending'?'等待核验…':'正在保存库存盘点…'
      :stocktakeLabel||'保存实际库存';}
-   if(!waiting){stocktakeButton=null;stocktakeLabel='';}
+   if(!waiting){stocktakeButton=null;stocktakeLabel='';stocktakeBatchAction=false;}
   }
   function minimalFeedback(kind,phase,answer=null){
    if(kind==='stocktake')return stocktakeFeedback(phase,answer);
@@ -251,7 +251,14 @@
    }
    minimalBusy[kind]=true;
    if(kind==='reverse'){reverseButton=el;reverseLabel=el.textContent||'撤销';}
-    if(kind==='stocktake'){stocktakeButton=el;stocktakeLabel=el.textContent||'保存实际库存';}
+    if(kind==='stocktake'){
+     stocktakeButton=el;stocktakeLabel=el.textContent||'保存实际库存';
+     const baseline=readStocktakeBaseline?.();
+     stocktakeBatchAction=Boolean(baseline?.inventory)&&SIZES.filter(size=>{
+      const value=doc.getElementById('inv_'+size)?.value;
+      return value!==undefined&&value!==''&&Number(value)!==baseline.inventory[size];
+     }).length>1;
+    }
    if(kind==='consume'){
     consumeButton=el;consumeSize=el.dataset?.size||'';
     consumeDay=el.dataset?.useMode==='day'
@@ -283,22 +290,26 @@
         'PRIMARY_USE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
      :kind==='stocktake'
       ?['PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED',
-        'PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+        'PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED',
+        'BATCH_CLOUD_ACK_APPLIED','BATCH_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
      :kind==='reverse'
       ?['PRIMARY_REVERSE_CLOUD_ACK_APPLIED',
         'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
       :['QUOTES_CLOUD_ACK_APPLIED',
         'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
     if(!success){
-     const id=['purchase','consume','reverse','stocktake'].includes(kind)
+     const id=kind==='stocktake'&&answer?.batchId
+      ?answer.batchId:['purchase','consume','reverse','stocktake'].includes(kind)
       ?answer?.operationId:answer?.requestId;
-     if(typeof id==='string'&&id&&answer?.rejected!==true)
+     if(typeof id==='string'&&id&&answer?.rejected!==true
+      &&answer?.status!=='BATCH_REVISION_CONFLICT_MANUAL_REVIEW')
       minimalReview[kind]=Object.freeze(
        ['purchase','consume','reverse','stocktake'].includes(kind)
        ?{operationId:id,kind:kind==='purchase'?'buy':
           kind==='consume'?'use':kind==='stocktake'?'stocktake':'reverse',
           reversesOperationId:kind==='reverse'
            ?prepared?.reversesOperationId:null,
+          ...(answer?.batchId?{batchId:answer.batchId}:{}),
           ...(kind==='stocktake'?{
            size:answer?.size,count:answer?.count,
            expectedRevision:answer?.expectedRevision}: {})}:{requestId:id,
@@ -605,7 +616,8 @@
      ?readStocktakeBaseline():null;
     if(allowStocktake===true&&(!displayed?.inventory||!displayed?.revisions))
      return result('PRIMARY_STOCK_BASELINE_UNVERIFIED');
-    const read=allowStocktake===true&&allowBatchStocktake!==true&&displayed
+    const read=allowStocktake===true
+     &&(allowBatchStocktake!==true||fastBatchStocktake===true)&&displayed
      ?displayed:await primary.read();
     if(!read?.inventory||!read?.revisions)
      return result('PRIMARY_STOCK_UNVERIFIED');
@@ -656,14 +668,17 @@
      return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
     const batchId=createBatchId();
     const queued=await batchStocktake.queue({
-     items,batchId,operatorApproved:true
+     items,batchId,operatorApproved:true,
+     ...(fastBatchStocktake===true?{verifiedBaseline:{
+      status:'PRIMARY_BATCH_BASELINE_VERIFIED',...baseline}}:{})
     });
     if(!['BATCH_DURABLY_QUEUED','BATCH_ALREADY_QUEUED']
       .includes(queued?.status))return queued;
     // The batch ID is stored in IndexedDB before any network write.
     // A missing/ambiguous ACK never causes a fresh batch to be created.
     let sent;
-    try{sent=await batchStocktake.send({operatorApproved:true});}
+    try{sent=await batchStocktake.send({operatorApproved:true,
+     ...(queued.fastBatch===true?{fastBatchId:batchId}:{})});}
     catch(_){return Object.freeze({
      status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
     });}
@@ -672,10 +687,11 @@
        status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
       });
     try{
-     const visible=typeof onBatchReadback==='function'
+     const visible=sent.fastBatch===true&&typeof onBatchAck==='function'
+      ?await onBatchAck(sent):typeof onBatchReadback==='function'
       ?await onBatchReadback({batchId,items}):null;
      if(visible==='ready')return Object.freeze({
-      status:'BATCH_CLOUD_READBACK_VERIFIED',batchId,
+      status:sent.fastBatch===true?'BATCH_CLOUD_ACK_APPLIED':'BATCH_CLOUD_READBACK_VERIFIED',batchId,
       changedSizes:items.length,cloudWriteCommitted:true
      });
     }catch(_){}
