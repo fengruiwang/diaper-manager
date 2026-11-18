@@ -89,7 +89,11 @@
        ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
        ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
       return {status:'purchase-ack-unverified',attempted:1,accepted:0};
-     if(stocktake&&receipt.duplicate!==true
+     if(op.type==='inventory.delta'){
+      if(typeof outbox.recordDeltaAck!=='function')
+       throw Error('outbox_store:delta_ack_not_supported');
+      await outbox.recordDeltaAck(scope,op.id,receipt);
+     }else if(stocktake&&receipt.duplicate!==true
        &&typeof outbox.recordStocktakeAck==='function')
       await outbox.recordStocktakeAck(scope,op.id,receipt);
      else if(reverse&&receipt.duplicate!==true
@@ -148,7 +152,16 @@
      const receipt=await remote.applyOperation(request);
      if(!receipt||receipt.operationId!==op.id)
       throw Error('replay:receipt_id_mismatch');
-     await outbox.recordResult(scope,op.id,{
+     if(op.type==='inventory.delta'){
+      if(typeof outbox.recordDeltaAck!=='function')
+       throw Error('outbox_store:delta_ack_not_supported');
+      if(receipt.childId!==op.payload?.childId
+        ||receipt.size!==op.payload?.size
+        ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
+        ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
+       throw Error('replay:receipt_unverified');
+      await outbox.recordDeltaAck(scope,op.id,receipt);
+     }else await outbox.recordResult(scope,op.id,{
       kind:receipt.duplicate?'duplicate':'accepted',receiptId:op.id
      });
      accepted++;
