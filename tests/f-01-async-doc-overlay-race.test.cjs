@@ -19,9 +19,12 @@ function docs(){
    status:'PRIMARY_DOCUMENT_READ_VERIFIED',kind,familyId:F,childId:C,
    revision:1,body}]))};
 }
-function setup({hold=true}={}){
+function setup({hold=true,holdRefresh=false}={}){
  let actor='A',child=C,resolveDoc,readCalls=0,ackOptions,latest;
  const slow=new Promise(resolve=>{resolveDoc=resolve;});
+ let resolveRefresh;
+ const slowRefresh=new Promise(resolve=>{resolveRefresh=resolve;});
+ let refreshCalls=0;
  const views=[],events=new Map(),elements=new Map();
  const get=id=>{
   if(!elements.has(id))elements.set(id,{id,disabled:false,hidden:false,
@@ -57,7 +60,8 @@ function setup({hold=true}={}){
   documentsFactory:()=>({
    acceptVerifiedPrimary:()=>true,
    readAll:async()=>{readCalls++;return hold?slow:docs();},
-   read:async({kind})=>docs().documents[kind]
+   read:async({kind})=>{refreshCalls++;if(holdRefresh)await slowRefresh;
+    return docs().documents[kind];}
   }),
   documentsOverlay:Overlay,scriptLoader:async()=>{},
   documentWritesEnabled:false
@@ -76,6 +80,12 @@ function setup({hold=true}={}){
  return {instance,views,get,op,
   ack:async(kind,n)=>ackOptions.onPurchaseAck(op(kind,n)),
   ackRaw:async packet=>ackOptions.onPurchaseAck(packet),
+  ackSettings:async()=>ackOptions.onSettingsAck({kind:'settings',familyId:F,
+   actorUid:actor,childId:child,requestId:'original-setting-request',
+   expectedRevision:1,revision:2,record:{daily:{S:12}},
+   nextBody:{target:{S:90},daily:{S:12},currentSize:'S'}}),
+  releaseRefresh:()=>resolveRefresh(),
+  get refreshCalls(){return refreshCalls;},
   release:()=>resolveDoc(docs()),
   get latest(){return latest;},
   get readCalls(){return readCalls;},
@@ -129,4 +139,42 @@ test('F-01 late document response cannot cross actor scope',async()=>{
  assert.equal(f.latest.actorUid,'B');
  assert.ok(f.views.slice(1).every(x=>x.actorUid==='B'));
  assert.equal(f.latest.state.inventory.S,80);
+});
+
+test('F-01 cached five-document refresh does not roll back an intervening purchase ACK',async()=>{
+ const f=setup({hold:false,holdRefresh:true});
+ await f.instance.start();await tick();await tick();
+ assert.equal(f.latest.state.inventory.S,80);
+ const refresh=f.instance.restore();
+ await tick();
+ assert.equal(f.refreshCalls,5);
+ assert.equal(await f.ack('buy',140),'ready');
+ f.releaseRefresh();
+ await refresh;await tick();
+ assert.equal(f.latest.state.inventory.S,140);
+ assert.equal(f.latest.revisions.S,3);
+ assert.equal(f.latest.state.transactions[0].operationId,ID);
+ assert.equal(f.refreshCalls,5);
+});
+test('F-01 stale five-document refresh cannot roll back newly ACKed settings revision',async()=>{
+ const f=setup({hold:false,holdRefresh:true});
+ await f.instance.start();await tick();await tick();
+ const refresh=f.instance.restore();
+ await tick();
+ assert.equal(f.refreshCalls,5);
+ assert.equal(await f.ackSettings(),'ready');
+ assert.equal(f.latest.state.daily.S,12);
+ f.releaseRefresh();
+ await refresh;await tick();
+ assert.equal(f.latest.state.daily.S,12);
+ assert.equal(f.latest.documentRevisions.settings,2);
+ assert.equal(f.refreshCalls,5);
+});
+test('F-01 old child read cannot render after current child changes',async()=>{
+ const f=setup();await f.instance.start();
+ f.setChild('e7d936c8-00c1-45c9-8d2e-6f1424f97c91');
+ await f.instance.restore();
+ f.release();await tick();await tick();
+ assert.notEqual(f.latest?.childId,C);
+ assert.ok(f.views.slice(1).every(v=>v.childId!==C));
 });
