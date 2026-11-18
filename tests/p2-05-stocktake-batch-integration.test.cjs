@@ -97,6 +97,7 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0}={}){
  const actions=Actions.create({primary,commands,formalModeSelected:()=>true,
   buildAllowsWrites:enabled,operatorApproved:()=>enabled,purchaseOnly:true,
   allowConsume:true,allowReverse:true,allowStocktake:true,
+   allowBatchStocktake:true,
   readStocktakeBaseline:()=>displayed,batchStocktake:bridge,
   createBatchId:()=>{uuidCalls++;return BATCH;},
   onBatchReadback:async({batchId,items})=>{
