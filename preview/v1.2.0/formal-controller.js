@@ -376,6 +376,41 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   try{return await Promise.race([Promise.resolve().then(task),expire]);}
   finally{(host.clearTimeout||clearTimeout)(timer);}
  }
+ // Only called when a real, same-scope 009/027 ACK changed the primary
+ // view during a pending read. Preserve that ACK's evidence per size, but
+ // accept independently newer server revisions from other sizes. Both
+ // histories remain available: a late read cannot erase a confirmed UUID.
+ function protectAcknowledgedBusiness(incoming,acknowledged){
+  const inventory={...incoming.state.inventory};
+  const revisions={...incoming.revisions};
+  for(const size of SIZES){
+   const confirmed=acknowledged.revisions?.[size];
+   const remote=incoming.revisions?.[size];
+   if(Number.isSafeInteger(confirmed)&&confirmed>=0
+     &&Number.isSafeInteger(remote)&&confirmed>=remote){
+    inventory[size]=acknowledged.state.inventory[size];
+    revisions[size]=confirmed;
+   }
+  }
+  const transactions=incoming.state.transactions.slice();
+  const keys=new Map(transactions.map((t,i)=>[t.operationId||t.id,i]));
+  for(const confirmed of acknowledged.state.transactions){
+   const key=confirmed.operationId||confirmed.id;
+   const index=keys.get(key);
+   if(index===undefined){
+    keys.set(key,transactions.length);
+    transactions.push(confirmed);
+   }else if(confirmed.reversed===true&&transactions[index].reversed!==true){
+    // A verified local reverse ACK must not be undone by an older server read.
+    transactions[index]={...transactions[index],reversed:true,
+     reversedByOperationId:confirmed.reversedByOperationId};
+   }
+  }
+  return Object.freeze({...incoming,
+   state:Object.freeze({...incoming.state,
+    inventory:Object.freeze(inventory),transactions:Object.freeze(transactions)}),
+   revisions:Object.freeze(revisions),historyCount:transactions.length});
+ }
  function showCloudView(data,ctx){
   ui.show(data);
   // A verified RPC response alone is not proof that the UI rendered it.
@@ -516,6 +551,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return mode;
    }
    if(actor!==ctx.actorUid||family!==ctx.familyId)clear();
+   // Capture BEFORE the asynchronous primary read, not after it returns.
+   // The existing ACK callbacks replace primaryViewBase only after a server
+   // receipt was validated. A changed reference is therefore fresh evidence.
+   const businessBaselineAtRead=primaryViewBase;
+   const readStartEpoch=documentEpoch;
    const verified=await bounded(()=>readModelFactory(ctx.app,historyCache).read({
     familyId:ctx.familyId,actorUid:ctx.actorUid,limit:50
    }),20000);
@@ -547,7 +587,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         &&verified?.inventory?.[item.size]===item.count
         &&Number.isSafeInteger(verified?.revisions?.[item.size])
         &&verified.revisions[item.size]>item.expectedRevision));
-    if(token!==revision)return mode;
+    const readContext=controller?.verifiedContext?.();
+    const selectedAfterRead=primary?.selectedScope?.();
+    if(token!==revision||readStartEpoch!==documentEpoch
+      ||readContext?.actorUid!==ctx.actorUid
+      ||readContext?.familyId!==ctx.familyId||readContext?.app!==ctx.app
+      ||(selectedAfterRead
+        &&(selectedAfterRead.actorUid!==ctx.actorUid
+          ||selectedAfterRead.familyId!==ctx.familyId
+          ||selectedAfterRead.childId!==verified?.childId)))return mode;
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
     clear();screen('unverified',notes[verified?.status]||
@@ -559,7 +607,6 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
    const baseView=data;
-   const businessBaselineAtRead=primaryViewBase;
    // The primary read above has already verified the current actor, family,
    // active primary, completed migration receipt and server inventory scope.
    // Reuse this current-session read scope for document RPCs only.
@@ -1439,20 +1486,26 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      &&primaryViewBase.familyId===ctx.familyId
      &&primaryViewBase.childId===baseView.childId
      ?primaryViewBase:null;
-   const displayBase=live||baseView;
+   const displayBase=live?protectAcknowledgedBusiness(baseView,live):baseView;
    if(live){
     data=documentsVerified
      ?documentsOverlay.apply(displayBase,documentSnapshot):displayBase;
    }
-   if(token!==revision||identityEpoch!==documentEpoch
-      ||controller.verifiedContext()?.actorUid!==ctx.actorUid
-      ||controller.verifiedContext()?.familyId!==ctx.familyId)return mode;
+   const latestContext=controller?.verifiedContext?.();
+   const selectedNow=primary?.selectedScope?.();
+   if(token!==revision||readStartEpoch!==documentEpoch
+      ||identityEpoch!==documentEpoch
+      ||latestContext?.actorUid!==ctx.actorUid
+      ||latestContext?.familyId!==ctx.familyId||latestContext?.app!==ctx.app
+      ||(selectedNow&&(selectedNow.actorUid!==ctx.actorUid
+        ||selectedNow.familyId!==ctx.familyId
+        ||selectedNow.childId!==displayBase.childId)))return mode;
    primaryViewBase=displayBase;
    // Do not wait for an additional getSession() call after showing UI.
    showCloudView(data,ctx);
    shownStock=Object.freeze({
-    inventory:Object.freeze({...live?displayBase.state.inventory:verified.inventory}),
-    revisions:Object.freeze({...live?displayBase.revisions:verified.revisions})
+    inventory:Object.freeze({...displayBase.state.inventory}),
+    revisions:Object.freeze({...displayBase.revisions})
    });
    actor=ctx.actorUid;family=ctx.familyId;
    $('formalCurrentAccount').textContent=ctx.actorUid;
