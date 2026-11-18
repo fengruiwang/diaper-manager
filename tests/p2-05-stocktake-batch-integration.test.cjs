@@ -83,6 +83,15 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false,primary
    }
    return {status:'BATCH_LOCAL_SNAPSHOT_ACK_APPLIED'};
   },
+  syncVerifiedReadModel:async({verifiedReadModel,batchQueue})=>{
+   if(batchQueue?.status!=='BATCH_QUEUE_VERIFIED'||batchQueue.outstanding!==0)
+    return {status:'PRIMARY_LOCAL_BASELINE_PENDING'};
+   localInventory={...verifiedReadModel.inventory};
+   localRevisions={...verifiedReadModel.revisions};
+   Object.assign(displayed,{inventory:{...localInventory},
+    revisions:{...localRevisions}});
+   return {status:'PRIMARY_LOCAL_BASELINE_SYNCED'};
+  },
   flush:async()=>({status:'PRIMARY_CLOUD_SYNCED_VERIFIED'})
  };
  const idbStore={
@@ -125,6 +134,20 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false,primary
    const dad=await Client.create(app('dad')).readInventory({familyId:F,childId:CHILD});
    const mom=await Client.create(app('mom')).readInventory({familyId:F,childId:CHILD});
    assert.deepEqual(dad,mom);
+   // The batch client has recovered the original UUID and marked its receipt
+   // ACKed. The normal formal restore now reuses this verified six-size read
+   // to bridge the separate 009 snapshot; it does not create another batch.
+   const batchOutstanding=[...queued.values()].filter(x=>x.status!=='acked').length;
+   const synced=await primary.syncVerifiedReadModel({
+    verifiedReadModel:{status:'PRIMARY_READ_ONLY_READY',
+     source:'cloudbase-primary-receipt-verified',canWrite:false,
+     legacyPurchasesAppliedToInventory:false,legacyHistory:{complete:true},
+     familyId:F,childId:CHILD,actorUid:'dad',
+     inventory:Object.fromEntries(dad.map(x=>[x.size,x.quantity])),
+     revisions:Object.fromEntries(dad.map(x=>[x.size,x.revision]))},
+    batchQueue:{status:'BATCH_QUEUE_VERIFIED',outstanding:batchOutstanding}
+   });
+   if(synced.status!=='PRIMARY_LOCAL_BASELINE_SYNCED')return 'pending';
    return items.every(item=>dad.some(row=>row.size===item.size
     &&row.quantity===item.count&&row.revision>item.expectedRevision))
     ?'ready':'pending';
@@ -144,7 +167,18 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false,primary
   get uuidCalls(){return uuidCalls},
   get primaryReads(){return primaryReads},get snapshotUpdates(){return snapshotUpdates},
   get viewUpdates(){return viewUpdates},
-  get localInventory(){return localInventory},get localRevisions(){return localRevisions}
+  get localInventory(){return localInventory},get localRevisions(){return localRevisions},
+  async refreshBaseline(){
+   return primary.syncVerifiedReadModel({
+    verifiedReadModel:{status:'PRIMARY_READ_ONLY_READY',
+     source:'cloudbase-primary-receipt-verified',canWrite:false,
+     legacyPurchasesAppliedToInventory:false,legacyHistory:{complete:true},
+     familyId:F,childId:CHILD,actorUid:'dad',
+     inventory:{...stock},revisions:{...revisions}},
+    batchQueue:{status:'BATCH_QUEUE_VERIFIED',
+     outstanding:[...queued.values()].filter(x=>x.status!=='acked').length}
+   });
+  }
  };
 }
 test('B4-02 double click shares a single batch UUID and one 027 write',async()=>{
@@ -299,4 +333,30 @@ test('P2-05 default formal and batch gates remain disabled',async()=>{
  assert.equal(f.batchWrites,0);assert.equal(f.queued.size,0);
  assert.equal((await f.bridge.send({operatorApproved:true})).status,
   'BATCH_WRITES_NOT_AUTHORIZED');
+});
+
+test('T02-P1-02 cross-device refresh updates local six-size baseline before one 027 batch',async()=>{
+ const f=fixture({fast:true});
+ // Device A already changed two sizes; device B refreshes before editing.
+ f.stock.NB=120;f.stock.S=220;f.revisions.NB=4;f.revisions.S=8;
+ const refreshed=await f.refreshBaseline();
+ assert.equal(refreshed.status,'PRIMARY_LOCAL_BASELINE_SYNCED');
+ assert.equal(f.localInventory.NB,120);
+ assert.equal(f.localInventory.S,220);
+ assert.equal(f.localRevisions.NB,4);
+ assert.equal(f.localRevisions.S,8);
+ const result=await f.actions.handle({id:'saveStocks',dataset:{}},
+  f.form({NB:130,S:230}));
+ assert.equal(result.status,'BATCH_CLOUD_ACK_APPLIED');
+ assert.equal(f.batchWrites,1);
+ assert.equal(f.uuidCalls,1);
+ assert.equal(f.sent[0].p.p_items[0].expectedRevision,4);
+ assert.equal(f.sent[0].p.p_items[1].expectedRevision,8);
+ assert.equal(f.snapshotUpdates,1);
+ assert.equal(f.localInventory.NB,130);
+ assert.equal(f.localInventory.S,230);
+ assert.equal(f.localRevisions.NB,5);
+ assert.equal(f.localRevisions.S,9);
+ assert.equal(f.queued.get(BATCH).status,'acked');
+ assert.equal(f.primaryReads,0);
 });
