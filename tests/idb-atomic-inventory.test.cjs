@@ -431,3 +431,104 @@ test('P2-3E a queue inserted just before the actual IDB transaction blocks boots
  assert.equal(await store.readInventory(dad,CHILD),null);
  assert.equal((await store.ready(dad)).length,1);
 });
+
+
+test('F-02 authoritative buy delta ACK replaces projected 140 with server 160 and revision 5',async()=>{
+ const idb=idbFake(),store=make(idb,'f02-buy');
+ await store.initializeInventory(dad,{childId:CHILD,inventory:stock(80),
+  serverRevisions:{S:2},source:'verified-server'});
+ await store.commitInventory(dad,event(O1));
+ assert.equal((await store.readInventory(dad,CHILD)).inventory.S,140);
+ assert.equal((await store.readInventory(dad,CHILD)).serverRevisions.S,2);
+ const ack=await store.recordDeltaAck(dad,O1,{
+  operationId:O1,childId:CHILD,size:'S',quantity:160,revision:5});
+ assert.equal(ack.operation.status,'acked');
+ assert.equal(ack.snapshot.inventory.S,160);
+ assert.equal(ack.snapshot.serverRevisions.S,5);
+ const fresh=await make(idb,'f02-buy').readInventory(dad,CHILD);
+ assert.equal(fresh.inventory.S,160);assert.equal(fresh.serverRevisions.S,5);
+ assert.equal(fresh.inventory.NB,0);
+ assert.equal((await store.ready(dad)).length,0);
+ await store.commitInventory(dad,event(O2,{payload:{kind:'use',amount:9,purchase:null}}));
+ assert.equal((await store.readInventory(dad,CHILD)).inventory.S,151);
+ assert.equal((await store.readInventory(dad,CHILD)).serverRevisions.S,5);
+});
+test('F-02 consume delta ACK then 027 batch keeps authoritative revisions across two sizes',async()=>{
+ for(const kind of ['buy','use']){
+  const idb=idbFake(),name='f02-batch-'+kind,store=make(idb,name);
+  await store.initializeInventory(dad,{childId:CHILD,
+   inventory:{...stock(80),NB:20},serverRevisions:{S:2,NB:1},
+   source:'verified-server'});
+  await store.commitInventory(dad,event(O1,{payload:kind==='use'
+   ?{kind:'use',amount:9,purchase:null}:{kind:'buy',amount:60}}));
+  const value=kind==='use'?71:140;
+  const ack=await store.recordDeltaAck(dad,O1,{
+   operationId:O1,childId:CHILD,size:'S',quantity:value,revision:3});
+  assert.equal(ack.snapshot.inventory.S,value);
+  assert.equal(ack.snapshot.serverRevisions.S,3);
+  const batch=await store.applyVerifiedBatchInventory(dad,{
+   childId:CHILD,changes:[
+    {size:'NB',expectedRevision:1,new_quantity:25,revision:2},
+    {size:'S',expectedRevision:3,new_quantity:value+2,revision:4}]
+  });
+  assert.equal(batch.inventory.S,value+2);
+  assert.equal(batch.serverRevisions.S,4);
+  assert.equal(batch.inventory.NB,25);
+  assert.equal((await make(idb,name).readInventory(dad,CHILD)).serverRevisions.NB,2);
+ }
+});
+test('F-02 IDB put failure aborts delta operation ACK and snapshot together',async()=>{
+ const idb=idbFake(),store=make(idb,'f02-atomic-fail');
+ await store.initializeInventory(dad,{childId:CHILD,inventory:stock(80),
+  serverRevisions:{S:2},source:'verified-server'});
+ await store.commitInventory(dad,event());
+ idb.failOperationPut();
+ await assert.rejects(()=>store.recordDeltaAck(dad,O1,{
+  operationId:O1,childId:CHILD,size:'S',quantity:160,revision:5
+ }),/write_failed/);
+ const reopened=make(idb,'f02-atomic-fail');
+ const snap=await reopened.readInventory(dad,CHILD);
+ assert.equal(snap.inventory.S,140);assert.equal(snap.serverRevisions.S,2);
+ assert.equal((await reopened.get(dad,O1)).status,'pending');
+ assert.deepEqual((await reopened.ready(dad)).map(x=>x.id),[O1]);
+ const good=await reopened.recordDeltaAck(dad,O1,{
+  operationId:O1,childId:CHILD,size:'S',quantity:160,revision:5});
+ assert.equal(good.snapshot.inventory.S,160);
+});
+test('F-02 wrong UUID/scope/stale revision and repeated receipt cannot modify inventory',async()=>{
+ const {store}=await seeded({s:80,db:idbFake(),name:'f02-validate'});
+ // A verified-server baseline is necessary for a real, authoritative ACK.
+ const freshIdb=idbFake(),real=make(freshIdb,'f02-recheck');
+ await real.initializeInventory(dad,{childId:CHILD,inventory:stock(80),
+  serverRevisions:{S:3},source:'verified-server'});
+ await real.commitInventory(dad,event(O1));
+ const receipt={operationId:O1,childId:CHILD,size:'S',quantity:140,revision:4};
+ for(const [identity,opId,got] of [
+  [mom,O1,receipt],[dad,O1,{...receipt,operationId:O2}],
+  [dad,O1,{...receipt,revision:3}],[dad,O1,{...receipt,childId:FAMILY}]
+ ]){
+  await assert.rejects(()=>real.recordDeltaAck(identity,opId,got));
+  assert.equal((await real.get(dad,O1)).status,'pending');
+  assert.equal((await real.readInventory(dad,CHILD)).serverRevisions.S,3);
+ }
+ await real.recordDeltaAck(dad,O1,receipt);
+ const repeat=await real.recordDeltaAck(dad,O1,{...receipt,duplicate:true});
+ assert.equal(repeat.duplicate,true);
+ assert.equal((await real.readInventory(dad,CHILD)).inventory.S,140);
+ assert.equal((await real.readInventory(dad,CHILD)).serverRevisions.S,4);
+ await assert.rejects(()=>real.recordDeltaAck(dad,O1,{...receipt,revision:6}),
+  /delta_ack_recheck_required/);
+});
+test('F-02 other same-size unresolved UUID remains unmodified and blocks unsafe delta ACK',async()=>{
+ const idb=idbFake(),store=make(idb,'f02-pending');
+ await store.initializeInventory(dad,{childId:CHILD,inventory:stock(80),
+  serverRevisions:{S:2},source:'verified-server'});
+ await store.commitInventory(dad,event(O1));
+ await store.commitInventory(dad,event(O2,{payload:{kind:'use',amount:9,purchase:null}}));
+ await assert.rejects(()=>store.recordDeltaAck(dad,O1,{
+  operationId:O1,childId:CHILD,size:'S',quantity:160,revision:5}),
+  /delta_other_pending_same_size/);
+ assert.equal((await store.get(dad,O1)).status,'pending');
+ assert.equal((await store.get(dad,O2)).status,'pending');
+ assert.equal((await store.readInventory(dad,CHILD)).inventory.S,131);
+});
