@@ -2,6 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const Contract=require('../sync/outbox-contract.js');
 const Durable=require('../sync/idb-outbox.js');
+const Projection=require('../sync/inventory-local-projection.js');
 const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const OTHER='6b3d0e45-bf18-4c95-889c-6f19731a8ae5';
 const O1='397b1791-b8d0-4d63-82d6-c5b829240f42';
@@ -100,7 +101,8 @@ function fakeIndexedDB(){
  };
 }
 function make(factory,name='idb-test'){
- return Durable.create({indexedDB:factory,contract:Contract,dbName:name});
+ return Durable.create({indexedDB:factory,contract:Contract,
+  projection:Projection,dbName:name});
 }
 test('no IndexedDB writes before first explicit action, even after module import',()=>{
  const f=fakeIndexedDB();
