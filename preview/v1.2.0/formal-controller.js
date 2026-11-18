@@ -591,7 +591,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     const selectedAfterRead=primary?.selectedScope?.();
     if(token!==revision||readStartEpoch!==documentEpoch
       ||readContext?.actorUid!==ctx.actorUid
-      ||readContext?.familyId!==ctx.familyId||readContext?.app!==ctx.app
+      ||readContext?.familyId!==ctx.familyId
       ||(selectedAfterRead
         &&(selectedAfterRead.actorUid!==ctx.actorUid
           ||selectedAfterRead.familyId!==ctx.familyId
@@ -1496,7 +1496,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(token!==revision||readStartEpoch!==documentEpoch
       ||identityEpoch!==documentEpoch
       ||latestContext?.actorUid!==ctx.actorUid
-      ||latestContext?.familyId!==ctx.familyId||latestContext?.app!==ctx.app
+      ||latestContext?.familyId!==ctx.familyId
       ||(selectedNow&&(selectedNow.actorUid!==ctx.actorUid
         ||selectedNow.familyId!==ctx.familyId
         ||selectedNow.childId!==displayBase.childId)))return mode;

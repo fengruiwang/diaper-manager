@@ -90,6 +90,7 @@ function setup({hold=true,holdRefresh=false,holdBusinessRefresh=false,
  return {instance,views,get,op,
   ack:async(kind,n)=>ackOptions.onPurchaseAck(op(kind,n)),
   ackRaw:async packet=>ackOptions.onPurchaseAck(packet),
+  stockBaseline:()=>ackOptions.readStocktakeBaseline(),
   batchAck:async packet=>ackOptions.onBatchAck(packet),
   ackSettings:async()=>ackOptions.onSettingsAck({kind:'settings',familyId:F,
    actorUid:actor,childId:child,requestId:'original-setting-request',
@@ -209,6 +210,10 @@ test('T02-P1-01 delayed primary read cannot roll back confirmed purchase; other 
  assert.equal(f.latest.state.transactions.some(t=>t.operationId===ID&&t.type==='buy'),true);
  assert.equal(f.latest.state.inventory.M,33,'newer authoritative M revision cannot be lost');
  assert.equal(f.latest.revisions.M,5);
+ assert.equal(f.stockBaseline().inventory.S,140);
+ assert.equal(f.stockBaseline().revisions.S,3);
+ assert.equal(f.stockBaseline().inventory.M,33);
+ assert.equal(f.stockBaseline().revisions.M,5);
  assert.equal(f.instance.mode,'ready');
  assert.equal(f.businessCalls,2,'no extra full cloud read');
  assert.equal(f.refreshCalls,5,'existing five-document refresh unchanged');
@@ -222,6 +227,8 @@ test('T02-P1-01 delayed primary read cannot roll back confirmed use ACK',async()
  f.releaseBusinessRead();await read;await tick();
  assert.equal(f.latest.state.inventory.S,71);
  assert.equal(f.latest.revisions.S,3);
+ assert.equal(f.stockBaseline().inventory.S,71);
+ assert.equal(f.stockBaseline().revisions.S,3);
  assert.equal(f.latest.state.transactions.some(t=>t.operationId===ID&&t.type==='use'),true);
  assert.equal(f.businessCalls,2);
 });
@@ -244,6 +251,8 @@ test('T02-P1-01 delayed primary read cannot reopen confirmed reversed purchase',
  assert.equal(f.latest.revisions.S,3);
  assert.equal(f.latest.state.transactions[0].reversed,true);
  assert.equal(f.latest.state.transactions[0].reversedByOperationId,ID);
+ assert.equal(f.stockBaseline().inventory.S,75);
+ assert.equal(f.stockBaseline().revisions.S,3);
  assert.equal(f.businessCalls,2);
 });
 test('T02-P1-01 delayed primary read cannot roll back confirmed single or multi-size stocktake',async()=>{
@@ -268,6 +277,8 @@ test('T02-P1-01 delayed primary read cannot roll back confirmed single or multi-
   f.releaseBusinessRead();await read;await tick();
   assert.equal(f.latest.state.inventory.S,95);
   assert.equal(f.latest.revisions.S,3);
+  assert.equal(f.stockBaseline().inventory.S,95);
+  assert.equal(f.stockBaseline().revisions.S,3);
   if(batch){
    assert.equal(f.latest.state.inventory.M,15);
    assert.equal(f.latest.revisions.M,2);
