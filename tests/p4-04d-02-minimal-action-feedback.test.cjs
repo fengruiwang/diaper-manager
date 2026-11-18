@@ -78,7 +78,7 @@ test('P4 trial: rapid purchase taps create exactly one original purchase and onl
  await tick();await tick();
  assert.equal(f.counts.purchase,1);
  assert.equal(f.nodes.buyNow.disabled,false);
- assert.match(f.nodes.formalCompareActionFeedback.textContent,/采购保存成功.*读回/);
+ assert.match(f.nodes.formalCompareActionFeedback.textContent,/采购入库成功，库存已更新/);
 });
 test('P4 trial: unknown purchase ACK keeps original ID and blocks repeat until verified recovery',async()=>{
  let recovered=false;
@@ -122,7 +122,7 @@ test('P4 trial: quote uncertain ACK retains original request and exact record fo
  });
  f.click('saveQuote');await tick();await tick();
  assert.equal(f.nodes.saveQuote.disabled,true);
- assert.match(f.nodes.formalCompareActionFeedback.textContent,/入库状态待核验/);
+ assert.match(f.nodes.formalCompareActionFeedback.textContent,/正在核验，请勿重复提交/);
  f.click('saveQuote');await tick();assert.equal(f.counts.quote,1);
  assert.equal(await f.binding.recoverMinimalButtons({domain:'quotes'}),false);
  verified=true;
