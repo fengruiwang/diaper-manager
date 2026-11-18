@@ -106,6 +106,12 @@
      if(String(e?.message||'').startsWith('outbox_store:'))
       return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};
      const code=errorCode(e);
+     if(stocktake&&String(e?.message||'')==='inventory_client:revision_conflict'
+       &&typeof outbox.abandonSingleStocktakeConflict==='function'){
+      try{await outbox.abandonSingleStocktakeConflict(scope,op.id);}
+      catch(_){return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};}
+      return {status:'stocktake-rejected',attempted:1,accepted:0};
+     }
      try{await outbox.recordResult(scope,op.id,{kind:code});}
      catch(_){return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};}
      if(stocktake&&code==='conflict')return {
