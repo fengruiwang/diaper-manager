@@ -1096,7 +1096,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       },
       batchStocktake:batchGuard,
       createBatchId:()=>host.crypto.randomUUID(),
-      onBatchReadback:({items})=>restore({expectedBatch:items}),
+      onBatchReadback:async({items})=>{
+       const visible=await restore({expectedBatch:items});
+       // A committed 027 receipt is not a completed local handoff until the
+       // normal verified restore has also synchronized the 009 snapshot.
+       return visible==='ready'&&localInventoryBaselineReady?'ready':'pending';
+      },
       onBatchAck:async ack=>{
        const current=controller.verifiedContext(),selected=primary?.selectedScope?.();
        const base=primaryViewBase,changes=ack?.changes,items=ack?.items;
