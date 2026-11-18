@@ -161,7 +161,7 @@
    if(!waiting){reverseButton=null;reverseLabel='';}
   }
   function stocktakeFeedback(phase,answer=null){
-   const el=stocktakeButton||attached?.doc.getElementById('saveStocks');
+   const el=attached?.doc.getElementById('saveStocks')||stocktakeButton;
    const node=attached?.doc.getElementById('formalStocktakeActionFeedback');
    const status=String(answer?.status||'');
    if(node)node.textContent=phase==='working'?(stocktakeBatchAction?'正在批量保存库存…':'正在保存库存盘点…')
