@@ -164,3 +164,27 @@ test('B5-01 definite 026 conflict stops that queue and reports conflict',async()
  assert.equal(f.counts().q26,1);
  assert.match(f.get('formalCloudSyncFeedback').textContent,/数据冲突/);
 });
+
+test('B5-01 capture guard passes both new sync buttons to the shared controller',()=>{
+ const Actions=require('../sync/primary-formal-ui-actions.js');
+ const handlers={};
+ const guard=Actions.create({
+  primary:{read:async()=>({status:'PRIMARY_CLOUD_READ_VERIFIED'})},
+  commands:{submit:async()=>({status:'NOT_EXPECTED'})},
+  readPurchase:()=>null,readQuote:()=>null,readTransaction:()=>null,
+  notify:()=>{},formalModeSelected:()=>true,
+  operatorApproved:()=>true,documentOperatorApproved:()=>true
+ });
+ const doc={addEventListener:(name,fn,capture)=>{
+   assert.equal(capture,true);handlers[name]=fn;
+  },removeEventListener(){},getElementById:()=>null};
+ const binding=guard.attach(doc);
+ for(const id of ['formalGetCloudLatest','formalSubmitPending']){
+  let blocked=false;
+  const el={id,dataset:{},classList:{contains:()=>false},closest(){return this;}};
+  handlers.click({target:el,preventDefault(){blocked=true;},
+   stopImmediatePropagation(){blocked=true;}});
+  assert.equal(blocked,false,id+' must reach the controller');
+ }
+ binding.detach();
+});
