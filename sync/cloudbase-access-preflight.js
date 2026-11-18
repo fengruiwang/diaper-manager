@@ -27,7 +27,8 @@
   proof.childId=childId;
  }
  function finishVerifiedRead(grant){
-  if(grant&&typeof grant==='object')readProofs.delete(grant);
+  if(grant&&typeof grant==='object')
+   Reflect.apply(WeakMap.prototype['delete'],readProofs,[grant]);
  }
  function fail(code){throw new Error('access_preflight:'+code);}
  function uid(value){

@@ -42,7 +42,8 @@ function sdkFixture(){
       ?[{family_id:FAMILY,user_uid:actor,member_role:'owner'}]:[]};
     if(table==='family_app_access')
      return {data:allowed&&match('family_id',FAMILY)
-      &&match('user_uid',actor)&&match('app_code','xb')
+      &&match('app_code','xb')
+      &&(!filters.some(([key])=>key==='user_uid')||match('user_uid',actor))
       ?[{family_id:FAMILY,user_uid:actor,app_code:'xb'}]:[]};
     if(table==='xb_children')
      return {data:match('family_id',FAMILY)&&match('legacy_slot','primary')

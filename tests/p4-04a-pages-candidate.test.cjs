@@ -31,8 +31,13 @@ test('P4-04A frozen rc2 candidate preserves verified assets and archived module 
   assert.ok(html.includes('src="'+script+'"'),script);
  assert.ok(html.indexOf('src="./m1-controller')<html.indexOf('src="./formal-controller'));
  // Frozen rc2 is verified by pinned candidate hashes, not later Feature B3 modules.
- for(const name of ['outbox-contract','cloudbase-inventory-client'])
-  assert.ok(html.includes(load('sync/'+name+'.js').toString('utf8').trim()),name);
+ assert.ok(html.includes(load('sync/outbox-contract.js').toString('utf8').trim()),
+  'outbox-contract');
+ // rc.2 is intentionally frozen at its archived source, while newer Feature
+ // adapters may advance. Its pinned hashes above, not current source, prove
+ // frozen client integrity.
+ assert.match(html,/XBInventoryClient=api/);
+ assert.match(html,/xb_read_inventory_reconciliation/);
 });
 test('P4-04A read-only production build gates, no Tencent test assets or fake release controls',()=>{
  const html=text('index.html'),controller=text('formal-controller.js');

@@ -57,8 +57,12 @@
     if(grant.member!==true||grant.appCode!=='xb'
        ||grant.familyId!==familyId||grant.actorUid!==actorUid)
      fail('grant_unverified');
+   const trusted=accessPreflight.verifiedReadGrant?.(grant,{
+    app,familyId,actorUid
+   })===true;
    let target;
-   try{target=await children.inspectLegacyTarget({familyId,verifiedReadGrant:grant});}
+   try{target=await children.inspectLegacyTarget(trusted
+    ?{familyId,verifiedReadGrant:grant}:{familyId});}
    catch(e){
     if(e?.message==='child_reader:legacy_primary_unavailable')
      return Object.freeze({status:'PRIMARY_NOT_READY',canWrite:false,
@@ -68,8 +72,9 @@
    if(target.familyId!==familyId||!UUID.test(target.childId)
       ||target.readyForMigration!==false)fail('primary_scope_unverified');
    const childId=target.childId;
-   accessPreflight.bindVerifiedReadChild?.(grant,{app,familyId,actorUid,childId});
-   const scope={familyId,childId,verifiedReadGrant:grant};
+   if(trusted)accessPreflight.bindVerifiedReadChild?.(grant,{app,familyId,actorUid,childId});
+   const scope=trusted?{familyId,childId,verifiedReadGrant:grant}
+    :{familyId,childId};
    // A completed receipt is required BEFORE showing any stock in a formal UI.
    // SQL 024 does not exist in the real database until independently approved.
    let settings,history;
