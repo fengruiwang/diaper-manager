@@ -2627,6 +2627,48 @@ restoreActiveTab();
     req.onsuccess=()=>complete(req.result||null);
    },[SNAPSHOTS]);
   }
+  // 027 is a separate durable batch outbox. Once its server ACK has been
+  // verified, update the SAME inventory snapshot used by 009 quick writes.
+  async function applyVerifiedBatchInventory(scopeInput,{childId,changes}={}){
+   const scope=scopeOf(scopeInput),key=identityKey(scope,childId);
+   if(!Array.isArray(changes)||changes.length<2||changes.length>6)
+    fail('invalid_batch_changes');
+   const sizes=new Set();
+   for(const x of changes){
+    if(!x||!['NB','S','M','L','XL','XXL'].includes(x.size)
+      ||sizes.has(x.size)||!Number.isSafeInteger(x.new_quantity)
+      ||x.new_quantity<0||x.new_quantity>100000
+      ||!Number.isSafeInteger(x.revision)||x.revision<1
+      ||!Number.isSafeInteger(x.expectedRevision)||x.expectedRevision<0
+      ||x.revision<=x.expectedRevision)fail('invalid_batch_changes');
+    sizes.add(x.size);
+   }
+   return run('readwrite',(snapshots,complete,abort)=>{
+    const req=snapshots.get(key);
+    req.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    req.onsuccess=()=>{
+     try{
+      const snap=req.result;
+      if(!snap||snap.source!=='verified-server'
+        ||snap.familyId!==scope.familyId||snap.actorUid!==scope.actorUid
+        ||snap.childId!==childId)fail('batch_snapshot_unverified');
+      const inventory={...snap.inventory},serverRevisions={...snap.serverRevisions};
+      for(const x of changes){
+       if(!Number.isSafeInteger(inventory[x.size])
+         ||!Number.isSafeInteger(serverRevisions[x.size])
+         ||serverRevisions[x.size]!==x.expectedRevision)
+        fail('batch_snapshot_not_current');
+       inventory[x.size]=x.new_quantity;
+       serverRevisions[x.size]=x.revision;
+      }
+      const next={...snap,inventory,serverRevisions};
+      const put=snapshots.put({...next,key});
+      put.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      put.onsuccess=()=>complete(next);
+     }catch(e){abort(e);}
+    };
+   },[SNAPSHOTS]);
+  }
   // The local inventory projection and network outbox event must commit
   // atomically in the SAME IndexedDB transaction. Never mutate old localStorage.
   async function commitInventory(scopeInput,operation){
@@ -2754,7 +2796,7 @@ restoreActiveTab();
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,recordStocktakeAck,abandonSingleStocktakeConflict,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
+  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,recordStocktakeAck,abandonSingleStocktakeConflict,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,applyVerifiedBatchInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;
@@ -3850,6 +3892,26 @@ restoreActiveTab();
    }catch(_){return result('PRIMARY_ACK_UNKNOWN_PRESERVE_ID_AND_QUEUE');}
    finally{busy=false;}
   }
+  // A verified 027 batch ACK updates only the 009 local stock baseline.
+  async function applyBatchInventoryAck({batchId,changes}={}){
+   if(!selected||busy||!Array.isArray(changes)
+     ||typeof outbox.applyVerifiedBatchInventory!=='function')
+    return result('BATCH_LOCAL_SNAPSHOT_UNVERIFIED');
+   const ctx=controller.verifiedContext();
+   if(!ctx||ctx.familyId!==selected.familyId
+     ||ctx.actorUid!==selected.actorUid||!ctx.app)
+    return result('BATCH_LOCAL_SNAPSHOT_UNVERIFIED');
+   try{
+    const snap=await outbox.applyVerifiedBatchInventory(selected,{
+     childId:selected.childId,changes
+    });
+    return result('BATCH_LOCAL_SNAPSHOT_ACK_APPLIED',{
+     batchId,childId:selected.childId,
+     familyId:selected.familyId,actorUid:selected.actorUid,
+     inventory:snap.inventory,revisions:snap.serverRevisions
+    });
+   }catch(_){return result('BATCH_LOCAL_SNAPSHOT_UNVERIFIED',{batchId});}
+  }
   async function pending(){
    // Explicit local IDB-only check. Do not erase or upload pending events
    // merely because a user requested logout or a different account signed in.
@@ -3867,7 +3929,7 @@ restoreActiveTab();
     });
    }catch(_){return result('PRIMARY_QUEUE_COUNTS_UNVERIFIED');}
   }
-  return Object.freeze({activate,read,queue,flush,pending,
+  return Object.freeze({activate,read,queue,flush,pending,applyBatchInventoryAck,
    selectedScope:()=>selected?Object.freeze({...selected}):null,
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }
@@ -4069,9 +4131,9 @@ restoreActiveTab();
   onProfileAck=null,
   allowSettings=false,readSettingsBaseline=null,onSettingsReadback=null,
   onSettingsAck=null,
-  batchStocktake=null,createBatchId=null,onBatchReadback=null,
+  batchStocktake=null,createBatchId=null,onBatchReadback=null,onBatchAck=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
-  allowStocktake=false,allowBatchStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
+  allowStocktake=false,allowBatchStocktake=false,fastBatchStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -4090,7 +4152,7 @@ restoreActiveTab();
   let purchaseButton=null,purchaseButtonLabel='',purchaseFromQuote=false;
   let consumeButton=null,consumeSize='',consumeDay=false;
   let reverseButton=null,reverseLabel='';
-  let stocktakeButton=null,stocktakeLabel='';
+  let stocktakeButton=null,stocktakeLabel='',stocktakeBatchAction=false;
   function quoteFeedback(phase,answer=null){
    const doc=attached?.doc;
    const action=minimalQuoteIntent?.action||quoteAction;
@@ -4199,9 +4261,9 @@ restoreActiveTab();
    const el=stocktakeButton||attached?.doc.getElementById('saveStocks');
    const node=attached?.doc.getElementById('formalStocktakeActionFeedback');
    const status=String(answer?.status||'');
-   if(node)node.textContent=phase==='working'?'正在保存库存盘点…'
-    :phase==='success'?'库存盘点成功，库存已更新'
-    :phase==='pending'?'盘点结果待核验，原请求已保留，请勿重复提交'
+   if(node)node.textContent=phase==='working'?(stocktakeBatchAction?'正在批量保存库存…':'正在保存库存盘点…')
+    :phase==='success'?(stocktakeBatchAction?'批量盘点成功，库存已更新':'库存盘点成功，库存已更新')
+    :phase==='pending'?(stocktakeBatchAction?'批量盘点结果待核验，原批次已保留，请勿重复提交':'盘点结果待核验，原请求已保留，请勿重复提交')
     :phase==='recovered'?'原盘点请求已核验，库存已更新'
     :status==='PRIMARY_STOCK_UNCHANGED'?'库存没有变化，无需保存'
     :status==='MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED'
@@ -4214,7 +4276,7 @@ restoreActiveTab();
    if(el){el.disabled=waiting;el.textContent=waiting
      ?phase==='pending'?'等待核验…':'正在保存库存盘点…'
      :stocktakeLabel||'保存实际库存';}
-   if(!waiting){stocktakeButton=null;stocktakeLabel='';}
+   if(!waiting){stocktakeButton=null;stocktakeLabel='';stocktakeBatchAction=false;}
   }
   function minimalFeedback(kind,phase,answer=null){
    if(kind==='stocktake')return stocktakeFeedback(phase,answer);
@@ -4286,7 +4348,14 @@ restoreActiveTab();
    }
    minimalBusy[kind]=true;
    if(kind==='reverse'){reverseButton=el;reverseLabel=el.textContent||'撤销';}
-    if(kind==='stocktake'){stocktakeButton=el;stocktakeLabel=el.textContent||'保存实际库存';}
+    if(kind==='stocktake'){
+     stocktakeButton=el;stocktakeLabel=el.textContent||'保存实际库存';
+     const baseline=readStocktakeBaseline?.();
+     stocktakeBatchAction=Boolean(baseline?.inventory)&&SIZES.filter(size=>{
+      const value=doc.getElementById('inv_'+size)?.value;
+      return value!==undefined&&value!==''&&Number(value)!==baseline.inventory[size];
+     }).length>1;
+    }
    if(kind==='consume'){
     consumeButton=el;consumeSize=el.dataset?.size||'';
     consumeDay=el.dataset?.useMode==='day'
@@ -4318,22 +4387,26 @@ restoreActiveTab();
         'PRIMARY_USE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
      :kind==='stocktake'
       ?['PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED',
-        'PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+        'PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED',
+        'BATCH_CLOUD_ACK_APPLIED','BATCH_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
      :kind==='reverse'
       ?['PRIMARY_REVERSE_CLOUD_ACK_APPLIED',
         'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
       :['QUOTES_CLOUD_ACK_APPLIED',
         'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
     if(!success){
-     const id=['purchase','consume','reverse','stocktake'].includes(kind)
+     const id=kind==='stocktake'&&answer?.batchId
+      ?answer.batchId:['purchase','consume','reverse','stocktake'].includes(kind)
       ?answer?.operationId:answer?.requestId;
-     if(typeof id==='string'&&id&&answer?.rejected!==true)
+     if(typeof id==='string'&&id&&answer?.rejected!==true
+      &&answer?.status!=='BATCH_REVISION_CONFLICT_MANUAL_REVIEW')
       minimalReview[kind]=Object.freeze(
        ['purchase','consume','reverse','stocktake'].includes(kind)
        ?{operationId:id,kind:kind==='purchase'?'buy':
           kind==='consume'?'use':kind==='stocktake'?'stocktake':'reverse',
           reversesOperationId:kind==='reverse'
            ?prepared?.reversesOperationId:null,
+          ...(answer?.batchId?{batchId:answer.batchId}:{}),
           ...(kind==='stocktake'?{
            size:answer?.size,count:answer?.count,
            expectedRevision:answer?.expectedRevision}: {})}:{requestId:id,
@@ -4640,7 +4713,8 @@ restoreActiveTab();
      ?readStocktakeBaseline():null;
     if(allowStocktake===true&&(!displayed?.inventory||!displayed?.revisions))
      return result('PRIMARY_STOCK_BASELINE_UNVERIFIED');
-    const read=allowStocktake===true&&allowBatchStocktake!==true&&displayed
+    const read=allowStocktake===true
+     &&(allowBatchStocktake!==true||fastBatchStocktake===true)&&displayed
      ?displayed:await primary.read();
     if(!read?.inventory||!read?.revisions)
      return result('PRIMARY_STOCK_UNVERIFIED');
@@ -4691,14 +4765,17 @@ restoreActiveTab();
      return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
     const batchId=createBatchId();
     const queued=await batchStocktake.queue({
-     items,batchId,operatorApproved:true
+     items,batchId,operatorApproved:true,
+     ...(fastBatchStocktake===true?{verifiedBaseline:{
+      status:'PRIMARY_BATCH_BASELINE_VERIFIED',...baseline}}:{})
     });
     if(!['BATCH_DURABLY_QUEUED','BATCH_ALREADY_QUEUED']
       .includes(queued?.status))return queued;
     // The batch ID is stored in IndexedDB before any network write.
     // A missing/ambiguous ACK never causes a fresh batch to be created.
     let sent;
-    try{sent=await batchStocktake.send({operatorApproved:true});}
+    try{sent=await batchStocktake.send({operatorApproved:true,
+     ...(queued.fastBatch===true?{fastBatchId:batchId}:{})});}
     catch(_){return Object.freeze({
      status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
     });}
@@ -4707,10 +4784,11 @@ restoreActiveTab();
        status:'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',batchId
       });
     try{
-     const visible=typeof onBatchReadback==='function'
+     const visible=sent.fastBatch===true&&typeof onBatchAck==='function'
+      ?await onBatchAck(sent):typeof onBatchReadback==='function'
       ?await onBatchReadback({batchId,items}):null;
      if(visible==='ready')return Object.freeze({
-      status:'BATCH_CLOUD_READBACK_VERIFIED',batchId,
+      status:sent.fastBatch===true?'BATCH_CLOUD_ACK_APPLIED':'BATCH_CLOUD_READBACK_VERIFIED',batchId,
       changedSizes:items.length,cloudWriteCommitted:true
      });
     }catch(_){}
@@ -5585,6 +5663,7 @@ function create({controller,host,primary,outboxFactory,contract,
    ||!store?.recordResult||!store?.get)
   throw Error('batch_client:outbox_unavailable');
  let busy=false;
+ const freshBatchIds=new Set();
  const connected=()=>host.navigator?.onLine!==false;
  function scope(){
   const identity=primary.selectedScope();
@@ -5624,7 +5703,7 @@ function create({controller,host,primary,outboxFactory,contract,
    return answer('BATCH_QUEUE_VERIFIED',t);
   }catch(_){return answer('BATCH_QUEUE_UNVERIFIED');}
  }
- async function queue({items,batchId,operatorApproved=false}={}){
+ async function queue({items,batchId,operatorApproved=false,verifiedBaseline=null}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return answer('BATCH_WRITES_NOT_AUTHORIZED');
   if(!connected())return answer('BATCH_OFFLINE_NOT_ACCEPTED');
@@ -5636,8 +5715,12 @@ function create({controller,host,primary,outboxFactory,contract,
    const outstanding=await store.stats(id);
    if(outstanding.outstanding!==0)
     return answer('BATCH_PENDING_REVIEW_FIRST');
-   const fresh=await primary.read();
-   if(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED')
+   const fast=verifiedBaseline?.status==='PRIMARY_BATCH_BASELINE_VERIFIED'
+    &&verifiedBaseline.familyId===id.familyId
+    &&verifiedBaseline.actorUid===id.actorUid
+    &&verifiedBaseline.childId===id.childId;
+   const fresh=fast?verifiedBaseline:await primary.read();
+   if(fresh?.status!==(fast?'PRIMARY_BATCH_BASELINE_VERIFIED':'PRIMARY_CLOUD_READ_VERIFIED'))
     return answer('BATCH_STOCK_NOT_VERIFIED');
    const values=validate(items,fresh.inventory,fresh.revisions);
    // The existing generic contract verifies immutable IDs/types, but the
@@ -5650,8 +5733,11 @@ function create({controller,host,primary,outboxFactory,contract,
      items:values}
    });
    const stored=await store.enqueue(op);
+   if(fast&&stored?.id===op.id&&stored.status==='pending')
+    freshBatchIds.add(op.id);
    return answer('BATCH_DURABLY_QUEUED',{batchId:op.id,
-    duplicate:stored?.duplicate===true,cloudWriteCommitted:false});
+    duplicate:stored?.duplicate===true,fastBatch:fast&&freshBatchIds.has(op.id),
+    cloudWriteCommitted:false});
   }catch(_){return answer('BATCH_QUEUE_UNVERIFIED_KEEP_ID',{batchId});}
   finally{busy=false;}
  }
@@ -5777,7 +5863,7 @@ function create({controller,host,primary,outboxFactory,contract,
   }catch(_){return answer('BATCH_CONFLICT_RESOLUTION_UNVERIFIED_KEEP_ID');}
   finally{busy=false;}
  }
- async function send({operatorApproved=false}={}){
+ async function send({operatorApproved=false,fastBatchId=null}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return answer('BATCH_WRITES_NOT_AUTHORIZED');
   if(!connected())return answer('BATCH_OFFLINE_QUEUE_PRESERVED');
@@ -5788,16 +5874,19 @@ function create({controller,host,primary,outboxFactory,contract,
    if(list.length!==1)return answer(list.length?'BATCH_MULTIPLE_PENDING_BLOCKED':
     'BATCH_NO_READY_OPERATION');
    const op=list[0],items=op.payload?.items;
+   const fast=fastBatchId===op.id&&freshBatchIds.has(op.id);
+   if(fastBatchId!==null&&!fast)return answer('BATCH_FAST_ID_UNVERIFIED');
    if(!UUID.test(op.id)||op.familyId!==id.familyId
      ||op.actorUid!==id.actorUid||op.payload?.childId!==id.childId
      ||!Array.isArray(items))return answer('BATCH_IMMUTABLE_SCOPE_INVALID');
    // Before trying once, check whether an earlier ACK was lost.
-   const already=await receipt(id,op.id,items);
+   const already=fast?null:await receipt(id,op.id,items);
    if(already){
     await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
     return answer('BATCH_ACK_RECOVERED',{batchId:op.id,items});
    }
    const app=controller.verifiedContext()?.app;
+   if(fast)freshBatchIds.delete(op.id);
    let response;
    try{
     response=await app.rdb().rpc('xb_primary_stocktake_batch_draft',{
@@ -5806,7 +5895,7 @@ function create({controller,host,primary,outboxFactory,contract,
     });
    }catch(_){
     // Do not replace batch ID or retry after an ambiguous network error.
-    const found=await receipt(id,op.id,items);
+    const found=fast?null:await receipt(id,op.id,items);
     if(!found)return answer('BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',
      {batchId:op.id});
     await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
@@ -5830,11 +5919,21 @@ function create({controller,host,primary,outboxFactory,contract,
    }
    // A returned write ACK is not sufficient: verify the receipt
    // through the existing read-only batch receipt RPC before local ACK.
-   if(!await receipt(id,op.id,items))
+   if(!fast&&!await receipt(id,op.id,items))
     return answer('BATCH_RECEIPT_READBACK_REQUIRED_KEEP_ID',{batchId:op.id});
+   if(fast){
+    if(typeof primary.applyBatchInventoryAck!=='function')
+     return answer('BATCH_LOCAL_SNAPSHOT_REQUIRED_KEEP_ID',{batchId:op.id,items});
+    const bridge=await primary.applyBatchInventoryAck({batchId:op.id,
+     changes:d.result.changes.map(change=>({...change,
+      expectedRevision:items.find(x=>x.size===change.size).expectedRevision}))});
+    if(bridge?.status!=='BATCH_LOCAL_SNAPSHOT_ACK_APPLIED')
+     return answer('BATCH_LOCAL_SNAPSHOT_REQUIRED_KEEP_ID',{batchId:op.id,items});
+   }
    await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
    return answer('BATCH_ATOMIC_COMMIT_ACKED',{batchId:op.id,
-    items,changedSizes:d.result.changed_sizes});
+    items,changedSizes:d.result.changed_sizes,
+    ...(fast?{changes:d.result.changes,fastBatch:true}:{})});
   }catch(_){return answer('BATCH_SYNC_UNVERIFIED_KEEP_QUEUE');}
   finally{busy=false;}
  }
