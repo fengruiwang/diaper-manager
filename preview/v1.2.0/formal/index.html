@@ -2744,7 +2744,8 @@ restoreActiveTab();
      const queued=operations.index('by_identity').getAll([scope.familyId,scope.actorUid]);
      queued.onerror=()=>abort(new Error('outbox_store:read_failed'));
      queued.onsuccess=()=>{
-      if((queued.result||[]).some(x=>x.payload?.childId===childId)){
+      if((queued.result||[]).some(x=>x.payload?.childId===childId
+        &&OUTSTANDING.has(x.status))){
        abort(new Error('outbox_store:queue_exists_before_baseline'));return;
       }
       const insert=snapshots.add(record);
@@ -2761,6 +2762,95 @@ restoreActiveTab();
     req.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
     req.onsuccess=()=>complete(req.result||null);
    },[SNAPSHOTS]);
+  }
+  // Apply one complete, already verified six-size server snapshot to an
+  // existing local baseline. Queue inspection and snapshot comparison/write
+  // share one readwrite transaction, so a concurrent 009 enqueue cannot slip
+  // between the check and update.
+  async function updateVerifiedInventory(scopeInput,{
+   childId,inventory,serverRevisions
+  }={}){
+   const scope=scopeOf(scopeInput),key=identityKey(scope,childId);
+   const sizes=['NB','S','M','L','XL','XXL'];
+   if(!inventory||typeof inventory!=='object'||Array.isArray(inventory)
+     ||Object.keys(inventory).length!==sizes.length
+     ||!serverRevisions||typeof serverRevisions!=='object'
+     ||Array.isArray(serverRevisions)
+     ||Object.keys(serverRevisions).length!==sizes.length
+     ||!sizes.every(size=>Number.isSafeInteger(inventory[size])
+       &&inventory[size]>=0&&inventory[size]<=100000
+       &&Number.isSafeInteger(serverRevisions[size])
+       &&serverRevisions[size]>=0))
+    fail('invalid_verified_inventory');
+   const nextInventory=Object.fromEntries(sizes.map(size=>[size,inventory[size]]));
+   const nextRevisions=Object.fromEntries(sizes.map(size=>[size,serverRevisions[size]]));
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const queueReq=operations.index('by_identity')
+     .getAll([scope.familyId,scope.actorUid]);
+    const snapshotReq=snapshots.get(key);
+    let queueDone=false,snapshotDone=false,queueRows=null,snapshot=null;
+    const evaluate=()=>{
+     if(!queueDone||!snapshotDone)return;
+     try{
+      const pending=(queueRows||[]).filter(op=>
+       op.payload?.childId===childId&&OUTSTANDING.has(op.status));
+      if(pending.length){
+       complete({status:'LOCAL_OPERATIONS_PENDING',snapshot,
+        outstanding:pending.length,operationIds:pending.map(op=>op.id)});
+       return;
+      }
+      if(!snapshot){
+       complete({status:'SNAPSHOT_NOT_INITIALIZED',snapshot:null});
+       return;
+      }
+      if(snapshot.source!=='verified-server'
+        ||snapshot.familyId!==scope.familyId
+        ||snapshot.actorUid!==scope.actorUid
+        ||snapshot.childId!==childId
+        ||!snapshot.inventory||!snapshot.serverRevisions
+        ||!sizes.every(size=>Number.isSafeInteger(snapshot.inventory[size])
+          &&snapshot.inventory[size]>=0
+          &&Number.isSafeInteger(snapshot.serverRevisions[size])
+          &&snapshot.serverRevisions[size]>=0))
+       fail('snapshot_unverified');
+      const rollback=[],mismatch=[];
+      for(const size of sizes){
+       const remoteRevision=nextRevisions[size];
+       const localRevision=snapshot.serverRevisions[size];
+       if(remoteRevision<localRevision)rollback.push(size);
+       else if(remoteRevision===localRevision
+         &&nextInventory[size]!==snapshot.inventory[size])mismatch.push(size);
+      }
+      if(rollback.length){
+       complete({status:'SERVER_REVISION_ROLLBACK',snapshot,sizes:rollback});
+       return;
+      }
+      if(mismatch.length){
+       complete({status:'SERVER_REVISION_QUANTITY_MISMATCH',snapshot,sizes:mismatch});
+       return;
+      }
+      const changed=sizes.some(size=>
+       nextRevisions[size]!==snapshot.serverRevisions[size]
+       ||nextInventory[size]!==snapshot.inventory[size]);
+      if(!changed){
+       complete({status:'UNCHANGED',snapshot});
+       return;
+      }
+      // Spread the original snapshot: localRevision, transactions and any
+      // future local-only fields are deliberately retained.
+      const next={...snapshot,inventory:nextInventory,
+       serverRevisions:nextRevisions};
+      const put=snapshots.put({...next,key});
+      put.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+      put.onsuccess=()=>complete({status:'UPDATED',snapshot:next});
+     }catch(e){abort(e);}
+    };
+    queueReq.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    queueReq.onsuccess=()=>{queueRows=queueReq.result||[];queueDone=true;evaluate();};
+    snapshotReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+    snapshotReq.onsuccess=()=>{snapshot=snapshotReq.result||null;snapshotDone=true;evaluate();};
+   },[STORE,SNAPSHOTS]);
   }
   // 027 is a separate durable batch outbox. Once its server ACK has been
   // verified, update the SAME inventory snapshot used by 009 quick writes.
@@ -2929,7 +3019,7 @@ restoreActiveTab();
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,recordDeltaAck,recordReverseAck,recordStocktakeAck,abandonSingleStocktakeConflict,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,applyVerifiedBatchInventory,commitInventory,reconciliationIds,reconcileInventory});
+  return Object.freeze({enqueue,get,list,ready,recordResult,recordDeltaAck,recordReverseAck,recordStocktakeAck,abandonSingleStocktakeConflict,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,updateVerifiedInventory,applyVerifiedBatchInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;

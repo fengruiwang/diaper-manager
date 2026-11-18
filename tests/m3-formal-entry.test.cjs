@@ -177,7 +177,7 @@ test('formal static upload references two real parent-directory controllers and 
  }
  for(const name of [
   'primary-cloud-operations','primary-business-commands',
-  'primary-formal-ui-actions','primary-stocktake-batch-client',
+  'primary-formal-ui-actions','primary-stocktake-batch-client','idb-outbox',
   'primary-documents-client','primary-documents-operations',
   'primary-documents-business-commands','primary-documents-overlay']){
   const code=fs.readFileSync(path.join(__dirname,'../sync/'+name+'.js'),'utf8');
