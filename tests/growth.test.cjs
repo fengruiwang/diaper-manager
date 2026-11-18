@@ -82,3 +82,56 @@ test('common ranges cover all six sizes and are shared by exported API',()=>{
  assert.equal(G.sizeRange('S'),'约 4–8 kg');
  assert.match(G.dashboard({...base,birthDate:'2025-01-08'}).cards,/建议体重/);
 });
+const cumulativeSpend=state=>{
+ const match=G.dashboard(state).tips.match(/累计已花<\/span><strong>([^<]+)<\/strong>/);
+ assert.ok(match,'dashboard cumulative-spend KPI must be present');
+ return match[1];
+};
+test('dashboard cumulative spending excludes reversed purchases',()=>{
+ const s={...base,transactions:[
+  {id:'active',type:'buy',price:100},
+  {id:'reversed',type:'buy',price:50,reversed:true}
+ ]};
+ assert.equal(cumulativeSpend(s),'¥100.00');
+});
+test('dashboard cumulative spending is zero when every purchase is reversed',()=>{
+ const s={...base,transactions:[
+  {id:'r1',type:'buy',price:100,reversed:true},
+  {id:'r2',type:'buy',price:50,reversed:true}
+ ]};
+ assert.equal(cumulativeSpend(s),'¥0.00');
+});
+test('dashboard counts legacy and cloud purchases but not consumption records',()=>{
+ const s={...base,transactions:[
+  {id:'legacy',type:'buy',price:40,origin:'legacy_import'},
+  {id:'cloud',type:'buy',price:60,origin:'cloud_post_migration'},
+  {id:'consume',type:'consume',price:999},
+  {id:'cloud-use',type:'use',price:0,origin:'cloud_post_migration'},
+  {id:'reversed',type:'buy',price:25,reversed:true,origin:'cloud_post_migration'}
+ ]};
+ assert.equal(cumulativeSpend(s),'¥100.00');
+});
+test('cumulative spending updates immediately after reversal and remains correct on a fresh render',()=>{
+ const s={...base,transactions:[
+  {id:'active',type:'buy',price:100},
+  {id:'to-reverse',type:'buy',price:50}
+ ]};
+ assert.equal(cumulativeSpend(s),'¥150.00');
+ s.transactions[1].reversed=true;
+ assert.equal(cumulativeSpend(s),'¥100.00');
+ const refreshed={...s,transactions:s.transactions.map(x=>({...x}))};
+ assert.equal(cumulativeSpend(refreshed),'¥100.00');
+});
+test('cumulative spending is consistent before and after birth and does not mutate transaction records',()=>{
+ const transactions=[
+  {id:'active',type:'buy',price:100,origin:'cloud_post_migration'},
+  {id:'reversed',type:'buy',price:50,reversed:true,origin:'cloud_post_migration'},
+  {id:'use',type:'use',price:0}
+ ];
+ const before=JSON.stringify(transactions);
+ for(const birthDate of ['2027-01-08','2025-01-08']){
+  const s={...base,birthDate,transactions};
+  assert.equal(cumulativeSpend(s),'¥100.00');
+ }
+ assert.equal(JSON.stringify(transactions),before);
+});

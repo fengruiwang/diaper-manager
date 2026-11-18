@@ -202,3 +202,7 @@ test('formal controller required HTML controls exist and cannot silently deadloc
  assert.match(html,/id="formalGateSignOut"/);
  assert.match(html,/id="formalRetry"/);
 });
+test('formal page embeds the exact standalone growth module',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../growth.js'),'utf8').trim();
+ assert.ok(html.includes(source),'growth.js embedded module does not match formal page');
+});
