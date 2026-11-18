@@ -48,13 +48,14 @@
   let referenceNeedsReview=null,referenceButtonLabel='';
   let activeReferenceAction=null,referenceResetLabel='';
   // UI-only holds; no UUID, queue, CAS or RPC behaviour is changed.
-  const minimalBusy={purchase:false,consume:false,reverse:false,quotes:false};
-  const minimalReview={purchase:null,consume:null,reverse:null,quotes:null};
+  const minimalBusy={purchase:false,consume:false,reverse:false,stocktake:false,quotes:false};
+  const minimalReview={purchase:null,consume:null,reverse:null,stocktake:null,quotes:null};
   const minimalLabels={purchase:null,quotes:null};
   let minimalQuoteIntent=null,quoteButton=null,quoteButtonLabel='',quoteAction='add';
   let purchaseButton=null,purchaseButtonLabel='',purchaseFromQuote=false;
   let consumeButton=null,consumeSize='',consumeDay=false;
   let reverseButton=null,reverseLabel='';
+  let stocktakeButton=null,stocktakeLabel='';
   function quoteFeedback(phase,answer=null){
    const doc=attached?.doc;
    const action=minimalQuoteIntent?.action||quoteAction;
@@ -159,7 +160,29 @@
     :reverseLabel||'撤销';
    if(!waiting){reverseButton=null;reverseLabel='';}
   }
+  function stocktakeFeedback(phase,answer=null){
+   const el=stocktakeButton||attached?.doc.getElementById('saveStocks');
+   const node=attached?.doc.getElementById('formalStocktakeActionFeedback');
+   const status=String(answer?.status||'');
+   if(node)node.textContent=phase==='working'?'正在保存库存盘点…'
+    :phase==='success'?'库存盘点成功，库存已更新'
+    :phase==='pending'?'盘点结果待核验，原请求已保留，请勿重复提交'
+    :phase==='recovered'?'原盘点请求已核验，库存已更新'
+    :status==='PRIMARY_STOCK_UNCHANGED'?'库存没有变化，无需保存'
+    :status==='MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED'
+     ?'多尺码批量盘点功能尚未开放，请等待下一阶段。'
+    :/CONFLICT|REVISION/.test(status)
+     ?'库存已发生变化，请获取云端最新后重新盘点'
+    :/INVALID|INCOMPLETE/.test(status)?'库存数量无效，请输入 0 至 100000 的整数'
+    :'盘点未保存，请检查网络或库存数据';
+   const waiting=phase==='working'||phase==='pending';
+   if(el){el.disabled=waiting;el.textContent=waiting
+     ?phase==='pending'?'等待核验…':'正在保存库存盘点…'
+     :stocktakeLabel||'保存实际库存';}
+   if(!waiting){stocktakeButton=null;stocktakeLabel='';}
+  }
   function minimalFeedback(kind,phase,answer=null){
+   if(kind==='stocktake')return stocktakeFeedback(phase,answer);
    if(kind==='quotes')return quoteFeedback(phase,answer);
    if(kind==='consume')return consumeFeedback(phase,answer);
    if(kind==='reverse')return reverseFeedback(phase,answer);
@@ -228,6 +251,7 @@
    }
    minimalBusy[kind]=true;
    if(kind==='reverse'){reverseButton=el;reverseLabel=el.textContent||'撤销';}
+    if(kind==='stocktake'){stocktakeButton=el;stocktakeLabel=el.textContent||'保存实际库存';}
    if(kind==='consume'){
     consumeButton=el;consumeSize=el.dataset?.size||'';
     consumeDay=el.dataset?.useMode==='day'
@@ -257,19 +281,22 @@
      :kind==='consume'
       ?['PRIMARY_USE_CLOUD_ACK_APPLIED',
         'PRIMARY_USE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+     :kind==='stocktake'
+      ?['PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED',
+        'PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
      :kind==='reverse'
       ?['PRIMARY_REVERSE_CLOUD_ACK_APPLIED',
         'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
       :['QUOTES_CLOUD_ACK_APPLIED',
         'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
     if(!success){
-     const id=['purchase','consume','reverse'].includes(kind)
+     const id=['purchase','consume','reverse','stocktake'].includes(kind)
       ?answer?.operationId:answer?.requestId;
      if(typeof id==='string'&&id&&answer?.rejected!==true)
       minimalReview[kind]=Object.freeze(
-       ['purchase','consume','reverse'].includes(kind)
+       ['purchase','consume','reverse','stocktake'].includes(kind)
        ?{operationId:id,kind:kind==='purchase'?'buy':
-          kind==='consume'?'use':'reverse',
+          kind==='consume'?'use':kind==='stocktake'?'stocktake':'reverse',
           reversesOperationId:kind==='reverse'
            ?prepared?.reversesOperationId:null}:{requestId:id,
          action:minimalQuoteIntent?.action,record:minimalQuoteIntent?.record,
@@ -291,7 +318,7 @@
   async function recoverMinimalButtons({domain}={}){
    const pending=minimalReview[domain];
    if(!pending||minimalBusy[domain])return false;
-   const callback=['purchase','consume','reverse'].includes(domain)?onPurchaseReadback:
+   const callback=['purchase','consume','reverse','stocktake'].includes(domain)?onPurchaseReadback:
     domain==='quotes'?onQuotesReadback:null;
    if(typeof callback!=='function')return false;
    let verified=null;
@@ -1453,6 +1480,9 @@
     }
     if(action==='deletetx'){
      dispatchMinimal(el,doc,'reverse');return;
+    }
+    if(el.id==='saveStocks'){
+     dispatchMinimal(el,doc,'stocktake');return;
     }
     if(el.id==='saveQuote'||el.id==='clearQuotes'
       ||action==='deletequote'){
