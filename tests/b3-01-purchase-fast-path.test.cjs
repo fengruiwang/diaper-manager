@@ -643,6 +643,30 @@ test('B4-01 saveStocks displays immediate feedback and double click keeps one UU
   assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,1);
   assert.equal(f.buttons.stocktake.disabled,false);
  });
+test('B4-01 unknown ACK holds stocktake button and original UUID',async()=>{
+ const f=fixture({stocktake:true,unknownAck:true,stockS:80,stocktakeCount:95});
+ await f.activate();
+ f.capture('stocktake');
+ await tick();await tick();await tick();
+ assert.equal(f.feedback.formalStocktakeActionFeedback.textContent,
+  '盘点结果待核验，原请求已保留，请勿重复提交');
+ assert.equal(f.buttons.stocktake.disabled,true);
+ f.capture('stocktake');
+ await tick();
+ assert.equal(f.uuidCount,1);
+ assert.equal(f.rows.size,1);
+ assert.equal(f.rows.get(ID).status,'retry');
+ assert.equal(f.env.primaryViewBase.state.inventory.S,80);
+ assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,1);
+});
+test('B4-01 manual recovery includes stocktake domain and original CAS metadata',()=>{
+ const controller=fs.readFileSync(path.join(__dirname,
+  '../preview/v1.2.0/formal-controller.js'),'utf8');
+ const actions=fs.readFileSync(path.join(__dirname,
+  '../sync/primary-formal-ui-actions.js'),'utf8');
+ assert.ok(controller.includes("recoverMinimalButtons?.({domain:'stocktake'})"));
+ assert.ok(actions.includes('expectedRevision:answer?.expectedRevision'));
+});
 test('B4-01 CAS conflict and ambiguous 009 preserve stock and original UUID',async()=>{
  const conflict=fixture({stocktake:true,stockS:80,stocktakeCount:95,
   stocktakeConflict:true});
