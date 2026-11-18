@@ -8,8 +8,9 @@
 (function(root){
  'use strict';
  const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
- // Private, ephemeral read-only proof. Neither JSON nor a copied/fake grant
- // can carry it; the primary reader always expires it in its finally block.
+ // Only withVerifiedReadAccess creates a read-only proof. It is private
+ // to this synchronous/asynchronous callback lifetime (also on errors).
+ // Ordinary verifyAccess never mints a reusable authorization capability.
  const readProofs=new WeakMap();
  function verifiedReadGrant(grant,{app,familyId,actorUid,childId}={}){
   const proof=grant&&typeof grant==='object'?readProofs.get(grant):null;
@@ -89,16 +90,22 @@
    // At this point only the RLS authorization is verified.
    // It is NOT safe to upload until an independently verified, durable
    // child inventory baseline has been created and reconciled.
-   const result=Object.freeze({
+   return Object.freeze({
     familyId,actorUid,appCode:'xb',member:true,
     initialized:false
    });
-   readProofs.set(result,{app,familyId,actorUid,childId:null});
-   return result;
   }
-  return Object.freeze({verifyAccess});
+  async function withVerifiedReadAccess(scope,work){
+   if(typeof work!=='function')fail('read_callback_required');
+   const grant=await verifyAccess(scope);
+   readProofs.set(grant,{app,familyId:grant.familyId,
+    actorUid:grant.actorUid,childId:null});
+   try{return await work(grant);}
+   finally{finishVerifiedRead(grant);}
+  }
+  return Object.freeze({verifyAccess,withVerifiedReadAccess});
  }
- const api=Object.freeze({create,verifiedReadGrant,bindVerifiedReadChild,finishVerifiedRead});
+ const api=Object.freeze({create,verifiedReadGrant,bindVerifiedReadChild});
  if(root)root.XBCloudbaseAccessPreflight=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);

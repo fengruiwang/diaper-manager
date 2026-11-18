@@ -193,35 +193,43 @@ test('R-01A switching actor and primary baby never borrows previous verified sco
  }),/access_preflight:family_not_visible/);
 });
 test('R-01A fake, copied, cross-app, cross-child and expired proofs cannot skip authorization',async()=>{
- const f=sdkFixture(),grant=await Access.create(f.app).verifyAccess({
-  familyId:FAMILY,actorUid:actorA
- });
- const raw={...grant};
- const child=Child.create(f.app,ChildGuard);
- f.clear();
- for(const bad of [raw,{},Object.freeze({member:true,appCode:'xb'})])
-  await assert.rejects(()=>child.inspectLegacyTarget({
-   familyId:FAMILY,verifiedReadGrant:bad
-  }),/child_reader:verified_read_grant_required/);
- assert.equal(f.totals().select,0);
- assert.equal(Access.verifiedReadGrant(grant,{app:{...f.app},familyId:FAMILY}),false);
- const target=await child.inspectLegacyTarget({familyId:FAMILY,verifiedReadGrant:grant});
- assert.equal(target.childId,BABY_A);
- Access.bindVerifiedReadChild(grant,{
-  app:f.app,familyId:FAMILY,actorUid:actorA,childId:BABY_A
- });
+ const f=sdkFixture(),preflight=Access.create(f.app);
+ const plain=await preflight.verifyAccess({familyId:FAMILY,actorUid:actorA});
+ assert.equal(Access.verifiedReadGrant(plain,{app:f.app,familyId:FAMILY}),false,
+  'ordinary verifyAccess never grants a bypass token');
+ let expired;
  const stock=Inventory.create(f.app),legacy=Legacy.create(f.app);
+ await preflight.withVerifiedReadAccess({familyId:FAMILY,actorUid:actorA},async grant=>{
+  expired=grant;
+  const raw={...grant},child=Child.create(f.app,ChildGuard);
+  f.clear();
+  for(const bad of [raw,{},Object.freeze({member:true,appCode:'xb'})])
+   await assert.rejects(()=>child.inspectLegacyTarget({
+    familyId:FAMILY,verifiedReadGrant:bad
+   }),/child_reader:verified_read_grant_required/);
+  assert.equal(f.totals().select,0);
+  assert.equal(Access.verifiedReadGrant(grant,{app:{...f.app},familyId:FAMILY}),false);
+  const target=await child.inspectLegacyTarget({familyId:FAMILY,verifiedReadGrant:grant});
+  assert.equal(target.childId,BABY_A);
+  Access.bindVerifiedReadChild(grant,{
+   app:f.app,familyId:FAMILY,actorUid:actorA,childId:BABY_A
+  });
+  await assert.rejects(()=>stock.readInventory({
+   familyId:FAMILY,childId:BABY_B,verifiedReadGrant:grant
+  }),/inventory_client:verified_read_grant_required/);
+  await assert.rejects(()=>legacy.readSettings({
+   familyId:FAMILY,childId:BABY_B,verifiedReadGrant:grant
+  }),/legacy_history_reader:verified_read_grant_required/);
+ });
+ assert.equal(Access.verifiedReadGrant(expired,{app:f.app,familyId:FAMILY}),false);
  await assert.rejects(()=>stock.readInventory({
-  familyId:FAMILY,childId:BABY_B,verifiedReadGrant:grant
+  familyId:FAMILY,childId:BABY_A,verifiedReadGrant:expired
  }),/inventory_client:verified_read_grant_required/);
- await assert.rejects(()=>legacy.readSettings({
-  familyId:FAMILY,childId:BABY_B,verifiedReadGrant:grant
- }),/legacy_history_reader:verified_read_grant_required/);
- Access.finishVerifiedRead(grant);
- assert.equal(Access.verifiedReadGrant(grant,{app:f.app,familyId:FAMILY}),false);
- await assert.rejects(()=>stock.readInventory({
-  familyId:FAMILY,childId:BABY_A,verifiedReadGrant:grant
- }),/inventory_client:verified_read_grant_required/);
+ await assert.rejects(()=>preflight.withVerifiedReadAccess(
+  {familyId:FAMILY,actorUid:actorA},async grant=>{
+   expired=grant;throw Error('synthetic mid-read failure');
+  }),/synthetic mid-read failure/);
+ assert.equal(Access.verifiedReadGrant(expired,{app:f.app,familyId:FAMILY}),false);
  // Without a grant, standalone read adapters continue to call real SDK auth.
  f.clear();await stock.readInventory({familyId:FAMILY,childId:BABY_A});
  assert.equal(f.totals().sessions,1);

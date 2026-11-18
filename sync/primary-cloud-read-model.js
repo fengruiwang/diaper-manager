@@ -47,13 +47,16 @@
      ||!actorUid||actorUid.length>128||!Number.isSafeInteger(limit)||limit<1||limit>50)
     fail('invalid_request');
    // A fresh verified CloudBase session is necessary for every explicit read.
-   const grant=await accessPreflight.create(app).verifyAccess({familyId,actorUid});
-   if(grant.member!==true||grant.appCode!=='xb'
-      ||grant.familyId!==familyId||grant.actorUid!==actorUid)
-    fail('grant_unverified');
-   // Never persist this proof: the same read's verification is useful only
-   // until its existing primary, migration, inventory and profile checks end.
-   try{
+   const preflight=accessPreflight.create(app);
+   // Production preflight owns the proof lifecycle (try/finally). Existing
+   // unit-test doubles that expose verifyAccess only remain compatible.
+   const withinRead=typeof preflight.withVerifiedReadAccess==='function'
+    ?preflight.withVerifiedReadAccess.bind(preflight)
+    :async (scope,work)=>work(await preflight.verifyAccess(scope));
+   return withinRead({familyId,actorUid},async grant=>{
+    if(grant.member!==true||grant.appCode!=='xb'
+       ||grant.familyId!==familyId||grant.actorUid!==actorUid)
+     fail('grant_unverified');
    let target;
    try{target=await children.inspectLegacyTarget({familyId,verifiedReadGrant:grant});}
    catch(e){
@@ -132,7 +135,7 @@
     liveUses:Object.freeze(currentUses.slice()),
     legacyPurchasesAppliedToInventory:false
    });
-   }finally{accessPreflight.finishVerifiedRead?.(grant);}
+   });
   }
   return Object.freeze({read});
  }
