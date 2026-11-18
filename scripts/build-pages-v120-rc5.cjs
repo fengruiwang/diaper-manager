@@ -72,7 +72,7 @@ function formalCandidate(s){
 function swCandidate(s){
  s=ch(s,'PWA v1.1.2','PWA V1.2.0 rc.5 candidate');
  s=ch(s,"const CACHE_NAME = 'xiaobao-shell-v1.1.2';",
- "const CACHE_NAME = 'xiaobao-shell-v1.2.0-rc4';");
+ "const CACHE_NAME = 'xiaobao-shell-v1.2.0-rc5';");
  s=ch(s,"const SHELL = ['./index.html','./pwa.js','./growth.js','./manifest.webmanifest',",
  "const SHELL = ['./index.html','./pwa.js','./m1-controller.js',\n  './formal-controller.js','./growth.js','./manifest.webmanifest',");
  s=ch(s,"  './icons/apple-touch-icon.png'];",
