@@ -420,8 +420,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(!current())return false;
    const merged=documentsOverlay.apply(latest,safeSnapshot);
    if(merged?.canWrite!==false||merged.sharedBusinessDocumentsVerified!==true
-     ||merged.cloudDocumentsActorScope?.familyId!==ctx.familyId
-     ||merged.cloudDocumentsActorScope?.childId!==latest.childId
+     ||(merged.cloudDocumentsActorScope
+       &&(merged.cloudDocumentsActorScope.familyId!==ctx.familyId
+         ||merged.cloudDocumentsActorScope.childId!==latest.childId))
      ||merged.state?.inventory!==undefined
        &&JSON.stringify(merged.state.inventory)!==JSON.stringify(latest.state.inventory)
      ||JSON.stringify(merged.state.transactions)!==JSON.stringify(latest.state.transactions))
