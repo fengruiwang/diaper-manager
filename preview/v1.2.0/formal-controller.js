@@ -526,6 +526,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
    const baseView=data;
+   const businessBaselineAtRead=primaryViewBase;
    // The primary read above has already verified the current actor, family,
    // active primary, completed migration receipt and server inventory scope.
    // Reuse this current-session read scope for document RPCs only.
@@ -573,8 +574,21 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      &&doc.childId===old?.[doc.kind]?.childId
      &&Number.isSafeInteger(doc.revision));
     if(acceptable){
+     // A 026 ACK can advance one document while these five reads are pending.
+     // A lower/equal read revision never replaces that confirmed snapshot.
+     const currentDocs=documentScope===scopeKey
+       ?documentSnapshot?.documents:null;
+     const names=['reference','quotes','growth','profile','settings'];
+     const nextDocs={...old};
+     for(let i=0;i<names.length;i++){
+      const kind=names[i],latest=currentDocs?.[kind],incoming=fresh[i];
+      nextDocs[kind]=latest?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+       &&latest.familyId===ctx.familyId&&latest.childId===baseView.childId
+       &&Number.isSafeInteger(latest.revision)
+       &&latest.revision>=incoming.revision?latest:incoming;
+     }
      documentSnapshot=Object.freeze({...documentSnapshot,
-      documents:Object.freeze({...old,reference:fresh[0],quotes:fresh[1],growth:fresh[2],profile:fresh[3],settings:fresh[4]})});
+      documents:Object.freeze(nextDocs)});
      data=documentsOverlay.apply(data,documentSnapshot);
      documentsVerified=data.sharedBusinessDocumentsVerified===true;
     }else{
@@ -1383,14 +1397,28 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      }).attach(doc);
     }
    }
-   // Save the current primary projection for local reference-only updates.
-   // This does not request inventory/history again after a 026 ACK.
-   primaryViewBase=baseView;
+   // An ACK may have advanced business state while this restore awaited
+   // five documents. Do not replace that verified ACK with the older read.
+   const live=primaryViewBase!==businessBaselineAtRead
+     &&primaryViewBase?.status==='PRIMARY_READ_ONLY_READY'
+     &&primaryViewBase.actorUid===ctx.actorUid
+     &&primaryViewBase.familyId===ctx.familyId
+     &&primaryViewBase.childId===baseView.childId
+     ?primaryViewBase:null;
+   const displayBase=live||baseView;
+   if(live){
+    data=documentsVerified
+     ?documentsOverlay.apply(displayBase,documentSnapshot):displayBase;
+   }
+   if(token!==revision||identityEpoch!==documentEpoch
+      ||controller.verifiedContext()?.actorUid!==ctx.actorUid
+      ||controller.verifiedContext()?.familyId!==ctx.familyId)return mode;
+   primaryViewBase=displayBase;
    // Do not wait for an additional getSession() call after showing UI.
    showCloudView(data,ctx);
    shownStock=Object.freeze({
-    inventory:Object.freeze({...verified.inventory}),
-    revisions:Object.freeze({...verified.revisions})
+    inventory:Object.freeze({...live?displayBase.state.inventory:verified.inventory}),
+    revisions:Object.freeze({...live?displayBase.revisions:verified.revisions})
    });
    actor=ctx.actorUid;family=ctx.familyId;
    $('formalCurrentAccount').textContent=ctx.actorUid;
