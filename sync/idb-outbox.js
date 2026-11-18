@@ -618,14 +618,13 @@
     fail('reconciler_required');
   }
   // The caller must request ALL IDs, including already-ACKed IDs, from the
-  // server. Never truncate to 50: that could silently erase evidence that a
-  // previously confirmed cloud operation has disappeared.
+  // server. The read coordinator splits requests into <=50 ID RPC batches;
+  // never truncate history or omit a previously confirmed receipt.
   async function reconciliationIds(scopeInput,childId){
    const scope=scopeOf(scopeInput),child=id(childId,'child_id');
    const rows=await list(scope,{includeAcked:true});
    const matches=rows.filter(row=>row.payload?.childId===child
     &&row.status!=='abandoned');
-   if(matches.length>50)fail('reconciliation_requires_pagination');
    return matches.map(row=>row.id);
   }
   // Runs only AFTER explicit authenticated server snapshot read.
@@ -643,9 +642,6 @@
     pendingReq.onsuccess=()=>{
      const scoped=(pendingReq.result||[]).filter(op=>op.payload?.childId===child
       &&op.status!=='abandoned');
-     if(scoped.length>50){
-      abort(new Error('outbox_store:reconciliation_requires_pagination'));return;
-     }
      const snapReq=snaps.get(key);
      snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
      snapReq.onsuccess=()=>{
@@ -656,7 +652,9 @@
       try{
        plan=reconciler.build({snapshot:snapReq.result,operations:scoped,response});
        const seen=new Set(plan.acknowledgedIds);
-       updates=scoped.filter(op=>seen.has(op.id)).map(op=>{
+       // Existing ACK history must be proven by server evidence but is
+       // already durable: only write a changed operation in this transaction.
+       updates=scoped.filter(op=>seen.has(op.id)&&op.status!=='acked').map(op=>{
         const updated=contract.applyResult(op,{kind:'accepted',receiptId:op.id});
         if(updated.id!==op.id||updated._signature!==op._signature
           ||updated.actorUid!==op.actorUid||updated.familyId!==op.familyId)

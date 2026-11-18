@@ -13,7 +13,7 @@
  function number(n){return Number.isSafeInteger(n)&&n>=0&&n<=100000;}
  function safeRev(n){return Number.isSafeInteger(n)&&n>=0;}
  function distinctIds(input,code){
-  if(!Array.isArray(input)||input.length>50)fail(code);
+  if(!Array.isArray(input))fail(code);
   const seen=new Set();
   for(const id of input){
    if(typeof id!=='string'||!UUID.test(id)||seen.has(id))fail(code);
@@ -30,7 +30,6 @@
   const checked=distinctIds(response.checkedOperationIds,'invalid_checked_ids');
   const seen=distinctIds(response.seenOperationIds,'invalid_seen_ids');
   const scoped=operations.filter(op=>op?.payload?.childId===snapshot.childId);
-  if(scoped.length>50)fail('too_many_operations_for_one_snapshot');
   const actual=new Set();
   for(const op of scoped){
    if(op.familyId!==snapshot.familyId||op.actorUid!==snapshot.actorUid

@@ -6,6 +6,7 @@ const Projection=require('../sync/inventory-local-projection.js');
 const Reconciler=require('../sync/inventory-reconciler.js');
 const Bootstrap=require('../sync/inventory-bootstrap-coordinator.js');
 const Runner=require('../sync/inventory-outbox-runner.js');
+const SyncReader=require('../sync/inventory-sync-reader.js');
 const FAMILY='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='6b3d0e45-bf18-4c95-889c-6f19731a8ae5';
 const O1='397b1791-b8d0-4d63-82d6-c5b829240f42';
@@ -534,23 +535,172 @@ test('F-02 other same-size unresolved UUID remains unmodified and blocks unsafe 
  assert.equal((await store.readInventory(dad,CHILD)).inventory.S,131);
 });
 
-test('F-02 diagnostic only: 51 ACK historical UUIDs block current reconciliation pagination',async()=>{
- const idb=idbFake(),store=make(idb,'f02-probe51');
+// Reconciliation RPC itself accepts at most 50 IDs; use the real outbox
+// transactions and reader in these F-04 end-to-end tests.
+async function historicalQueue({acked=51,name='f04-history'}={}){
+ const idb=idbFake(),store=make(idb,name);
  await store.initializeInventory(dad,{childId:CHILD,inventory:stock(80),
   serverRevisions:{S:2},source:'verified-server'});
- for(let i=1;i<=51;i++){
+ const history=[];
+ for(let i=1;i<=acked;i++){
   const oid='00000000-0000-4000-8000-'+String(i).padStart(12,'0');
+  history.push(oid);
   await store.enqueue(event(oid));
   await store.recordResult(dad,oid,{kind:'accepted',receiptId:oid});
  }
  await store.enqueue(event(O1));
  await store.recordResult(dad,O1,{kind:'timeout'});
+ return {idb,store,history,original:O1};
+}
+function integratedReader(store,readReconciliation){
+ const batches=[];
+ const reader=SyncReader.create({
+  outbox:store,
+  verifyAccess:async()=>({familyId:FAMILY,actorUid:dad.actorUid,
+   appCode:'xb',member:true,initialized:true}),
+  remote:{readReconciliation:async arg=>{
+   batches.push([...arg.operationIds]);
+   assert.ok(arg.operationIds.length<=50,'RPC cap cannot be exceeded');
+   return readReconciliation(arg,batches.length);
+  }}
+ });
+ const run=()=>reader.reconcile({familyId:FAMILY,childId:CHILD,
+  actorUid:dad.actorUid,readEnabled:true});
+ return {run,batches};
+}
+test('F-04 exactly 50 IDs keep one existing read RPC and one transaction',async()=>{
+ const {store,history}=await historicalQueue({acked:49,name:'f04-exact50'});
+ const ids=await store.reconciliationIds(dad,CHILD);
+ assert.equal(ids.length,50);
+ const m=integratedReader(store,({operationIds})=>server({
+  ids:operationIds,seen:operationIds,qty:80,rev:2
+ }));
+ const result=await m.run();
+ assert.equal(result.status,'verified-as-of-server-read');
+ assert.deepEqual(m.batches.map(x=>x.length),[50]);
+ assert.equal((await store.get(dad,O1)).status,'acked');
+ assert.equal((await store.stats(dad)).acked,50);
+ assert.equal((await store.reconciliationIds(dad,CHILD)).length,50);
+ assert.equal(history.length,49);
+});
+test('F-04 repaired F-02 51 ACK + original retry UUID: 50+2, durable atomic ACK',async()=>{
+ const {idb,store,history}=await historicalQueue({acked:51,name:'f04-repaired-probe51'});
+ const ids=await store.reconciliationIds(dad,CHILD);
+ assert.equal(ids.length,52);
  assert.equal((await store.get(dad,O1)).status,'retry');
- await assert.rejects(()=>store.reconciliationIds(dad,CHILD),
-  /reconciliation_requires_pagination/);
+ const before=(await store.readInventory(dad,CHILD)).localRevision;
+ const m=integratedReader(store,({operationIds})=>server({
+  ids:operationIds,seen:operationIds,qty:80,rev:2
+ }));
+ const result=await m.run();
+ assert.equal(result.status,'verified-as-of-server-read');
+ assert.deepEqual(m.batches.map(x=>x.length),[50,2]);
+ assert.equal(result.pendingCount,0);
+ const reopened=make(idb,'f04-repaired-probe51');
+ assert.equal((await reopened.get(dad,O1)).status,'acked');
+ assert.equal((await reopened.get(dad,O1)).receipt,O1);
+ assert.equal((await reopened.readInventory(dad,CHILD)).inventory.S,80);
+ assert.equal((await reopened.readInventory(dad,CHILD)).localRevision,before+1);
+ assert.equal((await reopened.stats(dad)).acked,52);
+ for(const oid of history)assert.equal((await reopened.get(dad,oid)).receipt,oid);
+});
+test('F-04 121 IDs use 50+50+21 and retain all previously ACKed UUIDs',async()=>{
+ const {idb,store,history}=await historicalQueue({acked:120,name:'f04-121'});
+ const m=integratedReader(store,({operationIds})=>server({
+  ids:operationIds,seen:operationIds,qty:80,rev:2
+ }));
+ const result=await m.run();
+ assert.equal(result.localUnchanged,false);
+ assert.deepEqual(m.batches.map(x=>x.length),[50,50,21]);
+ const reopened=make(idb,'f04-121');
+ assert.equal((await reopened.stats(dad)).acked,121);
+ assert.equal((await reopened.get(dad,O1)).status,'acked');
+ assert.equal((await reopened.get(dad,history.at(-1))).status,'acked');
+});
+test('F-04 network failure in second batch does not partially ACK or write inventory',async()=>{
+ const {store}=await historicalQueue({name:'f04-failed-remote'});
+ const old=await store.readInventory(dad,CHILD);
+ const m=integratedReader(store,({operationIds},round)=>{
+  if(round===2)throw Error('offline');
+  return server({ids:operationIds,seen:operationIds,qty:90,rev:3});
+ });
+ const result=await m.run();
+ assert.equal(result.status,'cloud-read-failed');
+ assert.deepEqual(m.batches.map(x=>x.length),[50,2]);
+ assert.deepEqual(await store.readInventory(dad,CHILD),old);
  assert.equal((await store.get(dad,O1)).status,'retry');
  assert.equal((await store.stats(dad)).acked,51);
 });
+test('F-04 six-size quantity OR revision mismatch aborts all batches',async()=>{
+ for(const kind of ['quantity','revision']){
+  const {store}=await historicalQueue({name:'f04-mismatch-'+kind});
+  const before=await store.readInventory(dad,CHILD);
+  const m=integratedReader(store,({operationIds},round)=>server({
+   ids:operationIds,seen:operationIds,
+   qty:round===2&&kind==='quantity'?81:80,
+   rev:round===2&&kind==='revision'?3:2
+  }));
+  assert.equal((await m.run()).status,'cloud-read-failed');
+  assert.deepEqual(await store.readInventory(dad,CHILD),before);
+  assert.equal((await store.get(dad,O1)).status,'retry');
+ }
+});
+test('F-04 lost historical ACK evidence is rejected without erasing old ACKs',async()=>{
+ const {store,history}=await historicalQueue({name:'f04-missing-acked'});
+ const before=await store.readInventory(dad,CHILD);
+ const m=integratedReader(store,({operationIds})=>server({
+  ids:operationIds,seen:operationIds.filter(id=>id!==history[0]),qty:80,rev:2
+ }));
+ assert.equal((await m.run()).status,'reconcile-review-required');
+ assert.deepEqual(await store.readInventory(dad,CHILD),before);
+ assert.equal((await store.get(dad,O1)).status,'retry');
+ assert.equal((await store.get(dad,history[0])).status,'acked');
+});
+test('F-04 locally inserted UUID during second RPC blocks stale global commit',async()=>{
+ const {store}=await historicalQueue({name:'f04-midflight-add'});
+ const before=await store.readInventory(dad,CHILD);
+ const m=integratedReader(store,async({operationIds},round)=>{
+  if(round===2)await store.enqueue(event(O2));
+  return server({ids:operationIds,seen:operationIds,qty:85,rev:3});
+ });
+ assert.equal((await m.run()).status,'reconcile-review-required');
+ assert.deepEqual(await store.readInventory(dad,CHILD),before);
+ assert.equal((await store.get(dad,O1)).status,'retry');
+ assert.equal((await store.get(dad,O2)).status,'pending');
+});
+test('F-04 wrong actor, family, child or incomplete checked IDs fails closed',async()=>{
+ for(const kind of ['actor','family','child','checked','duplicateSeen']){
+  const {store}=await historicalQueue({name:'f04-scope-'+kind});
+  const before=await store.readInventory(dad,CHILD);
+  const m=integratedReader(store,({operationIds},round)=>{
+   const reply=server({ids:operationIds,seen:operationIds,qty:80,rev:2});
+   if(round===2){
+    if(kind==='actor')reply.actorUid='other';
+    if(kind==='family')reply.familyId='11111111-1111-4111-8111-111111111111';
+    if(kind==='child')reply.childId='22222222-2222-4222-8222-222222222222';
+    if(kind==='checked')reply.checkedOperationIds=operationIds.slice(1);
+    if(kind==='duplicateSeen')reply.seenOperationIds=[...operationIds,operationIds[0]];
+   }
+   return reply;
+  });
+  assert.equal((await m.run()).status,'cloud-read-failed',kind);
+  assert.deepEqual(await store.readInventory(dad,CHILD),before);
+  assert.equal((await store.get(dad,O1)).status,'retry');
+ }
+});
+test('F-04 IDB receipt write failure rolls back full snapshot and all ACKs',async()=>{
+ const {idb,store}=await historicalQueue({name:'f04-atomic-fail'});
+ const before=await store.readInventory(dad,CHILD);
+ const m=integratedReader(store,({operationIds})=>server({
+  ids:operationIds,seen:operationIds,qty:90,rev:3
+ }));
+ idb.failOperationPut();
+ assert.equal((await m.run()).status,'reconcile-review-required');
+ assert.deepEqual(await store.readInventory(dad,CHILD),before);
+ assert.equal((await store.get(dad,O1)).status,'retry');
+ assert.equal((await store.stats(dad)).acked,51);
+});
+
 
 test('F-02 integrated fast runner + actual IDB transaction: one 009, authoritative 160 then 027 bridge',async()=>{
  const db=idbFake(),store=make(db,'f02-integrated-fast');
