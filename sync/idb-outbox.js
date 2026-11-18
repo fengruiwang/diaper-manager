@@ -190,6 +190,59 @@
     };
    });
   }
+  // Atomic local handoff after a verified 009 reverse receipt. The original
+  // cloud transaction may not exist in this device's IDB projection.
+  async function recordReverseAck(scopeInput,operationId,receipt){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   if(!receipt||receipt.operationId!==oid
+     ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
+     ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
+    fail('reverse_receipt_invalid');
+   return run('readwrite',(operations,complete,abort,tx)=>{
+    const snapshots=tx.objectStore(SNAPSHOTS);
+    const req=operations.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     try{
+      const op=req.result;
+      checkIdentity(op,scope);
+      if(op.type!=='transaction.reverse'||op.status!=='pending'
+        ||receipt.childId!==op.payload?.childId
+        ||receipt.size!==op.payload?.size
+        ||receipt.duplicate===true)fail('reverse_receipt_scope_or_state');
+      const key=identityKey(scope,op.payload.childId);
+      const snapReq=snapshots.get(key);
+      snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
+      snapReq.onsuccess=()=>{
+       try{
+        const snap=snapReq.result,size=op.payload.size;
+        if(!snap||snap.source!=='verified-server'
+          ||snap.familyId!==scope.familyId||snap.actorUid!==scope.actorUid
+          ||snap.childId!==op.payload.childId
+          ||!Number.isSafeInteger(snap.serverRevisions?.[size])
+          ||receipt.revision<=snap.serverRevisions[size])
+         fail('reverse_snapshot_not_current');
+        const updated=contract.applyResult(op,{kind:'accepted',receiptId:oid});
+        if(updated.id!==op.id||updated.familyId!==op.familyId
+          ||updated.actorUid!==op.actorUid||updated._signature!==op._signature)
+         fail('immutable_operation_changed');
+        const next={...snap,
+         inventory:{...snap.inventory,[size]:receipt.quantity},
+         serverRevisions:{...snap.serverRevisions,[size]:receipt.revision}};
+        let done=0;
+        const finish=()=>{if(++done===2)complete({operation:updated,snapshot:next});};
+        const putOp=operations.put(updated);
+        putOp.onerror=()=>abort(new Error('outbox_store:write_failed'));
+        putOp.onsuccess=finish;
+        const putSnap=snapshots.put({...next,key});
+        putSnap.onerror=()=>abort(new Error('outbox_store:snapshot_write_failed'));
+        putSnap.onsuccess=finish;
+       }catch(e){abort(e);}
+      };
+     }catch(e){abort(e);}
+    };
+   },[STORE,SNAPSHOTS]);
+  }
   async function abandonDocumentConflict(scopeInput,operationId){
    const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
    return run('readwrite',(store,complete,abort)=>{
@@ -427,7 +480,7 @@
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
+  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;
