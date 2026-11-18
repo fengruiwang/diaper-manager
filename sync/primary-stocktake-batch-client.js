@@ -20,6 +20,7 @@ function create({controller,host,primary,outboxFactory,contract,
    ||!store?.recordResult||!store?.get)
   throw Error('batch_client:outbox_unavailable');
  let busy=false;
+ const freshBatchIds=new Set();
  const connected=()=>host.navigator?.onLine!==false;
  function scope(){
   const identity=primary.selectedScope();
@@ -59,7 +60,7 @@ function create({controller,host,primary,outboxFactory,contract,
    return answer('BATCH_QUEUE_VERIFIED',t);
   }catch(_){return answer('BATCH_QUEUE_UNVERIFIED');}
  }
- async function queue({items,batchId,operatorApproved=false}={}){
+ async function queue({items,batchId,operatorApproved=false,verifiedBaseline=null}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return answer('BATCH_WRITES_NOT_AUTHORIZED');
   if(!connected())return answer('BATCH_OFFLINE_NOT_ACCEPTED');
@@ -71,8 +72,12 @@ function create({controller,host,primary,outboxFactory,contract,
    const outstanding=await store.stats(id);
    if(outstanding.outstanding!==0)
     return answer('BATCH_PENDING_REVIEW_FIRST');
-   const fresh=await primary.read();
-   if(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED')
+   const fast=verifiedBaseline?.status==='PRIMARY_BATCH_BASELINE_VERIFIED'
+    &&verifiedBaseline.familyId===id.familyId
+    &&verifiedBaseline.actorUid===id.actorUid
+    &&verifiedBaseline.childId===id.childId;
+   const fresh=fast?verifiedBaseline:await primary.read();
+   if(fresh?.status!==(fast?'PRIMARY_BATCH_BASELINE_VERIFIED':'PRIMARY_CLOUD_READ_VERIFIED'))
     return answer('BATCH_STOCK_NOT_VERIFIED');
    const values=validate(items,fresh.inventory,fresh.revisions);
    // The existing generic contract verifies immutable IDs/types, but the
@@ -85,8 +90,11 @@ function create({controller,host,primary,outboxFactory,contract,
      items:values}
    });
    const stored=await store.enqueue(op);
+   if(fast&&stored?.id===op.id&&stored.status==='pending')
+    freshBatchIds.add(op.id);
    return answer('BATCH_DURABLY_QUEUED',{batchId:op.id,
-    duplicate:stored?.duplicate===true,cloudWriteCommitted:false});
+    duplicate:stored?.duplicate===true,fastBatch:fast&&freshBatchIds.has(op.id),
+    cloudWriteCommitted:false});
   }catch(_){return answer('BATCH_QUEUE_UNVERIFIED_KEEP_ID',{batchId});}
   finally{busy=false;}
  }
@@ -212,7 +220,7 @@ function create({controller,host,primary,outboxFactory,contract,
   }catch(_){return answer('BATCH_CONFLICT_RESOLUTION_UNVERIFIED_KEEP_ID');}
   finally{busy=false;}
  }
- async function send({operatorApproved=false}={}){
+ async function send({operatorApproved=false,fastBatchId=null}={}){
   if(cloudWritesEnabled!==true||operatorApproved!==true)
    return answer('BATCH_WRITES_NOT_AUTHORIZED');
   if(!connected())return answer('BATCH_OFFLINE_QUEUE_PRESERVED');
@@ -223,16 +231,19 @@ function create({controller,host,primary,outboxFactory,contract,
    if(list.length!==1)return answer(list.length?'BATCH_MULTIPLE_PENDING_BLOCKED':
     'BATCH_NO_READY_OPERATION');
    const op=list[0],items=op.payload?.items;
+   const fast=fastBatchId===op.id&&freshBatchIds.has(op.id);
+   if(fastBatchId!==null&&!fast)return answer('BATCH_FAST_ID_UNVERIFIED');
    if(!UUID.test(op.id)||op.familyId!==id.familyId
      ||op.actorUid!==id.actorUid||op.payload?.childId!==id.childId
      ||!Array.isArray(items))return answer('BATCH_IMMUTABLE_SCOPE_INVALID');
    // Before trying once, check whether an earlier ACK was lost.
-   const already=await receipt(id,op.id,items);
+   const already=fast?null:await receipt(id,op.id,items);
    if(already){
     await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
     return answer('BATCH_ACK_RECOVERED',{batchId:op.id,items});
    }
    const app=controller.verifiedContext()?.app;
+   if(fast)freshBatchIds.delete(op.id);
    let response;
    try{
     response=await app.rdb().rpc('xb_primary_stocktake_batch_draft',{
@@ -241,7 +252,7 @@ function create({controller,host,primary,outboxFactory,contract,
     });
    }catch(_){
     // Do not replace batch ID or retry after an ambiguous network error.
-    const found=await receipt(id,op.id,items);
+    const found=fast?null:await receipt(id,op.id,items);
     if(!found)return answer('BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID',
      {batchId:op.id});
     await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
@@ -265,11 +276,21 @@ function create({controller,host,primary,outboxFactory,contract,
    }
    // A returned write ACK is not sufficient: verify the receipt
    // through the existing read-only batch receipt RPC before local ACK.
-   if(!await receipt(id,op.id,items))
+   if(!fast&&!await receipt(id,op.id,items))
     return answer('BATCH_RECEIPT_READBACK_REQUIRED_KEEP_ID',{batchId:op.id});
+   if(fast){
+    if(typeof primary.applyBatchInventoryAck!=='function')
+     return answer('BATCH_LOCAL_SNAPSHOT_REQUIRED_KEEP_ID',{batchId:op.id,items});
+    const bridge=await primary.applyBatchInventoryAck({batchId:op.id,
+     changes:d.result.changes.map(change=>({...change,
+      expectedRevision:items.find(x=>x.size===change.size).expectedRevision}))});
+    if(bridge?.status!=='BATCH_LOCAL_SNAPSHOT_ACK_APPLIED')
+     return answer('BATCH_LOCAL_SNAPSHOT_REQUIRED_KEEP_ID',{batchId:op.id,items});
+   }
    await store.recordResult(id,op.id,{kind:'accepted',receiptId:op.id});
    return answer('BATCH_ATOMIC_COMMIT_ACKED',{batchId:op.id,
-    items,changedSizes:d.result.changed_sizes});
+    items,changedSizes:d.result.changed_sizes,
+    ...(fast?{changes:d.result.changes,fastBatch:true}:{})});
   }catch(_){return answer('BATCH_SYNC_UNVERIFIED_KEEP_QUEUE');}
   finally{busy=false;}
  }
