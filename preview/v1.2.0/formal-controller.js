@@ -1561,10 +1561,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     const next=await restore();
     const releasedPurchase=next==='ready'
      &&await attached?.recoverMinimalButtons?.({domain:'purchase'});
+    const releasedConsume=next==='ready'
+     &&await attached?.recoverMinimalButtons?.({domain:'consume'});
     $('formalSyncState').textContent=releasedPurchase
      ?'原采购请求已核验并显示在库存中，可以继续操作。'
+     :releasedConsume
+      ?'原消耗请求已核验，库存和消耗记录已更新，可以继续操作。'
      :next==='ready'
-      ?'云端已核验，采购与库存已刷新。'
+      ?'云端已核验，采购与消耗库存已刷新。'
       :'云端操作已确认，页面读取仍需重试。';
    }else $('formalSyncState').textContent=
     '待确认操作：'+String(sent.status)+'；保留原操作 ID，不要重复提交。';

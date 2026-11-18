@@ -438,3 +438,10 @@ test('B3-02 use release keeps reverse and stocktake disabled',async()=>{
  assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
 });
+
+test('B3-02 pending use can reuse the existing manual UUID recovery control',()=>{
+ const formal=require('node:fs').readFileSync(require('node:path').join(
+  __dirname,'../preview/v1.2.0/formal-controller.js'),'utf8');
+ assert.match(formal,/recoverMinimalButtons\\?\\.\\(\\{domain:'consume'\\}\\)/);
+ assert.match(formal,/recoverMinimalButtons\\?\\.\\(\\{domain:'purchase'\\}\\)/);
+});
