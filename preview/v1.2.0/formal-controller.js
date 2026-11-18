@@ -1805,7 +1805,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       ?'部分操作存在数据冲突，请先处理冲突'
       :host.navigator?.onLine===false
        ?'网络中断，未完成操作已保留'
-      :final?.outstanding===0
+      :final?.outstanding===0&&!hasPendingPageReview()&&fullReadVerified===true
        ?'待同步操作已处理完成'
       :'已处理部分操作，仍有待核验记录';
     }
