@@ -4,7 +4,7 @@ const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
 const wait=()=>new Promise(resolve=>setImmediate(resolve));
 async function settle(){for(let i=0;i<7;i++)await wait();}
-function fixture({q9=0,q26=0,q27=0,offline=false}={}){
+function fixture({q9=0,q26=0,q27=0,offline=false,unknown26=false,conflict26=false}={}){
  const events=new Map(),nodes=new Map(),trace=[];
  const get=id=>{
   if(!nodes.has(id))nodes.set(id,{id,disabled:false,hidden:false,
@@ -38,8 +38,10 @@ function fixture({q9=0,q26=0,q27=0,offline=false}={}){
   cloudWritesEnabled:true};
  const queue26={
   pending:async()=>({status:'DOCUMENT_QUEUE_COUNTS_VERIFIED',outstanding:q26}),
-  send:async()=>{trace.push('026:original-request-id');q26=0;
-   return {status:'DOCUMENT_SYNC_CONFIRMED'};},
+  send:async()=>{trace.push('026:original-request-id');
+   if(unknown26)return {status:'DOCUMENT_ACK_UNKNOWN_PRESERVE_ORIGINAL_ID'};
+   if(conflict26)return {status:'DOCUMENT_CONFLICT_REVIEW_REQUIRED'};
+   q26=0;return {status:'DOCUMENT_SYNC_CONFIRMED'};},
   conflicts:async()=>({status:'DOCUMENT_CONFLICT_LIST_VERIFIED',items:[]})
  };
  const queue27={
@@ -78,8 +80,9 @@ function fixture({q9=0,q26=0,q27=0,offline=false}={}){
   purchaseReleaseEnabled:true,purchaseOperatorApproved:()=>true,
   documentWritesEnabled:true
  });
- const click=async id=>{const fn=events.get(id+':click');assert.ok(fn,id);fn();await settle();};
- return {app,host,get,trace,click,setRemoteS:n=>remoteS=n,
+ const tap=id=>{const fn=events.get(id+':click');assert.ok(fn,id);fn();};
+ const click=async id=>{tap(id);await settle();};
+ return {app,host,get,trace,click,tap,setRemoteS:n=>remoteS=n,
   setActor:a=>actor=a,setLoggedIn:x=>loggedIn=x,
   setQueue:(kind,n)=>{if(kind===9)q9=n;else if(kind===26)q26=n;else q27=n;},
   counts:()=>({q9,q26,q27})};
@@ -134,4 +137,30 @@ test('B5-01 offline never submits and account switch clears stale pending button
  f.host.navigator.onLine=true;
  f.setLoggedIn(false);await f.app.restore();await settle();
  assert.equal(f.get('formalSubmitPending').disabled,true);
+});
+
+test('B5-01 repeated submit click cannot start two runs or create new UUID',async()=>{
+ const f=fixture({q9:1});await f.app.start();await settle();
+ f.tap('formalSubmitPending');f.tap('formalSubmitPending');
+ await settle();
+ assert.equal(f.trace.filter(x=>x==='009:original-operation-id').length,1);
+ assert.equal(f.get('formalSubmitPending').disabled,true);
+});
+test('B5-01 unknown 026 ACK retains original request and never reports full success',async()=>{
+ const f=fixture({q26:1,unknown26:true});
+ await f.app.start();await settle();
+ await f.click('formalSubmitPending');
+ assert.equal(f.trace.filter(x=>x==='026:original-request-id').length,1);
+ assert.equal(f.counts().q26,1);
+ assert.equal(f.get('formalSubmitPending').disabled,false);
+ assert.match(f.get('formalCloudSyncFeedback').textContent,/待核验/);
+});
+test('B5-01 definite 026 conflict stops that queue and reports conflict',async()=>{
+ const f=fixture({q26:1,conflict26:true,q9:1});
+ await f.app.start();await settle();
+ await f.click('formalSubmitPending');
+ assert.equal(f.trace.filter(x=>x==='026:original-request-id').length,1);
+ assert.equal(f.trace.filter(x=>x.startsWith('009:')).length,0);
+ assert.equal(f.counts().q26,1);
+ assert.match(f.get('formalCloudSyncFeedback').textContent,/数据冲突/);
 });
