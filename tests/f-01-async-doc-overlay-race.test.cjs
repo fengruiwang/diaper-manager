@@ -345,6 +345,20 @@ test('T02-P1-02 formal restore passes the validated six-size read into local bas
  assert.equal(f.businessCalls,2,'baseline handoff reuses the main read');
  assert.equal(f.refreshCalls,5,'only the existing five document reads run');
 });
+test('T02-P1-02 in-flight refresh closes old local operation baselines until sync completes',async()=>{
+ const f=setup({hold:false,holdBusinessRefresh:true,otherServerSize:true});
+ await f.instance.start();await tick();await tick();
+ assert.equal(f.stockBaseline().inventory.S,80);
+ assert.equal(f.stockBaseline().revisions.S,2);
+ const refresh=f.instance.restore();await tick();await tick();
+ assert.equal(f.stockBaseline().status,'PRIMARY_LOCAL_BASELINE_PENDING');
+ assert.equal(f.purchaseBaseline().status,'PRIMARY_LOCAL_BASELINE_PENDING');
+ assert.equal(f.consumeBaseline().status,'PRIMARY_LOCAL_BASELINE_PENDING');
+ f.releaseBusinessRead();await refresh;await tick();
+ const latest=f.stockBaseline();
+ assert.equal(latest.inventory.M,33);
+ assert.equal(latest.revisions.M,5);
+});
 test('T02-P1-02 pending or unverified 027 queue leaves page visible but disables local operation baselines',async()=>{
  for(const queueStatus of ['BATCH_QUEUE_VERIFIED','BATCH_QUEUE_UNVERIFIED']){
   const f=setup({hold:false,batchOutstanding:queueStatus==='BATCH_QUEUE_VERIFIED'?1:0,

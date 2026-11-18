@@ -525,7 +525,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    expectedSettings!==null?'SETTINGS_READBACK_PENDING':
    expectedReference!==null?'REFERENCE_READBACK_PENDING':mode;
   const retainedActor=actor,retainedFamily=family,retainedContext=controller?.verifiedContext?.();
-  busy=true;const token=++revision;
+  // Close local inventory-operation baselines for the entire refresh. This
+  // prevents a new 027 batch from entering its separate queue after that
+  // queue was checked but before the 009 snapshot update commits.
+  busy=true;localInventoryBaselineReady=false;syncButtonState();
+  const token=++revision;
   fullReadVerified=false;
   // Retain the verified same-account view during visibility/online rechecks.
   // A real identity, permission or primary failure still clears it below.
