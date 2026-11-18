@@ -1828,6 +1828,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     restore();
   });
   await restore();
+  await checkPending().catch(()=>{});
   return mode;
  }
  return Object.freeze({start,restore,signOut,
