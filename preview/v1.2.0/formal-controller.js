@@ -1639,12 +1639,16 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      &&await attached?.recoverMinimalButtons?.({domain:'consume'});
     const releasedReverse=next==='ready'
      &&await attached?.recoverMinimalButtons?.({domain:'reverse'});
+    const releasedStocktake=next==='ready'
+     &&await attached?.recoverMinimalButtons?.({domain:'stocktake'});
     $('formalSyncState').textContent=releasedPurchase
      ?'原采购请求已核验并显示在库存中，可以继续操作。'
      :releasedConsume
       ?'原消耗请求已核验，库存和消耗记录已更新，可以继续操作。'
      :releasedReverse
       ?'原撤销请求已核验，库存和历史状态已更新，可以继续操作。'
+     :releasedStocktake
+      ?'原库存盘点请求已核验，页面库存已更新，可以继续保存。'
      :next==='ready'
       ?'云端已核验，采购与消耗库存已刷新。'
       :'云端操作已确认，页面读取仍需重试。';
