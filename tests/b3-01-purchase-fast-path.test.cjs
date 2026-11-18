@@ -442,6 +442,6 @@ test('B3-02 use release keeps reverse and stocktake disabled',async()=>{
 test('B3-02 pending use can reuse the existing manual UUID recovery control',()=>{
  const formal=require('node:fs').readFileSync(require('node:path').join(
   __dirname,'../preview/v1.2.0/formal-controller.js'),'utf8');
- assert.match(formal,/recoverMinimalButtons\\?\\.\\(\\{domain:'consume'\\}\\)/);
- assert.match(formal,/recoverMinimalButtons\\?\\.\\(\\{domain:'purchase'\\}\\)/);
+ assert.ok(formal.includes("recoverMinimalButtons?.({domain:'consume'})"));
+ assert.ok(formal.includes("recoverMinimalButtons?.({domain:'purchase'})"));
 });
