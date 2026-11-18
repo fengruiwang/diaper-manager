@@ -37,6 +37,20 @@ function inMemoryOutbox(){
    return {duplicate:false,snapshot:next,operation:op};
   },
   async ready(s){return list(s).filter(x=>['pending','retry'].includes(x.status))},
+  async recordDeltaAck(s,id,receipt){
+   const op=operations.get(id),k=key(s,op.payload.childId);
+   assert.equal(receipt.operationId,id);
+   assert.equal(receipt.childId,op.payload.childId);
+   assert.equal(receipt.size,op.payload.size);
+   operations.set(id,Contract.applyResult(op,{
+    kind:receipt.duplicate?'duplicate':'accepted',receiptId:id}));
+   const before=snapshots.get(k);
+   const snapshot={...before,inventory:{...before.inventory,
+    [receipt.size]:receipt.quantity},serverRevisions:{
+    ...before.serverRevisions,[receipt.size]:receipt.revision}};
+   snapshots.set(k,snapshot);
+   return {operation:operations.get(id),snapshot};
+  },
   async recordResult(s,id,r){
    const op=operations.get(id);
    operations.set(id,Contract.applyResult(op,r));
