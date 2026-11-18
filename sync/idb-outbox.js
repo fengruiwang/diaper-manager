@@ -262,8 +262,7 @@
         ||receipt.size!==op.payload?.size
         ||receipt.duplicate===true
         ||op.payload?.kind==='stocktake_batch'
-        ||op.payload?.count!==receipt.quantity
-        )fail('stocktake_receipt_scope_or_state');
+        ||op.payload?.count!==receipt.quantity)fail('stocktake_receipt_scope_or_state');
       const key=identityKey(scope,op.payload.childId);
       const snapReq=snapshots.get(key);
       snapReq.onerror=()=>abort(new Error('outbox_store:snapshot_read_failed'));
@@ -275,7 +274,8 @@
           ||snap.childId!==op.payload.childId
           ||!Number.isSafeInteger(snap.serverRevisions?.[size])
           ||receipt.revision<=snap.serverRevisions[size]
-          ||op.expectedRevision!==snap.serverRevisions[size])
+          ||!Number.isSafeInteger(op.expectedRevision)
+          ||op.expectedRevision<0)
          fail('stocktake_snapshot_not_current');
         const updated=contract.applyResult(op,{kind:'accepted',receiptId:oid});
         if(updated.id!==op.id||updated.familyId!==op.familyId
