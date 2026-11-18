@@ -192,7 +192,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   pendingCount=verified?results.reduce((n,x)=>n+x.outstanding,0):0;
   syncButtonState();
   const status=$('formalSyncState')?.textContent||'';
-  const generic=/正在核对待处理|已同步|有 \d+ 项待处理|队列状态尚未核实/.test(status);
+  const generic=/^(正在核对待处理|已同步 ·|有 \d+ 项待处理|待同步队列状态尚未核实)/.test(status);
   if(generic){
    if(!verified)showSync('待同步队列状态尚未核实，请先核验。','partial');
    else if(pendingCount>0)showSync('有 '+pendingCount+' 项待处理操作。','pending');
