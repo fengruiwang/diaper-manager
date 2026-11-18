@@ -36,7 +36,7 @@
   onSettingsAck=null,
   batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
-  allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
+  allowStocktake=false,allowBatchStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
   if(!commands?.submit||!primary?.read||typeof readPurchase!=='function'
     ||typeof readQuote!=='function'||typeof readTransaction!=='function'
     ||typeof notify!=='function'||typeof formalModeSelected!=='function'
@@ -602,10 +602,11 @@
      ?readStocktakeBaseline():null;
     if(allowStocktake===true&&(!displayed?.inventory||!displayed?.revisions))
      return result('PRIMARY_STOCK_BASELINE_UNVERIFIED');
-    const read=displayed||await primary.read();
+    const read=allowStocktake===true&&allowBatchStocktake!==true&&displayed
+     ?displayed:await primary.read();
     if(!read?.inventory||!read?.revisions)
      return result('PRIMARY_STOCK_UNVERIFIED');
-    const baseline=read,changed=[];
+    const baseline=displayed||read,changed=[];
     for(const size of SIZES){
      const field=doc.getElementById('inv_'+size);
      if(!field||typeof field.value!=='string'||field.value.trim()==='')
@@ -621,15 +622,15 @@
      if(n!==baseline.inventory[size])changed.push({size,count:n});
     }
     if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
-    if(changed.length>1&&allowStocktake===true)
+    if(changed.length>1&&allowStocktake===true&&allowBatchStocktake!==true)
      return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
     if(changed.some(x=>read.revisions[x.size]!==baseline.revisions[x.size]
       ||read.inventory[x.size]!==baseline.inventory[x.size]))
      return result('PRIMARY_STOCK_REVISION_CONFLICT');
     if(changed.length===1){
      const item=changed[0];
-     return invoke('stocktake',{...item,
-      expectedRevision:baseline.revisions[item.size]},null,null,
+     return invoke('stocktake',allowStocktake===true
+      ?{...item,expectedRevision:baseline.revisions[item.size]}:item,null,null,
       allowStocktake===true?{
        status:'PRIMARY_STOCKTAKE_BASELINE_VERIFIED',...baseline
       }:null);
