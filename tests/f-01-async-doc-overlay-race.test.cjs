@@ -20,7 +20,9 @@ function docs(){
    revision:1,body}]))};
 }
 function setup({hold=true,holdRefresh=false,holdBusinessRefresh=false,
- initialTransactions=[],otherServerSize=false}={}){
+ initialTransactions=[],otherServerSize=false,batchOutstanding=null,
+ batchQueueStatus='BATCH_QUEUE_VERIFIED',
+ localBaselineStatus='PRIMARY_LOCAL_BASELINE_SYNCED'}={}){
  let actor='A',child=C,resolveDoc,readCalls=0,ackOptions,latest;
  const slow=new Promise(resolve=>{resolveDoc=resolve;});
  let resolveRefresh;
@@ -46,9 +48,18 @@ function setup({hold=true,holdRefresh=false,holdBusinessRefresh=false,
   state:{inventory:incoming?.inventory||{NB:0,S:80,M:0,L:0,XL:0,XXL:0},
    transactions:incoming?.transactions||initialTransactions,
    quotes:[],weightRecords:[]}});
+ const baselineSyncCalls=[];
  const primary={activate:async()=>({status:'PRIMARY_OUTBOX_READ_ONLY_READY'}),
   selectedScope:()=>({familyId:F,actorUid:actor,childId:child}),
-  pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',outstanding:0})};
+  pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',outstanding:0}),
+  syncVerifiedReadModel:async input=>{
+   baselineSyncCalls.push(input);
+   if(input.batchQueue?.status!=='BATCH_QUEUE_VERIFIED')
+    return {status:'PRIMARY_LOCAL_BASELINE_BATCH_QUEUE_UNVERIFIED'};
+   if(input.batchQueue.outstanding>0)
+    return {status:'PRIMARY_LOCAL_BASELINE_BATCH_PENDING'};
+   return {status:localBaselineStatus};
+  }};
  const instance=Formal.create({host,doc:document,
   loginController:{create:()=>controller},
   readModelFactory:()=>({read:async()=>{
@@ -74,6 +85,9 @@ function setup({hold=true,holdRefresh=false,holdBusinessRefresh=false,
     return docs().documents[kind];}
   }),
   documentsOverlay:Overlay,scriptLoader:async()=>{},
+  batchStocktakeFactory:batchOutstanding===null?null:()=>({
+   pending:async()=>({status:batchQueueStatus,outstanding:batchOutstanding})
+  }),
   documentWritesEnabled:false
  });
  function op(kind,quantity){
@@ -91,6 +105,9 @@ function setup({hold=true,holdRefresh=false,holdBusinessRefresh=false,
   ack:async(kind,n)=>ackOptions.onPurchaseAck(op(kind,n)),
   ackRaw:async packet=>ackOptions.onPurchaseAck(packet),
   stockBaseline:()=>ackOptions.readStocktakeBaseline(),
+  purchaseBaseline:()=>ackOptions.readPurchaseBaseline(),
+  consumeBaseline:()=>ackOptions.readConsumeBaseline(),
+  get baselineSyncCalls(){return baselineSyncCalls;},
   batchAck:async packet=>ackOptions.onBatchAck(packet),
   ackSettings:async()=>ackOptions.onSettingsAck({kind:'settings',familyId:F,
    actorUid:actor,childId:child,requestId:'original-setting-request',
@@ -309,5 +326,35 @@ test('T02-P1-01 old delayed read cannot cross a switched actor or child',async()
   f.releaseBusinessRead();await read;await tick();
   assert.equal(f.views.length,count,'old read must not render after scope changed');
   assert.equal(f.businessCalls,2);
+ }
+});
+
+test('T02-P1-02 formal restore passes the validated six-size read into local baseline sync',async()=>{
+ const f=setup({hold:false,otherServerSize:true});
+ await f.instance.start();await tick();await tick();
+ assert.equal(f.baselineSyncCalls.length,1);
+ assert.equal(f.baselineSyncCalls[0].verifiedReadModel.status,'PRIMARY_READ_ONLY_READY');
+ assert.equal(f.baselineSyncCalls[0].verifiedReadModel.inventory.S,80);
+ assert.equal(f.baselineSyncCalls[0].verifiedReadModel.revisions.S,2);
+ assert.equal(f.baselineSyncCalls[0].batchQueue.outstanding,0);
+ const refresh=await f.instance.restore();await tick();await tick();
+ assert.equal(refresh,'ready');
+ assert.equal(f.baselineSyncCalls.length,2);
+ assert.equal(f.baselineSyncCalls[1].verifiedReadModel.inventory.M,33);
+ assert.equal(f.baselineSyncCalls[1].verifiedReadModel.revisions.M,5);
+ assert.equal(f.businessCalls,2,'baseline handoff reuses the main read');
+ assert.equal(f.refreshCalls,5,'only the existing five document reads run');
+});
+test('T02-P1-02 pending or unverified 027 queue leaves page visible but disables local operation baselines',async()=>{
+ for(const queueStatus of ['BATCH_QUEUE_VERIFIED','BATCH_QUEUE_UNVERIFIED']){
+  const f=setup({hold:false,batchOutstanding:queueStatus==='BATCH_QUEUE_VERIFIED'?1:0,
+   batchQueueStatus:queueStatus});
+  await f.instance.start();await tick();await tick();
+  assert.equal(f.latest.state.inventory.S,80,'verified cloud page may remain visible');
+  assert.equal(f.baselineSyncCalls.length,1);
+  assert.equal(f.stockBaseline().status,'PRIMARY_LOCAL_BASELINE_PENDING');
+  assert.equal(f.purchaseBaseline().status,'PRIMARY_LOCAL_BASELINE_PENDING');
+  assert.equal(f.consumeBaseline().status,'PRIMARY_LOCAL_BASELINE_PENDING');
+  assert.equal(f.businessCalls,1,'no reconciliation read is added');
  }
 });
