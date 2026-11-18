@@ -179,7 +179,7 @@
     :'盘点未保存，请检查网络或库存数据';
    const waiting=phase==='working'||phase==='pending';
    if(el){el.disabled=waiting;el.textContent=waiting
-     ?phase==='pending'?'等待核验…':'正在保存库存盘点…'
+     ?phase==='pending'?'等待核验…':stocktakeBatchAction?'正在批量保存库存…':'正在保存库存盘点…'
      :stocktakeLabel||'保存实际库存';}
    if(!waiting){stocktakeButton=null;stocktakeLabel='';stocktakeBatchAction=false;}
   }
