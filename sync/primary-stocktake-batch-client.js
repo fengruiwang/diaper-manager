@@ -53,6 +53,9 @@ function create({controller,host,primary,outboxFactory,contract,
   return result;
  }
  async function pending(){
+  // A refresh must not treat a queue as empty while a batch is being created,
+  // submitted or recovered. Retry after the active operation has completed.
+  if(busy)return answer('BATCH_QUEUE_UNVERIFIED');
   try{
    const id=scope(),t=await store.stats(id);
    if(!Number.isSafeInteger(t.outstanding)||t.outstanding<0)
