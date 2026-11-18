@@ -11,8 +11,10 @@ function fixture({enabled=false,receipt=true,badScope=false,offline=false,
  const calls=[],app={};
  const scope={app,familyId:FAMILY,actorUid:ACTOR};
  let snapshot=null,queued=[],outstanding=0;
- const rows=()=>sizes.map(size=>({size,quantity:size==='S'?140:0,
-  revision:size==='S'?2:1}));
+ let remoteInventory={NB:0,S:140,M:0,L:0,XL:0,XXL:0};
+ let remoteRevisions={NB:1,S:2,M:1,L:1,XL:1,XXL:1};
+ const rows=()=>sizes.map(size=>({size,quantity:remoteInventory[size],
+  revision:remoteRevisions[size]}));
  const outbox={
   async readInventory(){calls.push('outbox.readInventory');return snapshot;},
   async initializeInventory(w,data){
@@ -20,6 +22,15 @@ function fixture({enabled=false,receipt=true,badScope=false,offline=false,
    snapshot={source:'verified-server',familyId:FAMILY,actorUid:ACTOR,
     childId:PRIMARY,inventory:data.inventory,serverRevisions:data.serverRevisions};
    return snapshot;
+  },
+  async updateVerifiedInventory(w,data){
+   calls.push('outbox.updateVerifiedInventory');
+   if(outstanding>0)return {status:'LOCAL_OPERATIONS_PENDING',snapshot,
+    outstanding};
+   if(!snapshot)return {status:'SNAPSHOT_NOT_INITIALIZED',snapshot:null};
+   snapshot={...snapshot,inventory:{...data.inventory},
+    serverRevisions:{...data.serverRevisions}};
+   return {status:'UPDATED',snapshot};
   },
   async commitInventory(w,op){
    calls.push('outbox.commitInventory');queued.push(op);outstanding++;
@@ -85,7 +96,11 @@ function fixture({enabled=false,receipt=true,badScope=false,offline=false,
   createdAt:'2026-11-12T06:00:00Z',
   payload:{childId:PRIMARY,size:'S',kind:'buy',amount:6,
    purchase:{brand:'好奇',series:'小森林',totalFen:600,purchaseDate:'2026-11-12'}}};
- return {bridge,op,calls,scope};
+ return {bridge,op,calls,scope,
+  setRemote:(inventory,revs)=>{remoteInventory={...remoteInventory,...inventory};
+   remoteRevisions={...remoteRevisions,...revs};},
+  setOutstanding:n=>{outstanding=n;},
+  get snapshot(){return snapshot;}};
 }
 test('M3 formal primary operation bridge uses its own isolated outbox and is inert before activate',()=>{
  const f=fixture();
@@ -205,4 +220,72 @@ test('P0 startup: write-capable bridge cannot skip its independent primary verif
  assert.equal((await f.bridge.activate({verifiedReadModel:snap})).status,
   'PRIMARY_INITIALIZATION_UNVERIFIED');
  assert.equal(f.calls.includes('outbox.initializeInventory'),false);
+});
+
+function readModel(overrides={}){
+ return {status:'PRIMARY_READ_ONLY_READY',
+  source:'cloudbase-primary-receipt-verified',canWrite:false,
+  legacyPurchasesAppliedToInventory:false,legacyHistory:{complete:true},
+  familyId:FAMILY,childId:PRIMARY,actorUid:ACTOR,
+  inventory:{NB:0,S:100,M:0,L:0,XL:0,XXL:0},
+  revisions:{NB:1,S:3,M:1,L:1,XL:1,XXL:1},...overrides};
+}
+test('T02-P1-02 verified main read refreshes existing local snapshot without reconciliation RPC',async()=>{
+ const f=fixture();
+ assert.equal((await f.bridge.activate()).status,'PRIMARY_OUTBOX_READ_ONLY_READY');
+ assert.equal(f.snapshot.inventory.S,140);
+ f.setRemote({S:100},{S:3});
+ const callsBefore=f.calls.length;
+ const result=await f.bridge.syncVerifiedReadModel({
+  verifiedReadModel:readModel(),
+  batchQueue:{status:'BATCH_QUEUE_VERIFIED',outstanding:0}
+ });
+ assert.equal(result.status,'PRIMARY_LOCAL_BASELINE_SYNCED');
+ assert.equal(f.snapshot.inventory.S,100);
+ assert.equal(f.snapshot.serverRevisions.S,3);
+ assert.equal(f.calls.filter(x=>x==='outbox.updateVerifiedInventory').length,1);
+ assert.equal(f.calls.slice(callsBefore).some(x=>
+  x==='remote.readReconciliation'||x==='sync.reconcile'),false);
+});
+test('T02-P1-02 pending or unverified 027 queue preserves the original 009 snapshot',async()=>{
+ for(const queue of [
+  {status:'BATCH_QUEUE_VERIFIED',outstanding:1},
+  {status:'BATCH_QUEUE_UNVERIFIED'}
+ ]){
+  const f=fixture();
+  await f.bridge.activate();
+  f.setRemote({S:100},{S:3});
+  const before=JSON.parse(JSON.stringify(f.snapshot));
+  const result=await f.bridge.syncVerifiedReadModel({
+   verifiedReadModel:readModel(),batchQueue:queue
+  });
+  assert.notEqual(result.status,'PRIMARY_LOCAL_BASELINE_SYNCED');
+  assert.deepEqual(f.snapshot,before);
+  assert.equal(f.calls.includes('outbox.updateVerifiedInventory'),false);
+ }
+});
+test('T02-P1-02 pending 009 operation blocks local baseline replacement',async()=>{
+ const f=fixture();await f.bridge.activate();
+ f.setRemote({S:100},{S:3});f.setOutstanding(1);
+ const before=JSON.parse(JSON.stringify(f.snapshot));
+ const result=await f.bridge.syncVerifiedReadModel({
+  verifiedReadModel:readModel(),
+  batchQueue:{status:'BATCH_QUEUE_VERIFIED',outstanding:0}
+ });
+ assert.equal(result.status,'PRIMARY_LOCAL_BASELINE_PENDING_OPERATIONS');
+ assert.deepEqual(f.snapshot,before);
+});
+test('T02-P1-02 invalid actor, family or child cannot update the selected baseline',async()=>{
+ for(const override of [{actorUid:'stranger'},
+  {familyId:SMOKE},{childId:SMOKE}]){
+  const f=fixture();await f.bridge.activate();
+  f.setRemote({S:100},{S:3});
+  const before=JSON.parse(JSON.stringify(f.snapshot));
+  const result=await f.bridge.syncVerifiedReadModel({
+   verifiedReadModel:readModel(override),
+   batchQueue:{status:'BATCH_QUEUE_VERIFIED',outstanding:0}
+  });
+  assert.equal(result.status,'PRIMARY_LOCAL_BASELINE_UNVERIFIED');
+  assert.deepEqual(f.snapshot,before);
+ }
 });
