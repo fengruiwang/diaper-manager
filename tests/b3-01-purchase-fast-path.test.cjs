@@ -122,6 +122,18 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
    assert.equal(op.status,'pending');
    rows.set(id,{...op,status:'abandoned',error:'stocktake_revision_conflict'});
   },
+  async applyVerifiedBatchInventory(_scope,{childId,changes}){
+   trace.push('idb.batchSnapshot');
+   assert.equal(childId,C);
+   const inventory={...local.inventory},serverRevisions={...local.serverRevisions};
+   for(const c of changes){
+    assert.equal(serverRevisions[c.size],c.expectedRevision);
+    inventory[c.size]=c.new_quantity;
+    serverRevisions[c.size]=c.revision;
+   }
+   local={...local,inventory,serverRevisions};
+   return clone(local);
+  },
   async recordStocktakeAck(_scope,id,receipt){
    trace.push('idb.stocktakeAck');
    assert.equal(rows.get(id).type,'inventory.count');
@@ -210,6 +222,12 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   documentsOverlay:Docs,
   showCloudView(view){trace.push('ui.show');renders.push(view);}
  };
+ const batchAckStart=controllerSource.indexOf('onBatchAck:async ack=>{');
+ const batchAckEnd=controllerSource.indexOf('readDocumentInput:',batchAckStart);
+ assert.ok(batchAckStart>0&&batchAckEnd>batchAckStart);
+ const onBatchAck=vm.runInNewContext('('+controllerSource.slice(
+  batchAckStart+'onBatchAck:'.length,batchAckEnd)
+  .trim().replace(/,\s*$/,'')+')',env);
  const onPurchaseAck=vm.runInNewContext('('+controllerSource.slice(
   ackStart+'onPurchaseAck:'.length,ackEnd).trim().replace(/,\s*$/,'')+')',env);
  const consumeStart=controllerSource.indexOf('readConsumeBaseline:()=>{');
@@ -301,7 +319,7 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   assert.equal((await primary.activate()).status,'PRIMARY_OUTBOX_READ_ONLY_READY');
  }
  return {
-  activate,ui,primary,commands,env,trace,rows,server,renders,notices,
+  activate,ui,primary,commands,env,trace,rows,server,renders,notices,onBatchAck,
   confirmMessages,
   buttons,feedback,handlers,
   click:id=>ui.handle({id:id||'',dataset:id?{}:
@@ -734,6 +752,61 @@ for(const nextKind of ['buy','use']){
   assert.equal(sent.status,nextKind==='buy'
    ?'PRIMARY_PURCHASE_ACK_CONFIRMED':'PRIMARY_USE_ACK_CONFIRMED');
   assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,2);
+  assert.equal(f.trace.some(x=>/reconcil|xb_read_inventory/.test(x)),false);
+ });
+}
+for(const nextKind of ['buy','use']){
+ test('B4-02 batch ACK updates UI and IDB then '+nextKind+' quick 009',async()=>{
+  const f=fixture({nextKind});
+  await f.activate();
+  f.server.inventory.NB=100;f.server.revisions.NB=2;
+  f.server.inventory.S=95;f.server.revisions.S=3;
+  const changes=[
+   {size:'NB',new_quantity:100,revision:2,expectedRevision:1},
+   {size:'S',new_quantity:95,revision:3,expectedRevision:2}
+  ];
+  const applied=await f.primary.applyBatchInventoryAck({batchId:ID,changes});
+  assert.equal(applied.status,'BATCH_LOCAL_SNAPSHOT_ACK_APPLIED');
+  assert.equal(f.localSnapshot.inventory.NB,100);
+  assert.equal(f.localSnapshot.inventory.S,95);
+  const items=changes.map(x=>({size:x.size,count:x.new_quantity,
+   expectedRevision:x.expectedRevision}));
+  assert.equal(await f.onBatchAck({batchId:ID,items,changes}),'ready');
+  assert.equal(f.env.primaryViewBase.state.inventory.NB,100);
+  assert.equal(f.env.primaryViewBase.state.inventory.S,95);
+  assert.equal(f.env.shownStock.revisions.NB,2);
+  assert.equal(f.env.shownStock.revisions.S,3);
+  assert.equal(f.env.primaryViewBase.state.transactions.length,1);
+  for(const name of ['reference','quotes','growth','profile','settings']){
+   const docs=clone(f.env.documentSnapshot);docs.documents[name].revision++;
+   const view=Docs.apply(f.env.primaryViewBase,docs);
+   assert.equal(view.state.inventory.NB,100,name);
+   assert.equal(view.state.inventory.S,95,name);
+  }
+  const op=Contract.createOperation({
+   id:NEXT,type:'inventory.delta',familyId:F,actorUid:'A',
+   createdAt:'2026-11-12T08:31:00.000Z',
+   payload:{childId:C,size:'S',kind:nextKind,
+    amount:nextKind==='use'?1:10,
+    occurredAt:'2026-11-12T08:31:00.000Z',
+    ...(nextKind==='buy'?{purchase:{brand:'好奇',series:'小森林',
+     totalFen:1000,purchaseDate:'2026-11-12'}}:{})}
+  });
+  const baseline={status:nextKind==='buy'
+   ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':'PRIMARY_CONSUME_BASELINE_VERIFIED',
+   familyId:F,actorUid:'A',childId:C,
+   inventory:clone(f.env.primaryViewBase.state.inventory),
+   revisions:clone(f.env.shownStock.revisions)};
+  const queued=await f.primary.queue(op,{operatorApproved:true,
+   ...(nextKind==='buy'
+    ?{verifiedPurchaseBaseline:baseline}:{verifiedConsumeBaseline:baseline})});
+  assert.equal(queued.status,'PRIMARY_OPERATION_DURABLY_QUEUED');
+  const sent=await f.primary.flush({operatorApproved:true,
+   ...(nextKind==='buy'?{fastPurchaseId:NEXT}:{fastConsumeId:NEXT})});
+  assert.equal(sent.status,nextKind==='buy'
+   ?'PRIMARY_PURCHASE_ACK_CONFIRMED':'PRIMARY_USE_ACK_CONFIRMED');
+  assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,1);
+  assert.equal(f.trace.filter(x=>x==='idb.batchSnapshot').length,1);
   assert.equal(f.trace.some(x=>/reconcil|xb_read_inventory/.test(x)),false);
  });
 }
