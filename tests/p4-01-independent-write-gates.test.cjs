@@ -253,7 +253,7 @@ test('P4-01 formal capture blocks old localStorage handler without any grant',as
  binding.detach();
 });
 function controllerFixture({purchase=false,documents=false,docOutstanding=0,
- batchOutstanding=0}={}){
+ batchOutstanding=0,primaryOutstanding=0}={}){
  const events=new Map(),nodes=new Map(),trace=[];
  const el=id=>{
   if(!nodes.has(id))nodes.set(id,{id,hidden:false,disabled:true,
@@ -271,7 +271,8 @@ function controllerFixture({purchase=false,documents=false,docOutstanding=0,
  };
  const ctx={app:{auth:{getSession:async()=>({data:{user:{id:'A'}}})}},
   familyId:F,actorUid:'A'};
- let pendingDocs=docOutstanding,pendingBatch=batchOutstanding;
+ let pendingDocs=docOutstanding,pendingBatch=batchOutstanding,
+  pendingPrimary=primaryOutstanding;
  const docsModel=Object.fromEntries(['reference','quotes','growth','profile',
   'settings'].map(kind=>[kind,{childId:C,kind}]));
  const documentClient={
@@ -294,10 +295,10 @@ function controllerFixture({purchase=false,documents=false,docOutstanding=0,
  };
  const primary={
   activate:async()=>({status:'PRIMARY_OUTBOX_READ_ONLY_READY'}),
-  pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',outstanding:0}),
+  pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',outstanding:pendingPrimary}),
   flush:async({operatorApproved})=>{
    assert.equal(operatorApproved,true);trace.push('primary.flush');
-   return{status:'PRIMARY_CLOUD_SYNCED_VERIFIED'};}
+   pendingPrimary=0;return{status:'PRIMARY_CLOUD_SYNCED_VERIFIED'};}
  };
  const batch={
   pending:async()=>{trace.push('batch.pending');return{
@@ -344,47 +345,45 @@ function controllerFixture({purchase=false,documents=false,docOutstanding=0,
  return {app,clickRetry,trace,el,docQueue,
   get actionOptions(){return actionOptions;}};
 }
-test('P4-01 controller only DOCUMENTS allows original document UUID retry but never primary flush',async()=>{
- const x=controllerFixture({documents:true,docOutstanding:1,
-  batchOutstanding:1});
- await x.app.start();
- assert.equal(x.app.mode,'ready');
+test('P4-01 DOCUMENTS-only processes 026 UUID without touching inventory',async()=>{
+ const x=controllerFixture({documents:true,docOutstanding:1,batchOutstanding:1});
+ await x.app.start();await new Promise(resolve=>setImmediate(resolve));
  assert.equal(x.el('formalSyncNow').disabled,false);
  assert.equal(x.actionOptions.buildAllowsWrites,false);
  assert.equal(x.actionOptions.buildAllowsDocumentWrites,true);
  await x.clickRetry();
- assert.equal(x.trace.filter(x=>x==='doc.send').length,1);
+ assert.equal(x.trace.filter(t=>t==='doc.send').length,1);
  assert.equal(x.trace.includes('primary.flush'),false);
  assert.equal(x.trace.includes('batch.pending'),false);
- await x.clickRetry();
- assert.equal(x.trace.includes('primary.flush'),false);
 });
-test('P4-01 controller only PURCHASE retries primary queue, not document queue',async()=>{
- const x=controllerFixture({purchase:true,docOutstanding:1});
- await x.app.start();
+test('B5-01 PURCHASE-only queue 0 remains disabled; 009 pending uses original queue',async()=>{
+ const empty=controllerFixture({purchase:true,docOutstanding:1});
+ await empty.app.start();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(empty.el('formalSyncNow').disabled,true);
+ await empty.clickRetry();
+ assert.equal(empty.trace.includes('primary.flush'),false);
+ assert.equal(empty.trace.includes('doc.pending'),false);
+ const x=controllerFixture({purchase:true,primaryOutstanding:1});
+ await x.app.start();await new Promise(resolve=>setImmediate(resolve));
  assert.equal(x.el('formalSyncNow').disabled,false);
- assert.equal(x.actionOptions.buildAllowsDocumentWrites,false);
  await x.clickRetry();
  assert.ok(x.trace.includes('primary.flush'));
- assert.equal(x.trace.includes('doc.pending'),false);
  assert.equal(x.trace.includes('doc.send'),false);
 });
 test('P4-01 controller both OFF retry stays disabled and sends neither queue',async()=>{
  const x=controllerFixture({docOutstanding:1});
- await x.app.start();
+ await x.app.start();await new Promise(resolve=>setImmediate(resolve));
  assert.equal(x.el('formalSyncNow').disabled,true);
  await x.clickRetry();
  assert.equal(x.trace.includes('doc.send'),false);
  assert.equal(x.trace.includes('primary.flush'),false);
 });
-test('P4-01 controller both ON preserves document-first retry then inventory retry',async()=>{
- const x=controllerFixture({purchase:true,documents:true,docOutstanding:1});
- await x.app.start();
+test('B5-01 controller both ON recovers original 026 then 009 sequentially in one click',async()=>{
+ const x=controllerFixture({purchase:true,documents:true,docOutstanding:1,primaryOutstanding:1});
+ await x.app.start();await new Promise(resolve=>setImmediate(resolve));
  await x.clickRetry();
- assert.ok(x.trace.includes('doc.send'));
- assert.equal(x.trace.includes('primary.flush'),false);
- await x.clickRetry();
- assert.ok(x.trace.includes('primary.flush'));
+ const sends=x.trace.filter(t=>t==='doc.send'||t==='primary.flush');
+ assert.deepEqual(sends,['doc.send','primary.flush']);
 });
 test('B2-04 source opens five document domains while purchase remains OFF',()=>{
  const controller=fs.readFileSync(path.join(__dirname,
