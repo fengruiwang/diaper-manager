@@ -4004,7 +4004,7 @@ restoreActiveTab();
    if(kind==='consume'){
     consumeButton=el;consumeSize=el.dataset?.size||'';
     consumeDay=el.dataset?.useMode==='day'
-      ||/记s*1s*天/.test(el.textContent||'');
+      ||/记\s*1\s*天/.test(el.textContent||'');
    }
    if(kind==='purchase'){
     purchaseButton=el;
@@ -4888,7 +4888,7 @@ restoreActiveTab();
      if(!Number.isSafeInteger(stock)||stock<1)
       return result('PRIMARY_INSUFFICIENT_STOCK');
      const day=el.dataset?.useMode==='day'
-      ||/记s*1s*天/.test(el.textContent||'');
+      ||/记\s*1\s*天/.test(el.textContent||'');
      const daily=Number(baseline.daily?.[size]);
      const count=day?Math.min(stock,Math.round(Math.max(1,
       Math.min(30,daily||8)))):1;
