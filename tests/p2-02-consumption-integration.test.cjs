@@ -101,6 +101,12 @@ const defaults=()=>({transactions:[],quotes:[],weightRecords:[],
 test('P2-02 consume button queues one use UUID, cloud stock decrements once and both accounts read it',async()=>{
  const db=cloud(),client=Client.create(db.app('dad')),pending=[];
  const outbox={ready:async()=>pending.filter(x=>x.status==='pending'||x.status==='retry'),
+  recordDeltaAck:async(_scope,id,receipt)=>{
+   const op=pending.find(x=>x.id===id);assert.ok(op);
+   assert.equal(receipt.operationId,id);assert.equal(receipt.childId,CHILD);
+   op.status='acked';return {operation:op,snapshot:{
+    inventory:{S:receipt.quantity},serverRevisions:{S:receipt.revision}}};
+  },
   recordResult:async(_scope,id,result)=>{const op=pending.find(x=>x.id===id);
    assert.ok(op);op.status=['duplicate','accepted'].includes(result.kind)?'acked':'retry';}};
  const runner=Runner.create({outbox,remote:client,verifyAccess:async()=>({
@@ -185,6 +191,11 @@ test('P2-02 unknown ACK keeps same queued UUID, recovery applies at most once',a
    childId:CHILD,size:'S',kind:'use',amount:2,occurredAt:'2026-11-13T13:30:00Z'},
   status:'pending'};
  const outbox={ready:async()=>op.status==='acked'?[]:[op],
+  recordDeltaAck:async(_scope,id,receipt)=>{
+   assert.equal(id,OP);assert.equal(receipt.operationId,OP);
+   op.status='acked';return {operation:op,snapshot:{
+    inventory:{S:receipt.quantity},serverRevisions:{S:receipt.revision}}};
+  },
   recordResult:async(_scope,id,result)=>{
    assert.equal(id,OP);op.status=['accepted','duplicate'].includes(result.kind)?'acked':'retry';
   }};
