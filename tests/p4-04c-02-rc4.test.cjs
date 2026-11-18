@@ -60,8 +60,9 @@ test('P4-04C-02 rc4 has all write domains, original UUID/readback, C-01 and late
  assert.match(ctrl,/purchaseOperatorApproved:\(\)=>true/);
  assert.match(ctrl,/documentOperatorApproved:\(\)=>documentWritesEnabled===true/);
  for(const name of ['primary-business-date',
-  'primary-ui-projection','primary-stocktake-batch-client','idb-outbox',
+  'primary-ui-projection','primary-stocktake-batch-client',
   ]){
+  // rc.4 is frozen; later Feature-only IDB changes must not rewrite it.
   assert.ok(html.includes(read('sync/'+name+'.js').toString('utf8').trim()),
    'rc4 inline source not current: '+name);
  }
