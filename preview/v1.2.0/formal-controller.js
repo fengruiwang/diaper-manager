@@ -381,11 +381,53 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(!current())return false;
    if(snapshot?.status!=='PRIMARY_DOCUMENTS_FULLY_READ')
     throw Error('formal_entry:five_documents_incomplete');
-   const merged=documentsOverlay.apply(base,snapshot);
-   if(merged?.canWrite!==false||merged.sharedBusinessDocumentsVerified!==true)
+   // The business ACK callbacks update primaryViewBase while this read is
+   // pending. Overlay only on the latest verified same-child baseline.
+   const latest=primaryViewBase||base;
+   const selected=primary?.selectedScope?.();
+   const verifiedContext=controller?.verifiedContext?.();
+   if(!latest||latest.status!=='PRIMARY_READ_ONLY_READY'
+     ||latest.canWrite!==false||latest.actorUid!==ctx.actorUid
+     ||latest.familyId!==ctx.familyId||!latest.childId
+     ||verifiedContext?.actorUid!==ctx.actorUid
+     ||verifiedContext?.familyId!==ctx.familyId
+     ||(selected&&(selected.actorUid!==ctx.actorUid
+       ||selected.familyId!==ctx.familyId
+       ||selected.childId!==latest.childId)))
+    return false;
+   // A document ACK may also have completed while a previous read was slow.
+   // Keep the newer local confirmed revision, per document, without an RPC.
+   let safeSnapshot=snapshot;
+   if(documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
+     &&documentScope===scopeKey){
+    const currentDocs=documentSnapshot.documents;
+    const incoming=snapshot.documents;
+    const replacements={...incoming};
+    let changed=false;
+    for(const kind of ['reference','quotes','growth','profile','settings']){
+     const newer=currentDocs?.[kind],older=incoming?.[kind];
+     if(newer?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+       &&newer.familyId===ctx.familyId&&newer.childId===latest.childId
+       &&older?.familyId===ctx.familyId&&older.childId===latest.childId
+       &&Number.isSafeInteger(newer.revision)
+       &&Number.isSafeInteger(older.revision)
+       &&newer.revision>=older.revision){
+      replacements[kind]=newer;changed=true;
+     }
+    }
+    if(changed)safeSnapshot={...snapshot,documents:replacements};
+   }
+   if(!current())return false;
+   const merged=documentsOverlay.apply(latest,safeSnapshot);
+   if(merged?.canWrite!==false||merged.sharedBusinessDocumentsVerified!==true
+     ||merged.cloudDocumentsActorScope?.familyId!==ctx.familyId
+     ||merged.cloudDocumentsActorScope?.childId!==latest.childId
+     ||merged.state?.inventory!==undefined
+       &&JSON.stringify(merged.state.inventory)!==JSON.stringify(latest.state.inventory)
+     ||JSON.stringify(merged.state.transactions)!==JSON.stringify(latest.state.transactions))
     throw Error('formal_entry:five_documents_unverified');
    showCloudView(merged,ctx);
-   documentSnapshot=snapshot;documentScope=scopeKey;
+   documentSnapshot=safeSnapshot;documentScope=scopeKey;
    confirmedFullRead();
    return true;
   }).catch(()=>{
