@@ -142,7 +142,7 @@ test('P4-03E prenatal preset uses same settings feedback and original logic',asy
  await tick();
  assert.deepEqual(f.stages.map(x=>x.phase),['checking','queued','submitting']);
  assert.equal(f.buttons.cautious.disabled,true);
- assert.match(f.buttons.cautious.textContent,/提交云端/);
+ assert.match(f.buttons.cautious.textContent,/正在保存/);
  d.resolve({status:'DOCUMENT_SYNC_CONFIRMED'});
  await tick();await tick();
  assert.equal(f.notifications.at(-1).status,'SETTINGS_CLOUD_READBACK_VERIFIED');

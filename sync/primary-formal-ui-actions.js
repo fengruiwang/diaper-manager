@@ -31,6 +31,7 @@
   allowProfile=false,readProfileBaseline=null,onProfileReadback=null,
   onProfileAck=null,
   allowSettings=false,readSettingsBaseline=null,onSettingsReadback=null,
+  onSettingsAck=null,
   batchStocktake=null,createBatchId=null,onBatchReadback=null,
   purchaseOnly=false,allowConsume=false,allowReverse=false,
   allowStocktake=false,readStocktakeBaseline=null,onPurchaseReadback=null}={}){
