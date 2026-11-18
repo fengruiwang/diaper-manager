@@ -42,7 +42,7 @@
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
   async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false,
-  allowReverse=false,allowStocktake=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null}={}){
+  allowReverse=false,allowStocktake=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null,fastStocktakeId=null}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -51,8 +51,9 @@
    if(uploadEnabled!==true)
     return {status:'upload-disabled',attempted:0,accepted:0,remaining:null};
 
-   const fastId=fastReverseId??fastConsumeId??fastPurchaseId;
-   const reverse=fastReverseId!==null,consume=!reverse&&fastConsumeId!==null;
+   const fastId=fastStocktakeId??fastReverseId??fastConsumeId??fastPurchaseId;
+   const stocktake=fastStocktakeId!==null,reverse=!stocktake&&fastReverseId!==null,
+    consume=!stocktake&&!reverse&&fastConsumeId!==null;
    if(fastId===null){
     let grant;
     try{grant=await verifyAccess({familyId:scope.familyId,actorUid:scope.actorUid});}
@@ -70,8 +71,10 @@
    // pending IDB count, and a newly persisted one-time operation UUID.
    if(fastId!==null){
     if(queued.length!==1||queued[0]?.id!==fastId
-      ||queued[0].type!==(reverse?'transaction.reverse':'inventory.delta')
-      ||(!reverse&&queued[0].payload?.kind!==(consume?'use':'buy'))
+      ||queued[0].type!==(stocktake?'inventory.count':reverse?'transaction.reverse':'inventory.delta')
+      ||(!reverse&&!stocktake&&queued[0].payload?.kind!==(consume?'use':'buy'))
+      ||(stocktake&&(allowStocktake!==true||queued[0].payload?.kind==='stocktake_batch'
+        ||!Number.isSafeInteger(queued[0].expectedRevision)))
       ||(reverse&&allowReverse!==true)
       ||(consume&&allowConsume!==true)
       ||queued[0].familyId!==scope.familyId
@@ -86,13 +89,16 @@
        ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
        ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
       return {status:'purchase-ack-unverified',attempted:1,accepted:0};
-     if(reverse&&receipt.duplicate!==true
+     if(stocktake&&receipt.duplicate!==true
+       &&typeof outbox.recordStocktakeAck==='function')
+      await outbox.recordStocktakeAck(scope,op.id,receipt);
+     else if(reverse&&receipt.duplicate!==true
        &&typeof outbox.recordReverseAck==='function')
       await outbox.recordReverseAck(scope,op.id,receipt);
      else await outbox.recordResult(scope,op.id,{
       kind:receipt.duplicate?'duplicate':'accepted',receiptId:op.id
      });
-     return {status:(reverse?'reverse':consume?'consume':'purchase')
+     return {status:(stocktake?'stocktake':reverse?'reverse':consume?'consume':'purchase')
        +(receipt.duplicate?'-ack-recovered':'-ack-confirmed'),
        attempted:1,accepted:1,
        receipt,operation:op,remaining:0};
@@ -102,6 +108,9 @@
      const code=errorCode(e);
      try{await outbox.recordResult(scope,op.id,{kind:code});}
      catch(_){return {status:'purchase-local-ack-unknown',attempted:1,accepted:0};}
+     if(stocktake&&code==='conflict')return {
+       status:'stocktake-rejected',attempted:1,accepted:0
+      };
      if(reverse&&code==='conflict')return {
       status:'reverse-rejected',attempted:1,accepted:0
      };
