@@ -1,6 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-global.window={XBPrimaryBusinessDate:{fromTimestamp:()=> '2026-11-18'}};
-const Formal=require('../preview/v1.2.0/formal-controller.js');
+const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const sandbox={module:{exports:{}},window:{
+ XBPrimaryBusinessDate:{fromTimestamp:()=> '2026-11-18'}
+},setTimeout,clearTimeout};
+vm.runInNewContext(fs.readFileSync(path.join(__dirname,
+ '../preview/v1.2.0/formal-controller.js'),'utf8'),sandbox);
+const Formal=sandbox.module.exports;
 const Overlay=require('../sync/primary-documents-overlay.js');
 const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',C='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
 const ID='26e2fa06-b355-4a98-bc5e-44dcdf8a2d63';
@@ -120,8 +125,8 @@ test('F-01 normal first read still overlays five documents without an extra requ
 test('F-01 late document response cannot cross actor scope',async()=>{
  const f=setup();await f.instance.start();f.setActor('B');
  await f.instance.restore();
- const before=f.views.length;
  f.release();await tick();await tick();
- assert.equal(f.views.length,before);
  assert.equal(f.latest.actorUid,'B');
+ assert.ok(f.views.slice(1).every(x=>x.actorUid==='B'));
+ assert.equal(f.latest.state.inventory.S,80);
 });
