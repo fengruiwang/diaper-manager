@@ -298,7 +298,10 @@
        ?{operationId:id,kind:kind==='purchase'?'buy':
           kind==='consume'?'use':kind==='stocktake'?'stocktake':'reverse',
           reversesOperationId:kind==='reverse'
-           ?prepared?.reversesOperationId:null}:{requestId:id,
+           ?prepared?.reversesOperationId:null,
+          ...(kind==='stocktake'?{
+           size:answer?.size,count:answer?.count,
+           expectedRevision:answer?.expectedRevision}: {})}:{requestId:id,
          action:minimalQuoteIntent?.action,record:minimalQuoteIntent?.record,
          expectedRevision:minimalQuoteIntent?.expectedRevision,
          actorUid:minimalQuoteIntent?.actorUid,
@@ -629,11 +632,14 @@
      return result('PRIMARY_STOCK_REVISION_CONFLICT');
     if(changed.length===1){
      const item=changed[0];
-     return invoke('stocktake',allowStocktake===true
+     const answer=await invoke('stocktake',allowStocktake===true
       ?{...item,expectedRevision:baseline.revisions[item.size]}:item,null,null,
       allowStocktake===true?{
        status:'PRIMARY_STOCKTAKE_BASELINE_VERIFIED',...baseline
       }:null);
+     return allowStocktake===true?Object.freeze({...answer,
+      size:item.size,count:item.count,
+      expectedRevision:baseline.revisions[item.size]}):answer;
     }
     // Never split one original six-size Save into multiple single-size RPCs.
     if(!batchStocktake?.queue||typeof createBatchId!=='function')
