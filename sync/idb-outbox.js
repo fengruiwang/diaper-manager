@@ -298,6 +298,30 @@
     };
    },[STORE,SNAPSHOTS]);
   }
+  // A definite server revision CAS rejection has not committed stock.
+  // Retire only this single-size request; unknown ACKs remain replayable.
+  async function abandonSingleStocktakeConflict(scopeInput,operationId){
+   const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
+   return run('readwrite',(store,complete,abort)=>{
+    const req=store.get(oid);
+    req.onerror=()=>abort(new Error('outbox_store:read_failed'));
+    req.onsuccess=()=>{
+     try{
+      const op=req.result;
+      checkIdentity(op,scope);
+      if(op.type!=='inventory.count'||op.payload?.kind==='stocktake_batch'
+        ||op.status!=='pending'||op.receipt!==null
+        ||!Number.isSafeInteger(op.expectedRevision))
+       fail('not_single_stocktake_pending_conflict');
+      const updated={...op,status:'abandoned',
+       error:'stocktake_revision_conflict',abandonedAt:new Date().toISOString()};
+      const put=store.put(updated);
+      put.onerror=()=>abort(new Error('outbox_store:write_failed'));
+      put.onsuccess=()=>complete(updated);
+     }catch(e){abort(e);}
+    };
+   });
+  }
   async function abandonDocumentConflict(scopeInput,operationId){
    const scope=scopeOf(scopeInput),oid=id(operationId,'operation_id');
    return run('readwrite',(store,complete,abort)=>{
@@ -535,7 +559,7 @@
     };
    },[STORE,SNAPSHOTS]);
   }
-  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,recordStocktakeAck,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
+  return Object.freeze({enqueue,get,list,ready,recordResult,recordReverseAck,recordStocktakeAck,abandonSingleStocktakeConflict,abandonDocumentConflict,abandonStocktakeBatchConflict,stats,initializeInventory,readInventory,commitInventory,reconciliationIds,reconcileInventory});
  }
  const api=Object.freeze({create,DB_NAME,DB_VERSION});
  if(root)root.XBDurableOutbox=api;
