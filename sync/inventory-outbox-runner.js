@@ -86,7 +86,10 @@
        ||!Number.isSafeInteger(receipt.quantity)||receipt.quantity<0
        ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1)
       return {status:'purchase-ack-unverified',attempted:1,accepted:0};
-     await outbox.recordResult(scope,op.id,{
+     if(reverse&&receipt.duplicate!==true
+       &&typeof outbox.recordReverseAck==='function')
+      await outbox.recordReverseAck(scope,op.id,receipt);
+     else await outbox.recordResult(scope,op.id,{
       kind:receipt.duplicate?'duplicate':'accepted',receiptId:op.id
      });
      return {status:(reverse?'reverse':consume?'consume':'purchase')
