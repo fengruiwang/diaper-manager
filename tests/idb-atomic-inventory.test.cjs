@@ -337,13 +337,15 @@ test('reconciliation refuses cross-actor cloud response and does not ack dad eve
   server({ids:[O1],seen:[O1],qty:60,rev:1,actor:'test-mom'})),/unverified_scope/);
  assert.equal((await store.get(dad,O1)).status,'pending');
 });
-test('more than 50 outstanding or acked IDs is explicit pagination blocker',async()=>{
+test('F-04 more than 50 pending IDs are preserved, never truncated to a partial reconciliation set',async()=>{
  const {store}=await seeded();
  for(let i=0;i<51;i++){
   const id='00000000-0000-4000-8000-'+String(i+1).padStart(12,'0');
   await store.commitInventory(dad,event(id,{payload:{amount:1}}));
  }
- await assert.rejects(()=>store.reconciliationIds(dad,CHILD),/reconciliation_requires_pagination/);
+ const ids=await store.reconciliationIds(dad,CHILD);
+ assert.equal(ids.length,51);
+ assert.equal(new Set(ids).size,51);
  assert.equal((await store.readInventory(dad,CHILD)).inventory.S,51);
  assert.equal((await store.ready(dad)).length,51);
 });
