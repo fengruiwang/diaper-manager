@@ -478,7 +478,7 @@
   const documentsAuthorized=()=>buildAllowsDocumentWrites===true
    &&documentOperatorApproved()===true;
   async function invoke(action,value,verifiedConsumeBaseline=null,
-   verifiedReverseBaseline=null){
+   verifiedReverseBaseline=null,verifiedStocktakeBaseline=null){
    if(!purchaseAuthorized())
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(busy)return result('BUSY');
@@ -489,7 +489,8 @@
     const queued=await commands.submit(action,value,{
      operatorApproved:true,verifiedPurchaseBaseline:baseline,
      verifiedConsumeBaseline:action==='consume'?verifiedConsumeBaseline:null,
-     verifiedReverseBaseline:action==='reverse'?verifiedReverseBaseline:null
+     verifiedReverseBaseline:action==='reverse'?verifiedReverseBaseline:null,
+     verifiedStocktakeBaseline:action==='stocktake'?verifiedStocktakeBaseline:null
     });
     if(purchaseOnly!==true
       ||(action!=='purchase'
@@ -511,6 +512,8 @@
       fastConsumeId:action==='consume'&&queued.fastConsume===true
        ?queued.operationId:null,
       fastReverseId:action==='reverse'&&queued.fastReverse===true
+       ?queued.operationId:null,
+      fastStocktakeId:action==='stocktake'&&queued.fastStocktake===true
        ?queued.operationId:null});}
     catch(_){
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
@@ -518,7 +521,8 @@
     }
     if((action==='purchase'&&synced?.status==='PRIMARY_PURCHASE_ACK_CONFIRMED')
       ||(action==='consume'&&synced?.status==='PRIMARY_USE_ACK_CONFIRMED')
-      ||(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_ACK_CONFIRMED')){
+      ||(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_ACK_CONFIRMED')
+      ||(action==='stocktake'&&synced?.status==='PRIMARY_STOCKTAKE_ACK_CONFIRMED')){
      let applied='pending';
      try{applied=typeof onPurchaseAck==='function'
       ?await onPurchaseAck(synced):'pending';}catch(_){}
@@ -532,13 +536,16 @@
       operationId:queued.operationId,cloudWriteCommitted:true
      });
     }
+    if(action==='stocktake'&&synced?.status==='PRIMARY_STOCK_REVISION_CONFLICT')
+     return Object.freeze({...synced,status:'PRIMARY_STOCK_REVISION_CONFLICT'});
     if(action==='reverse'&&synced?.status==='PRIMARY_REVERSE_SERVER_REJECTED')
      return Object.freeze({status:'PRIMARY_REVERSE_SERVER_REJECTED',
       operationId:queued.operationId,cloudWriteCommitted:false,rejected:true});
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED'
       &&synced?.status!=='PRIMARY_PURCHASE_ACK_RECOVERED_NEEDS_REFRESH'
       &&synced?.status!=='PRIMARY_USE_ACK_RECOVERED_NEEDS_REFRESH'
-      &&synced?.status!=='PRIMARY_REVERSE_ACK_RECOVERED_NEEDS_REFRESH')
+      &&synced?.status!=='PRIMARY_REVERSE_ACK_RECOVERED_NEEDS_REFRESH'
+      &&synced?.status!=='PRIMARY_STOCKTAKE_ACK_RECOVERED_NEEDS_REFRESH')
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
@@ -568,11 +575,10 @@
      ?readStocktakeBaseline():null;
     if(allowStocktake===true&&(!displayed?.inventory||!displayed?.revisions))
      return result('PRIMARY_STOCK_BASELINE_UNVERIFIED');
-    const read=await primary.read();
-    if(read?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
-      ||!read.inventory||!read.revisions)
+    const read=displayed||await primary.read();
+    if(!read?.inventory||!read?.revisions)
      return result('PRIMARY_STOCK_UNVERIFIED');
-    const baseline=displayed||read,changed=[];
+    const baseline=read,changed=[];
     for(const size of SIZES){
      const field=doc.getElementById('inv_'+size);
      if(!field||typeof field.value!=='string'||field.value.trim()==='')
@@ -588,13 +594,18 @@
      if(n!==baseline.inventory[size])changed.push({size,count:n});
     }
     if(changed.length===0)return result('PRIMARY_STOCK_UNCHANGED');
+    if(changed.length>1&&allowStocktake===true)
+     return result('MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
     if(changed.some(x=>read.revisions[x.size]!==baseline.revisions[x.size]
       ||read.inventory[x.size]!==baseline.inventory[x.size]))
      return result('PRIMARY_STOCK_REVISION_CONFLICT');
     if(changed.length===1){
      const item=changed[0];
-     return invoke('stocktake',displayed?
-      {...item,expectedRevision:baseline.revisions[item.size]}:item);
+     return invoke('stocktake',{...item,
+      expectedRevision:baseline.revisions[item.size]},null,null,
+      allowStocktake===true?{
+       status:'PRIMARY_STOCKTAKE_BASELINE_VERIFIED',...baseline
+      }:null);
     }
     // Never split one original six-size Save into multiple single-size RPCs.
     if(!batchStocktake?.queue||typeof createBatchId!=='function')
