@@ -71,7 +71,8 @@ test('R-06 actual formal DOM: only active buy/use rows; migration records stay r
  assert.doesNotMatch(out.list,/品牌b-reversed|品牌u-reversed/);
  assert.doesNotMatch(out.list,/data-id="b-reversed"|data-id="u-reversed"/);
  assert.match(out.list,/品牌old-buy/);
- assert.match(out.list,/品牌old-use/);
+ // The established use-row description is "日常使用", not a brand name.
+ assert.match(out.list,/2026-10-09<\/td><td><span class="tag warn">消耗<\/span>/);
  assert.doesNotMatch(out.list,/data-id="old-buy"|data-id="old-use"/);
  assert.doesNotMatch(out.list,/旧版迁移历史|迁移后云端采购|迁移后云端消耗|迁移历史不可撤销|已撤销/);
  assert.equal((out.list.match(/data-action="deletetx"/g)||[]).length,2);

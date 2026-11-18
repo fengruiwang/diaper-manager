@@ -256,5 +256,10 @@ test('P2-02 formal five-tab history distinguishes live uses from post-migration 
  const fs=require('node:fs'),path=require('node:path');
  const html=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal/index.html'),'utf8');
- assert.ok(html.includes("t.type==='use'?'迁移后云端消耗':'迁移后云端采购'"));
+ const main=html.slice(html.indexOf('function renderHistory(){'),
+  html.indexOf('function updateSizeModePreview(){'));
+ assert.match(main,/t.type==='buy'\?'购入':'消耗'/);
+ assert.match(main,/t.type==='buy'\?esc\(/);
+ assert.match(main,/日常使用/);
+ assert.doesNotMatch(main,/迁移后云端消耗|迁移后云端采购|旧版迁移历史/);
 });

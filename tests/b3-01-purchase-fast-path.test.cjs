@@ -1011,5 +1011,7 @@ test('B3-03 manual recovery entry retains reverse original UUID',()=>{
  const h=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal/index.html'),'utf8');
  assert.ok(h.includes('id="formalReverseActionFeedback"'));
- assert.ok(h.includes('迁移历史不可撤销'));
+ // Legacy history remains non-reversible; the ordinary UI now displays a
+ // simple dash rather than a technical label.
+ assert.ok(h.includes("t.origin!=='cloud_post_migration'||!t.operationId"));
 });
