@@ -225,7 +225,7 @@ test('P3-01 receipt uncertainty retains queued UUID across queue recreation; rec
 });
 test('P3-01 other four document writes and formally disabled writes stay closed',async()=>{
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  const f=fixture();
  for(const kind of ['quotes','growth','profile','settings']){
   const res=await f.queue.queue({kind,nextBody:{},expectedRevision:0,

@@ -257,7 +257,7 @@ test('P4-03F account switch cannot unlock or render A pending request into B sco
 test('P4-03F P4-03E profile/settings recovery and stock purchase gates remain intact',()=>{
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
  assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  const source=require('node:fs').readFileSync(
   require('node:path').join(__dirname,'../sync/primary-formal-ui-actions.js'),'utf8');
  assert.match(source,/recoverDocumentButtons/);

@@ -96,7 +96,7 @@ test('P0: neutral loading prompt and domain-gated document writes',()=>{
  assert.doesNotMatch(html,/正在检查 CloudBase 会话与家庭权限…/);
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
  assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
 });
 test('P0: formal-only M1 path still checks SDK identity and family grant, but defers child inventory',async()=>{
  let childCalls=0,grantCalls=0;

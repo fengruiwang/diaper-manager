@@ -294,7 +294,7 @@ test('P3-02 reference remains allowed, other three kinds remain blocked; formal 
  assert.equal(q.status,'DOCUMENT_OPERATION_DURABLY_QUEUED');
  assert.equal(f.puts,0);
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  const off=fixture({enabled:false});
  assert.equal((await off.click('saveQuote')).status,
   'FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');

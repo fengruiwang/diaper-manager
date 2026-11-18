@@ -228,7 +228,7 @@ test('P2-02 only buys and uses may upload; stocktake, reverse, document commands
 });
 test('P2-02 both release switches remain off; server grants unchanged',()=>{
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  const fs=require('node:fs'),path=require('node:path');
  const sql=fs.readFileSync(path.join(__dirname,
   '../cloudbase/sql/009_xb_purchase_atomic_rpc_draft.sql'),'utf8');

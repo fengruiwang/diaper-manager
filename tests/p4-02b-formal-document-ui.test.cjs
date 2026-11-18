@@ -225,7 +225,7 @@ test('P4-02B SDK load 404->200 is an intended sequential URL fallback, not a doc
  assert.match(code,/sdk_unavailable/);
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
  assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
 });
 
 test('P4-04C-02 manual refresh gives immediate feedback and cannot show stale success while five reads are pending',async()=>{

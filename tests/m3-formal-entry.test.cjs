@@ -71,7 +71,7 @@ test('formal page preserves original five tabs but uses separate non-flashing lo
  assert.doesNotMatch(html,/xiaobao_v120_m1_local_sandbox/);
  assert.equal(Login.FORMAL_WRITE_ENABLED,false);
  assert.equal(Login.FORMAL_DOCUMENT_WRITE_ENABLED,true);
- assert.equal(Login.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Login.FORMAL_PURCHASE_ENABLED,true);
  const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
  for(const script of scripts)if(script[1].trim())
   assert.doesNotThrow(()=>new Function(script[1]));

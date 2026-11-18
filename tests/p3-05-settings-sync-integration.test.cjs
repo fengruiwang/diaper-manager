@@ -396,7 +396,7 @@ test('B2-04 source mirror keeps five document kinds and opens settings',async()=
  assert.match(controller,/\['reference','quotes','growth','profile','settings'\]/);
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
  assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  for(const name of ['primary-documents-operations',
   'primary-documents-business-commands','primary-formal-ui-actions']){
   const content=fs.readFileSync(path.join(__dirname,'../sync',name+'.js'),'utf8');

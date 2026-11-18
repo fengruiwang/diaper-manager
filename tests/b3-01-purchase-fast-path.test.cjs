@@ -134,7 +134,7 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
    daily:{NB:8,S:8,M:7,L:6,XL:5,XXL:4}})
  }};
  const env={
-  ctx:{actorUid:'A',familyId:F},controller,primary,
+  ctx:{actorUid:'A',familyId:F},controller,primary,SIZES,
   actor:'A',family:F,mode:'ready',identityEpoch:1,documentEpoch:1,
   primaryViewBase:base,shownStock:{inventory:clone(stock),revisions:clone(revisions)},
   documentSnapshot:snapshot,documentScope:'A\x00'+F,

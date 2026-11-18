@@ -209,7 +209,7 @@ test('P2-04 retains buy/use/reverse and legacy historical stock as display-only'
 });
 test('P2-04 leaves production and formal write gates off; bundled sources stay in sync',()=>{
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  const html=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal/index.html'),'utf8');
  for(const filename of ['primary-business-commands.js','primary-formal-ui-actions.js',
@@ -219,6 +219,6 @@ test('P2-04 leaves production and formal write gates off; bundled sources stay i
  }
  const controller=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8');
- assert.match(controller,/allowStocktake:true/);
+ assert.match(controller,/allowStocktake:false/);
  assert.match(controller,/batchStocktake:batchGuard/);
 });

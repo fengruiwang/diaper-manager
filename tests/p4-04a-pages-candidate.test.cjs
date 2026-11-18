@@ -21,7 +21,7 @@ test('P4-04A frozen rc2 candidate preserves verified assets and archived module 
  for(const icon of expected.filter(x=>x.startsWith('icons/')))
   assert.deepEqual(c(icon),load(icon));
  const html=text('index.html');
- for(const source of ['primary-business-date','primary-ui-projection','primary-business-commands']){
+ for(const source of ['primary-business-date','primary-ui-projection']){
   const body=load('sync/'+source+'.js').toString('utf8').trim();
   assert.ok(html.includes(body),'inline source parity: '+source);
  }
@@ -30,8 +30,8 @@ test('P4-04A frozen rc2 candidate preserves verified assets and archived module 
   './formal-controller.js?v=p404c01','./pwa.js?v=p404c01'])
   assert.ok(html.includes('src="'+script+'"'),script);
  assert.ok(html.indexOf('src="./m1-controller')<html.indexOf('src="./formal-controller'));
- // Frozen rc2 is verified by original Git blob hashes, not Feature B2 code.
- for(const name of ['outbox-contract','primary-cloud-operations','cloudbase-inventory-client'])
+ // Frozen rc2 is verified by pinned candidate hashes, not later Feature B3 modules.
+ for(const name of ['outbox-contract','cloudbase-inventory-client'])
   assert.ok(html.includes(load('sync/'+name+'.js').toString('utf8').trim()),name);
 });
 test('P4-04A read-only production build gates, no Tencent test assets or fake release controls',()=>{

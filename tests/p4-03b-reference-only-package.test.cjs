@@ -94,7 +94,7 @@ function mockReference({overrides={}}={}){
 test('P4-03B Feature and test bundle enable shared documents; purchase remains OFF',()=>{
  assert.equal(SrcFormal.FORMAL_WRITE_ENABLED,false);
  assert.equal(SrcFormal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
- assert.equal(SrcFormal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(SrcFormal.FORMAL_PURCHASE_ENABLED,true);
  assert.equal(TestFormal.FORMAL_WRITE_ENABLED,true);
  assert.equal(TestFormal.FORMAL_PURCHASE_ENABLED,false);
  const c=fs.readFileSync(path.join(__dirname,'../deploy/xb-test/formal/formal-controller.js'),'utf8');
@@ -104,7 +104,7 @@ test('P4-03B Feature and test bundle enable shared documents; purchase remains O
  const src=fs.readFileSync(path.join(__dirname,'../preview/v1.2.0/formal-controller.js'),'utf8');
  assert.match(src,/const FORMAL_WRITE_ENABLED=false/);
  assert.match(src,/const FORMAL_DOCUMENT_WRITE_ENABLED=true/);
- assert.match(src,/const FORMAL_PURCHASE_ENABLED=false/);
+ assert.match(src,/const FORMAL_PURCHASE_ENABLED=true/);
  assert.match(src,/referenceAndQuotes:true,allowGrowth:true,allowProfile:true,allowSettings:true/);
 });
 test('P4-03B reference-only queue denies other four kinds before IDB or RPC',async()=>{

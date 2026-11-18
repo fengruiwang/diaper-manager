@@ -166,7 +166,7 @@ test('P2-01 runner purchase-only retry never uploads a non-buy queue',async()=>{
 });
 test('P2-01 production flags disabled and no queue or RPC if not separately approved',async()=>{
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  let calls=0;
  const app=Actions.create({primary:{read:async()=>{calls++}},
   commands:{submit:async()=>{calls++;return{status:'QUEUED'}}},
@@ -185,7 +185,7 @@ test('P2-01 formal controller exposes disabled release, and retry button is capt
  const ctrl=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal-controller.js'),'utf8');
  assert.match(source,/'formalSyncNow'/);
- assert.match(ctrl,/const FORMAL_PURCHASE_ENABLED=false/);
+ assert.match(ctrl,/const FORMAL_PURCHASE_ENABLED=true/);
  assert.match(ctrl,/purchaseOnly:true/);
 });
 

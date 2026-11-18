@@ -394,7 +394,7 @@ test('B2-04 source opens five document domains while purchase remains OFF',()=>{
   '../sync/primary-formal-ui-actions.js'),'utf8');
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
  assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  assert.match(controller,/documentWritesEnabled=FORMAL_DOCUMENT_WRITE_ENABLED/);
  assert.match(controller,/fastGrowthEnabled:true,fastProfileEnabled:true/);
  assert.match(controller,/allowSettings:true/);

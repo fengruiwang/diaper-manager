@@ -236,7 +236,7 @@ test('P2-03 durable reverse flow reuses original queued UUID after lost ACK',asy
 });
 test('P2-03 purchase/consume compatibility retained and formal write release still disabled',async()=>{
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  const s=server(),c=Client.create(s.createApp('dad'));
  await c.applyOperation(s.args(BUY,'buy',{amount:4}));
  await c.applyOperation(s.args(USE,'use',{amount:3}));

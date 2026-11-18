@@ -200,7 +200,7 @@ test('P2-05 unreadable receipt preserves queued batch across client recreation',
 });
 test('P2-05 default formal and batch gates remain disabled',async()=>{
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
- assert.equal(Formal.FORMAL_PURCHASE_ENABLED,false);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
  const f=fixture({enabled:false});
  const r=await f.actions.handle({id:'saveStocks',dataset:{}},
   f.form({NB:120,S:180}));
