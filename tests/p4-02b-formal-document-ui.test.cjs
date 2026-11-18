@@ -95,7 +95,7 @@ function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
   documentWritesEnabled:false
  });
  const status=()=>element('formalSyncState').textContent;
- const uiVerified=()=>/^已同步/.test(status());
+ const uiVerified=()=>/^(云端数据已更新 ·|上次完整获取：)/.test(status());
  async function clickRefresh(){
   const cb=handlers.get('formalRefresh:click');
   assert.equal(typeof cb,'function');
@@ -245,7 +245,7 @@ test('P4-04C-02 manual refresh gives immediate feedback and cannot show stale su
  release();await sleep(12);
  assert.equal(f.uiVerified(),true);
  assert.equal(f.element('formalRefresh').disabled,false);
- assert.match(f.status(),/^已同步 · \d{2}\/\d{2}/);
+ assert.match(f.status(),/^云端数据已更新 · \d{2}\/\d{2}/);
 });
 test('P4-04C-02 incomplete refresh must not update full-success status',async()=>{
  const f=fixture();await f.app.start();await nextTick();
