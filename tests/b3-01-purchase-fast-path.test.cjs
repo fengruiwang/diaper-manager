@@ -107,13 +107,20 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
    return [...rows.values()].filter(x=>['pending','retry'].includes(x.status));},
   async stats(){trace.push('idb.stats');
    const items=[...rows.values()];
-   return {outstanding:items.filter(x=>x.status!=='acked').length,
+   return {outstanding:items.filter(x=>x.status!=='acked'&&x.status!=='abandoned').length,
     total:items.length,pending:items.filter(x=>x.status==='pending').length,
     conflict:0,blocked:0,retry:0};
   },
   async recordResult(_scope,id,result){
    trace.push('idb.ack');
    rows.set(id,Contract.applyResult(rows.get(id),result));
+  },
+  async abandonSingleStocktakeConflict(_scope,id){
+   trace.push('idb.abandonStocktakeCAS');
+   const op=rows.get(id);
+   assert.equal(op.type,'inventory.count');
+   assert.equal(op.status,'pending');
+   rows.set(id,{...op,status:'abandoned',error:'stocktake_revision_conflict'});
   },
   async recordStocktakeAck(_scope,id,receipt){
    trace.push('idb.stocktakeAck');
@@ -675,7 +682,19 @@ test('B4-01 CAS conflict and ambiguous 009 preserve stock and original UUID',asy
  assert.equal(denied.status,'PRIMARY_STOCK_REVISION_CONFLICT');
  assert.equal(conflict.env.primaryViewBase.state.inventory.S,80);
  assert.equal(conflict.renders.length,0);
- assert.equal(conflict.rows.get(ID).status,'conflict');
+ assert.equal(conflict.rows.get(ID).status,'abandoned');
+ assert.equal(conflict.trace.filter(x=>x==='idb.abandonStocktakeCAS').length,1);
+ const newOp=Contract.createOperation({
+  id:NEXT,type:'inventory.count',familyId:F,actorUid:'A',
+  expectedRevision:2,createdAt:'2026-11-12T08:31:00.000Z',
+  payload:{childId:C,size:'S',count:96,occurredAt:'2026-11-12T08:31:00.000Z'}
+ });
+ const newQueued=await conflict.primary.queue(newOp,{operatorApproved:true,
+  verifiedStocktakeBaseline:{status:'PRIMARY_STOCKTAKE_BASELINE_VERIFIED',
+   familyId:F,actorUid:'A',childId:C,
+   inventory:clone(conflict.env.primaryViewBase.state.inventory),
+   revisions:clone(conflict.env.shownStock.revisions)}});
+ assert.equal(newQueued.status,'PRIMARY_OPERATION_DURABLY_QUEUED');
  const unknown=fixture({stocktake:true,stockS:80,stocktakeCount:95,
   unknownAck:true});
  await unknown.activate();
