@@ -8,11 +8,12 @@ const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
 const BATCH='04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2';
 const SIZES=['NB','S','M','L','XL','XXL'];
-function fixture({enabled=true,ackLost=false,hiddenReceipts=0}={}){
+function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false}={}){
  const stock={NB:100,S:200,M:0,L:0,XL:0,XXL:0};
  const revisions={NB:3,S:7,M:1,L:1,XL:1,XXL:1};
  const receipts=new Map(),queued=new Map(),sent=[],single=[];
- let batchWrites=0,receiptReads=0,uuidCalls=0;
+ let batchWrites=0,receiptReads=0,uuidCalls=0,primaryReads=0,viewUpdates=0,snapshotUpdates=0;
+ let localInventory={...stock},localRevisions={...revisions};
  const scope={familyId:F,childId:CHILD,actorUid:'dad'};
  const displayed={inventory:{...stock},revisions:{...revisions}};
  function app(actor){
@@ -69,8 +70,17 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0}={}){
  }
  const primary={
   selectedScope:()=>scope,
-  read:async()=>({status:'PRIMARY_CLOUD_READ_VERIFIED',
-   inventory:{...stock},revisions:{...revisions}}),
+  read:async()=>{primaryReads++;return {status:'PRIMARY_CLOUD_READ_VERIFIED',
+   inventory:{...stock},revisions:{...revisions}};},
+  applyBatchInventoryAck:async({changes})=>{
+   snapshotUpdates++;
+   for(const c of changes){
+    if(localRevisions[c.size]!==c.expectedRevision)
+     return {status:'BATCH_LOCAL_SNAPSHOT_UNVERIFIED'};
+    localInventory[c.size]=c.new_quantity;localRevisions[c.size]=c.revision;
+   }
+   return {status:'BATCH_LOCAL_SNAPSHOT_ACK_APPLIED'};
+  },
   flush:async()=>({status:'PRIMARY_CLOUD_SYNCED_VERIFIED'})
  };
  const idbStore={
@@ -97,9 +107,17 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0}={}){
  const actions=Actions.create({primary,commands,formalModeSelected:()=>true,
   buildAllowsWrites:enabled,operatorApproved:()=>enabled,purchaseOnly:true,
   allowConsume:true,allowReverse:true,allowStocktake:true,
-   allowBatchStocktake:true,
+   allowBatchStocktake:true,fastBatchStocktake:fast,
   readStocktakeBaseline:()=>displayed,batchStocktake:bridge,
   createBatchId:()=>{uuidCalls++;return BATCH;},
+  onBatchAck:async({batchId,changes,items})=>{
+   assert.equal(batchId,BATCH);assert.equal(changes.length,items.length);
+   for(const x of changes){
+    assert.equal(localInventory[x.size],x.new_quantity);
+    assert.equal(localRevisions[x.size],x.revision);
+   }
+   viewUpdates++;return 'ready';
+  },
   onBatchReadback:async({batchId,items})=>{
    assert.equal(batchId,BATCH);
    const dad=await Client.create(app('dad')).readInventory({familyId:F,childId:CHILD});
@@ -121,9 +139,59 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0}={}){
   sent,single,app,createBatch,get bridge(){return bridge},
   get batchWrites(){return batchWrites},
   get receiptReads(){return receiptReads},
-  get uuidCalls(){return uuidCalls}
+  get uuidCalls(){return uuidCalls},
+  get primaryReads(){return primaryReads},get snapshotUpdates(){return snapshotUpdates},
+  get viewUpdates(){return viewUpdates},
+  get localInventory(){return localInventory},get localRevisions(){return localRevisions}
  };
 }
+test('B4-02 two-size fast batch sends only one 027 and immediately bridges 009 inventory',async()=>{
+ const f=fixture({fast:true});
+ const ans=await f.actions.handle({id:'saveStocks',dataset:{}},
+  f.form({NB:120,S:180}));
+ assert.equal(ans.status,'BATCH_CLOUD_ACK_APPLIED');
+ assert.equal(f.batchWrites,1);assert.equal(f.receiptReads,0);
+ assert.equal(f.primaryReads,0);assert.equal(f.snapshotUpdates,1);
+ assert.equal(f.viewUpdates,1);assert.equal(f.uuidCalls,1);
+ assert.equal(f.single.length,0);
+ assert.equal(f.localInventory.NB,120);assert.equal(f.localInventory.S,180);
+ assert.equal(f.localRevisions.NB,4);assert.equal(f.localRevisions.S,8);
+ assert.equal(f.queued.get(BATCH).status,'acked');
+});
+test('B4-02 three-to-six size fast atomic batch remains one 027',async()=>{
+ for(const changes of [{NB:120,S:180,M:30},{NB:110,S:180,M:30,L:40,XL:50,XXL:60}]){
+  const f=fixture({fast:true});
+  assert.equal((await f.actions.handle({id:'saveStocks',dataset:{}},
+   f.form(changes))).status,'BATCH_CLOUD_ACK_APPLIED');
+  assert.equal(f.batchWrites,1);assert.equal(f.receiptReads,0);
+  assert.equal(f.single.length,0);
+  for(const [size,count] of Object.entries(changes))
+   assert.equal(f.localInventory[size],count);
+ }
+});
+test('B4-02 fast batch explicit CAS rejection does not partially change the stock',async()=>{
+ const f=fixture({fast:true});
+ const startNB=f.stock.NB;
+ // Server revision races after the editor is rendered and just before RPC.
+ const original=f.app;
+ f.revisions.S=8;
+ const ans=await f.actions.handle({id:'saveStocks',dataset:{}},
+  f.form({NB:120,S:180}));
+ assert.equal(ans.status,'BATCH_REVISION_CONFLICT_MANUAL_REVIEW');
+ assert.equal(f.batchWrites,1);assert.equal(f.stock.NB,startNB);
+ assert.equal(f.queued.get(BATCH).status,'conflict');
+ assert.equal(f.snapshotUpdates,0);
+});
+test('B4-02 ambiguous fast batch retains original durable UUID',async()=>{
+ const f=fixture({fast:true,ackLost:true,hiddenReceipts:2});
+ const ans=await f.actions.handle({id:'saveStocks',dataset:{}},
+  f.form({NB:120,S:180}));
+ assert.equal(ans.status,'BATCH_ACK_UNKNOWN_KEEP_ORIGINAL_ID');
+ assert.equal(ans.batchId,BATCH);
+ assert.equal(f.batchWrites,1);
+ assert.equal(f.queued.get(BATCH).status,'pending');
+ assert.equal(f.uuidCalls,1);
+});
 test('P2-05 two edited sizes use one durable UUID, one atomic batch RPC and six-size shared readback',async()=>{
  const f=fixture();
  const r=await f.actions.handle({id:'saveStocks',dataset:{}},
