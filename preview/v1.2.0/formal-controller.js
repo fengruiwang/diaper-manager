@@ -925,7 +925,20 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       buildAllowsDocumentWrites:documentWritesEnabled===true,
       documentOperatorApproved:()=>documentWritesEnabled===true,
       purchaseOnly:true,allowConsume:true,allowReverse:true,
-      allowStocktake:false,readStocktakeBaseline:()=>mode==='ready'?shownStock:null,
+      allowStocktake:true,readStocktakeBaseline:()=>{
+       const current=controller.verifiedContext(),selected=primary?.selectedScope?.();
+       const base=primaryViewBase;
+       if(mode!=='ready'||!current||!selected||!base||!shownStock
+         ||identityEpoch!==documentEpoch||actor!==ctx.actorUid
+         ||family!==ctx.familyId||current.actorUid!==ctx.actorUid
+         ||current.familyId!==ctx.familyId||selected.childId!==base.childId
+         ||selected.familyId!==ctx.familyId||selected.actorUid!==ctx.actorUid
+         ||base.familyId!==ctx.familyId||base.actorUid!==ctx.actorUid
+         ||base.status!=='PRIMARY_READ_ONLY_READY')return null;
+       return {familyId:ctx.familyId,actorUid:ctx.actorUid,
+        childId:base.childId,inventory:{...shownStock.inventory},
+        revisions:{...shownStock.revisions}};
+      },
       readPurchaseBaseline:()=>{
        const current=controller.verifiedContext();
        const base=primaryViewBase;
@@ -1017,7 +1030,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ||ack.familyId!==ctx.familyId||ack.actorUid!==ctx.actorUid
          ||ack.childId!==base.childId||op?.familyId!==ctx.familyId
          ||op.actorUid!==ctx.actorUid
-         ||(op.type!=='inventory.delta'&&op.type!=='transaction.reverse')
+         ||(op.type!=='inventory.delta'&&op.type!=='transaction.reverse'
+           &&op.type!=='inventory.count')
          ||(op.type==='inventory.delta'
            &&!['buy','use'].includes(payload?.kind))
          ||payload?.childId!==base.childId
@@ -1031,6 +1045,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1
          ||!Number.isSafeInteger(shownStock?.revisions?.[payload.size])
          ||receipt.revision<=shownStock.revisions[payload.size]
+         ||(op.type==='inventory.count'
+           &&(payload.kind==='stocktake_batch'||!Number.isSafeInteger(payload.count)
+             ||payload.count!==receipt.quantity||payload.count<0
+             ||payload.count>100000
+             ||op.expectedRevision!==shownStock.revisions[payload.size]))
          ||(payload.kind==='buy'
           &&(!payload.purchase
             ||!Number.isSafeInteger(payload.purchase.totalFen)
@@ -1048,7 +1067,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
             &&t.reversed!==true&&!t.reversedByOperationId)))
          ||base.state?.transactions?.some(x=>x.operationId===op.id))
         return 'pending';
-       const reversing=op.type==='transaction.reverse',p=payload.purchase;
+       const reversing=op.type==='transaction.reverse',
+        stocktaking=op.type==='inventory.count',p=payload.purchase;
        const row=payload.kind==='buy'?{
         id:'cloud:'+op.id,type:'buy',
         date:p.purchaseDate,brand:p.brand,series:p.series,
@@ -1056,7 +1076,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         price:p.totalFen/100,operationId:op.id,
         reversed:false,reversedByOperationId:null,
         origin:'cloud_post_migration'
-       }:reversing?null:{
+       }:reversing||stocktaking?null:{
         id:'cloud:'+op.id,type:'use',
         date:root.XBPrimaryBusinessDate.fromTimestamp(payload.occurredAt),
         size:payload.size,pieces:payload.amount,price:0,
@@ -1066,7 +1086,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        };
        const inventory={...base.state.inventory,[payload.size]:receipt.quantity};
        const revisions={...base.revisions,[payload.size]:receipt.revision};
-       const transactions=reversing
+       const transactions=stocktaking?base.state.transactions:reversing
         ?base.state.transactions.map(t=>
          t.operationId===payload.reversesOperationId
           ?{...t,reversed:true,reversedByOperationId:op.id}:t)
@@ -1075,14 +1095,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         state:Object.freeze({...base.state,inventory,transactions}),
         revisions:Object.freeze(revisions),
         historyCount:(base.historyCount??base.state.transactions.length)
-         +(reversing?0:1)});
+         +(reversing||stocktaking?0:1)});
        let view;
        try{
         view=documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
           &&documentScope===ctx.actorUid+'\x00'+ctx.familyId
          ?documentsOverlay.apply(nextBase,documentSnapshot):nextBase;
         if(view.state.inventory[payload.size]!==receipt.quantity
-          ||!(reversing
+          ||!(stocktaking?true:reversing
             ?view.state.transactions.some(t=>
               t.operationId===payload.reversesOperationId
               &&t.reversed===true&&t.reversedByOperationId===op.id)
@@ -1123,7 +1143,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          &&answer?.status==='DOCUMENT_CONFLICT_REQUIRES_USER_REVIEW')
         conflictButton(true);
        $('formalSyncState').textContent=
-        answer?.status==='PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'
+        answer?.status==='PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED'
+         ?'库存盘点成功，库存已更新'
+        :answer?.status==='PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'
          ?'单尺码盘点已保存，六尺码云端库存已重新读取。'
           :answer?.status==='BATCH_CLOUD_READBACK_VERIFIED'
          ?'多尺码盘点已一次性保存，云端六尺码库存已重新读取。'
@@ -1714,7 +1736,7 @@ function browserStart(){
    syncFactory:root.XBInventorySyncReader,
    cloudWritesEnabled:cloudWritesEnabled===true,
    purchaseOnly:true,allowConsume:true,allowReverse:true,
-    allowStocktake:false
+    allowStocktake:true
   }),
   commandsFactory:root.XBPrimaryBusinessCommands,
   actionsFactory:root.XBPrimaryFormalUIActions
