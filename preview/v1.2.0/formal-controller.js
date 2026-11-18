@@ -917,6 +917,51 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       batchStocktake:batchGuard,
       createBatchId:()=>host.crypto.randomUUID(),
       onBatchReadback:({items})=>restore({expectedBatch:items}),
+      onBatchAck:async ack=>{
+       const current=controller.verifiedContext(),selected=primary?.selectedScope?.();
+       const base=primaryViewBase,changes=ack?.changes,items=ack?.items;
+       if(mode!=='ready'||!current||!selected||!base||!shownStock
+         ||identityEpoch!==documentEpoch||actor!==ctx.actorUid
+         ||family!==ctx.familyId||current.actorUid!==ctx.actorUid
+         ||current.familyId!==ctx.familyId||selected.childId!==base.childId
+         ||selected.familyId!==ctx.familyId||selected.actorUid!==ctx.actorUid
+         ||base.familyId!==ctx.familyId||base.actorUid!==ctx.actorUid
+         ||base.status!=='PRIMARY_READ_ONLY_READY'
+         ||!Array.isArray(items)||items.length<2||items.length>6
+         ||!Array.isArray(changes)||changes.length!==items.length)
+        return 'pending';
+       const inv={...base.state.inventory},rev={...base.revisions};
+       const seen=new Set();
+       for(const item of items){
+        const change=changes.find(x=>x.size===item.size);
+        if(!change||seen.has(item.size)||!SIZES.includes(item.size)
+          ||!Number.isSafeInteger(item.count)||item.count<0||item.count>100000
+          ||!Number.isSafeInteger(item.expectedRevision)
+          ||item.expectedRevision!==shownStock.revisions?.[item.size]
+          ||change.new_quantity!==item.count
+          ||!Number.isSafeInteger(change.revision)
+          ||change.revision<=item.expectedRevision)return 'pending';
+        seen.add(item.size);
+        inv[item.size]=change.new_quantity;
+        rev[item.size]=change.revision;
+       }
+       const nextBase=Object.freeze({...base,
+        state:Object.freeze({...base.state,inventory:inv}),
+        revisions:Object.freeze(rev)});
+       try{
+        const view=documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
+          &&documentScope===ctx.actorUid+'\x00'+ctx.familyId
+         ?documentsOverlay.apply(nextBase,documentSnapshot):nextBase;
+        if(items.some(x=>view.state.inventory[x.size]!==x.count))
+         return 'pending';
+        showCloudView(view,current);
+       }catch(_){return 'pending';}
+       primaryViewBase=nextBase;
+       shownStock=Object.freeze({
+        inventory:Object.freeze({...inv}),revisions:Object.freeze({...rev})
+       });
+       return 'ready';
+      },
       readDocumentInput:el=>root.XBFormalUIData.documentAction(el),
       prepareQuoteEdit:id=>root.XBFormalUIData.prepareQuoteEdit(id),
       buildAllowsWrites:purchaseReleaseEnabled===true,
@@ -925,7 +970,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       buildAllowsDocumentWrites:documentWritesEnabled===true,
       documentOperatorApproved:()=>documentWritesEnabled===true,
       purchaseOnly:true,allowConsume:true,allowReverse:true,
-      allowStocktake:true,readStocktakeBaseline:()=>{
+      allowStocktake:true,allowBatchStocktake:true,fastBatchStocktake:true,
+      readStocktakeBaseline:()=>{
        const current=controller.verifiedContext(),selected=primary?.selectedScope?.();
        const base=primaryViewBase;
        if(mode!=='ready'||!current||!selected||!base||!shownStock
@@ -1147,6 +1193,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'库存盘点成功，库存已更新'
         :answer?.status==='PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'
          ?'单尺码盘点已保存，六尺码云端库存已重新读取。'
+          :answer?.status==='BATCH_CLOUD_ACK_APPLIED'
+         ?'批量盘点成功，库存已更新'
           :answer?.status==='BATCH_CLOUD_READBACK_VERIFIED'
          ?'多尺码盘点已一次性保存，云端六尺码库存已重新读取。'
          :answer?.status==='BATCH_REVISION_CONFLICT_MANUAL_REVIEW'
