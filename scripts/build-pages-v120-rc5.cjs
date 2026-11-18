@@ -70,7 +70,7 @@ function formalCandidate(s){
  return s;
 }
 function swCandidate(s){
- s=ch(s,'PWA v1.1.2','PWA V1.2.0 rc.4 candidate');
+ s=ch(s,'PWA v1.1.2','PWA V1.2.0 rc.5 candidate');
  s=ch(s,"const CACHE_NAME = 'xiaobao-shell-v1.1.2';",
  "const CACHE_NAME = 'xiaobao-shell-v1.2.0-rc4';");
  s=ch(s,"const SHELL = ['./index.html','./pwa.js','./growth.js','./manifest.webmanifest',",
@@ -90,7 +90,7 @@ data.set('index.html',Buffer.from(htmlCandidate(text('preview/v1.2.0/formal/inde
 data.set('formal-controller.js',Buffer.from(formalCandidate(text('preview/v1.2.0/formal-controller.js'))));
 data.set('sw.js',Buffer.from(swCandidate(text('sw.js'))));
 data.set('version.json',Buffer.from(JSON.stringify({version:VER,channel:'release-candidate',
- source_sha:SOURCE_SHA,released:'2026-11-17',
+ source_sha:SOURCE_SHA,released:'2026-11-19',
  notes:'V1.2.0 全部已实现业务写入开放；009/027盘点恢复修复；CloudBase正常账号及家庭权限保持有效；隔离候选，未部署'},null,2)+'\n'));
 const check=process.argv.includes('--check');
 for(const [name,bytes] of data){
