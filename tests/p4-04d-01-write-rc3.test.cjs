@@ -16,7 +16,9 @@ test('P4-04D rc3 has complete independent immutable assets and new PWA identity'
  assert.equal(version.source_sha,'693cdcb96e3a2136136564a152451a3ecba9dcc5');
  assert.deepEqual(file('manifest.webmanifest'),read('manifest.webmanifest'));
  for(const p of expected.filter(x=>x.startsWith('icons/')))assert.deepEqual(file(p),read(p));
- for(const p of ['growth.js','m1-controller.js','pwa.js']){
+ // rc3 growth.js is frozen and hash-pinned; only shared unchanged assets track current sources.
+ require('../scripts/verify-v120-frozen-candidates.cjs').check('rc3');
+ for(const p of ['m1-controller.js','pwa.js']){
   const source=p==='m1-controller.js'?'preview/v1.2.0/m1-controller.js':
    p==='pwa.js'?'scripts/pages-v120-pwa.js':p;
   assert.deepEqual(file(p),read(source),p);

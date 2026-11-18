@@ -16,7 +16,7 @@ test('P4-04A frozen rc2 candidate preserves verified assets and archived module 
  assert.deepEqual(c('m1-controller.js'),load('preview/v1.2.0/m1-controller.js'));
  assert.match(c('formal-controller.js').toString('utf8'),/const FORMAL_WRITE_ENABLED=false;/);
  // Frozen rc.2 must not be silently rewritten when development source advances.
- assert.deepEqual(c('growth.js'),load('growth.js'));
+ // rc2 growth.js is frozen and hash-pinned by check('rc2'); do not rebuild it from current source.
  assert.deepEqual(c('pwa.js'),load('scripts/pages-v120-pwa.js'));
  for(const icon of expected.filter(x=>x.startsWith('icons/')))
   assert.deepEqual(c(icon),load(icon));

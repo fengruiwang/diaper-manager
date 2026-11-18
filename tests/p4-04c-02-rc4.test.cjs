@@ -27,7 +27,8 @@ test('P4-04C-02 rc4 14 files, version, PWA scope, all images, SW cache and origi
  assert.doesNotMatch(txt('sw.js'),/xiaobao-shell-v1\.2\.0-rc[123]/);
  assert.deepEqual(candidate('pwa.js'),read('scripts/pages-v120-pwa.js'));
  assert.deepEqual(candidate('m1-controller.js'),read('preview/v1.2.0/m1-controller.js'));
- assert.deepEqual(candidate('growth.js'),read('growth.js'));
+ // rc4 growth.js remains immutable and is checked against its pinned blob SHA.
+ require('../scripts/verify-v120-frozen-candidates.cjs').check('rc4');
  assert.equal(JSON.parse(read('version.json')).version,'1.1.2');
  assert.doesNotMatch(txt('sw.js')+txt('pwa.js'),/indexedDB\.deleteDatabase|localStorage\.clear\(/);
 });
