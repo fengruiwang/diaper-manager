@@ -4,7 +4,8 @@ const F='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
 const CHILD='59918bcb-a7bc-4b2b-a9eb-f160475fd339';
 const wait=()=>new Promise(resolve=>setImmediate(resolve));
 async function settle(){for(let i=0;i<7;i++)await wait();}
-function fixture({q9=0,q26=0,q27=0,offline=false,unknown26=false,conflict26=false}={}){
+function fixture({q9=0,q26=0,q27=0,offline=false,unknown26=false,conflict26=false,
+ readFailure=false}={}){
  const events=new Map(),nodes=new Map(),trace=[];
  const get=id=>{
   if(!nodes.has(id))nodes.set(id,{id,disabled:false,hidden:false,
@@ -16,22 +17,27 @@ function fixture({q9=0,q26=0,q27=0,offline=false,unknown26=false,conflict26=fals
  const host={navigator:{onLine:!offline},
   crypto:{randomUUID:()=>{throw Error('recovery must never allocate new UUID');}},
   addEventListener:(k,fn)=>events.set('host:'+k,fn)};
- let actor='A',loggedIn=true,remoteS=80;
+ let actor='A',loggedIn=true,remoteS=80,child=CHILD;
+ let documentsFail=readFailure,actionHandlers=null;
  const ctx=()=>loggedIn?{familyId:F,actorUid:actor,app:sdk}:null;
  const sdk={auth:{getSession:async()=>({data:{session:{user:{id:actor}}}})}};
  const inventory=()=>({NB:100,S:remoteS,M:0,L:0,XL:0,XXL:0});
  const revisions=()=>({NB:2,S:3,M:1,L:1,XL:1,XXL:1});
  const docs=()=>Object.fromEntries(['reference','quotes','growth','profile','settings']
   .map(kind=>[kind,{kind,status:'PRIMARY_DOCUMENT_READ_VERIFIED',
-   familyId:F,actorUid:actor,childId:CHILD,revision:1,body:{}}]));
+   familyId:F,actorUid:actor,childId:child,revision:1,
+   body:kind==='reference'?{referenceOverrides:{}}:{}}]));
  const documentClient={
-  readAll:async()=>{trace.push('documents.readAll');return {
+  readAll:async()=>{trace.push('documents.readAll');
+   if(documentsFail)throw Error('simulated full document read failure');
+   return {
    status:'PRIMARY_DOCUMENTS_FULLY_READ',documents:docs()
   }},
-  read:async({kind})=>{trace.push('documents.read.'+kind);return docs()[kind];}
+  read:async({kind})=>{trace.push('documents.read.'+kind);
+   return documentsFail?null:docs()[kind];}
  };
  const queue9={activate:async()=>({status:'PRIMARY_OUTBOX_READ_ONLY_READY'}),
-  selectedScope:()=>({familyId:F,actorUid:actor,childId:CHILD}),
+  selectedScope:()=>({familyId:F,actorUid:actor,childId:child}),
   pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',outstanding:q9}),
   flush:async()=>{trace.push('009:'+('original-operation-id'));q9=0;
    return {status:'PRIMARY_CLOUD_SYNCED_VERIFIED'};},
@@ -59,11 +65,13 @@ function fixture({q9=0,q26=0,q27=0,offline=false,unknown26=false,conflict26=fals
   host,doc,loginController:{create:()=>controller},
   readModelFactory:()=>({read:async()=>{
    trace.push('primary.read');return {status:'PRIMARY_READ_ONLY_READY',
-    familyId:F,actorUid:actor,childId:CHILD,canWrite:false,
+    familyId:F,actorUid:actor,childId:child,canWrite:false,
     inventory:inventory(),revisions:revisions()};
   }}),
   primaryFactory:()=>queue9,commandsFactory:{create:()=>({submit(){}})},
-  actionsFactory:{create:()=>({attach:()=>({detach(){}})})},
+  actionsFactory:{create:handlers=>{
+   actionHandlers=handlers;return {attach:()=>({detach(){}})};
+  }},
   projection:{project:v=>({status:'PRIMARY_READ_ONLY_READY',
    familyId:v.familyId,actorUid:v.actorUid,childId:v.childId,
    canWrite:false,state:{inventory:v.inventory,transactions:[]},
@@ -72,7 +80,7 @@ function fixture({q9=0,q26=0,q27=0,offline=false,unknown26=false,conflict26=fals
    show:data=>trace.push('ui.show.S='+data.state.inventory.S)},
   documentsFactory:()=>documentClient,
   documentsOverlay:{apply:(base)=>({...base,sharedBusinessDocumentsVerified:true,
-   cloudDocumentsActorScope:{familyId:F,childId:CHILD}})},
+   cloudDocumentsActorScope:{familyId:F,childId:child}})},
   documentOpsFactory:()=>queue26,
   documentCommandsFactory:{create:()=>({submit(){}})},
   batchStocktakeFactory:()=>queue27,
@@ -83,7 +91,8 @@ function fixture({q9=0,q26=0,q27=0,offline=false,unknown26=false,conflict26=fals
  const tap=id=>{const fn=events.get(id+':click');assert.ok(fn,id);fn();};
  const click=async id=>{tap(id);await settle();};
  return {app,host,get,trace,click,tap,setRemoteS:n=>remoteS=n,
-  setActor:a=>actor=a,setLoggedIn:x=>loggedIn=x,
+  setActor:a=>actor=a,setChild:c=>child=c,setDocumentsFail:x=>documentsFail=x,
+  actions:()=>actionHandlers,setLoggedIn:x=>loggedIn=x,
   setQueue:(kind,n)=>{if(kind===9)q9=n;else if(kind===26)q26=n;else q27=n;},
   counts:()=>({q9,q26,q27})};
 }
@@ -187,4 +196,104 @@ test('B5-01 capture guard passes both new sync buttons to the shared controller'
   assert.equal(blocked,false,id+' must reach the controller');
  }
  binding.detach();
+});
+
+
+test('F-03 026 reference ACK changes only its overlay and preserves last complete read proof',async()=>{
+ const f=fixture();await f.app.start();await settle();
+ const original=f.get('formalSyncState').textContent;
+ assert.match(original,/云端数据已更新 ·/);
+ const ack={
+  kind:'reference',familyId:F,actorUid:'A',childId:CHILD,
+  requestId:'f03-ref-original-request',expectedRevision:1,revision:2,
+  action:'set',record:{key:'example-size',value:1.5},
+  nextBody:{referenceOverrides:{'example-size':1.5}}
+ };
+ const before=f.trace.filter(x=>/^(primary.read|documents.read)/.test(x)).length;
+ assert.equal(await f.actions().onReferenceAck(ack),'ready');
+ await settle();
+ assert.equal(f.get('formalSyncState').textContent,original,
+  'single ACK must not restart or change the last full-read notice');
+ assert.equal(f.trace.filter(x=>/^(primary.read|documents.read)/.test(x)).length,before,
+  'single ACK must not add a primary or document read');
+ f.actions().notify({status:'REFERENCE_CLOUD_ACK_APPLIED'});
+ await settle();
+ assert.match(f.get('formalSyncState').textContent,/参考价保存成功/);
+ assert.doesNotMatch(f.get('formalSyncState').textContent,/云端数据已更新|已同步 ·/);
+});
+test('F-03 009 purchase ACK and 026 business feedback are not global read completion',async()=>{
+ const f=fixture();await f.app.start();await settle();
+ const initial=f.get('formalSyncState').textContent;
+ const before=f.trace.filter(x=>/^(primary.read|documents.read)/.test(x)).length;
+ const op={
+  id:'f03-buy-original-operation',familyId:F,actorUid:'A',type:'inventory.delta',
+  payload:{kind:'buy',childId:CHILD,size:'S',amount:20,
+   purchase:{brand:'F03',series:'test',purchaseDate:'2026-11-18',totalFen:1000}}
+ };
+ assert.equal(await f.actions().onPurchaseAck({
+  familyId:F,actorUid:'A',childId:CHILD,operationId:op.id,operation:op,
+  receipt:{operationId:op.id,childId:CHILD,size:'S',quantity:100,revision:4,
+   duplicate:false}
+ }), 'ready');
+ assert.equal(f.get('formalSyncState').textContent,initial);
+ assert.equal(f.trace.filter(x=>/^(primary.read|documents.read)/.test(x)).length,before);
+ f.actions().notify({status:'PRIMARY_PURCHASE_CLOUD_ACK_APPLIED'});
+ assert.match(f.get('formalSyncState').textContent,/云端操作已确认/);
+ f.actions().notify({status:'SETTINGS_CLOUD_ACK_APPLIED'});
+ await settle();
+ assert.match(f.get('formalSyncState').textContent,/设置已由云端确认/);
+ assert.doesNotMatch(f.get('formalSyncState').textContent,/云端数据已更新|已同步 ·/);
+});
+test('F-03 queues at zero do not imply full cloud read when five documents fail',async()=>{
+ const f=fixture({readFailure:true});
+ await f.app.start();await settle();
+ assert.equal(f.app.mode,'ready');
+ assert.match(f.get('formalPendingCount').textContent,/待同步：0 项/);
+ assert.equal(f.get('formalSubmitPending').disabled,true);
+ assert.doesNotMatch(f.get('formalSyncState').textContent,/已同步 ·|云端数据已更新|上次完整获取/);
+ assert.match(f.get('formalSyncState').textContent,/未完全同步|暂不可用/);
+});
+test('F-03 submit pending completes without piggybacking on full cloud read',async()=>{
+ const f=fixture({q26:1,readFailure:true});
+ await f.app.start();await settle();
+ assert.match(f.get('formalPendingCount').textContent,/1 项/);
+ await f.click('formalSubmitPending');
+ assert.equal(f.counts().q26,0);
+ assert.match(f.get('formalPendingCount').textContent,/0 项/);
+ assert.equal(f.get('formalCloudSyncFeedback').textContent,'待同步操作已处理完成');
+ assert.doesNotMatch(f.get('formalSyncState').textContent,/云端数据已更新|已同步 ·/);
+});
+test('F-03 complete cloud fetch and partial failure have separate feedback',async()=>{
+ const f=fixture();await f.app.start();await settle();
+ f.setDocumentsFail(true);
+ await f.click('formalGetCloudLatest');
+ assert.match(f.get('formalCloudSyncFeedback').textContent,/部分云端数据尚未获取成功/);
+ assert.doesNotMatch(f.get('formalSyncState').textContent,/云端数据已更新 ·|已同步 ·/);
+ f.setDocumentsFail(false);
+ await f.click('formalGetCloudLatest');
+ assert.equal(f.get('formalCloudSyncFeedback').textContent,'云端数据已更新');
+ assert.match(f.get('formalSyncState').textContent,/云端数据已更新 ·/);
+});
+test('F-03 switching actor or baby clears prior scoped full-read labels',async()=>{
+ const f=fixture();await f.app.start();await settle();
+ assert.match(f.get('formalSyncState').textContent,/云端数据已更新 ·/);
+ f.setActor('B');f.setDocumentsFail(true);
+ await f.app.restore();await settle();
+ assert.doesNotMatch(f.get('formalSyncState').textContent,/云端数据已更新|已同步 ·|上次完整获取/);
+ assert.equal(f.get('formalCloudSyncFeedback').textContent,'');
+ f.setDocumentsFail(false);await f.click('formalGetCloudLatest');
+ assert.equal(f.get('formalCloudSyncFeedback').textContent,'云端数据已更新');
+ f.setChild('f03-second-baby');
+ await f.app.restore();await settle();
+ assert.equal(f.app.mode,'unverified');
+ assert.equal(f.get('formalCloudSyncFeedback').textContent,'');
+ assert.doesNotMatch(f.get('formalSyncState').textContent,/云端数据已更新|已同步 ·|上次完整获取/);
+});
+test('F-03 asynchronous queue checks do not overwrite domain-specific success',async()=>{
+ const f=fixture({q26:0});await f.app.start();await settle();
+ f.actions().notify({status:'QUOTES_CLOUD_ACK_APPLIED'});
+ await settle();
+ assert.match(f.get('formalSyncState').textContent,/候选价操作已由云端确认/);
+ assert.match(f.get('formalPendingCount').textContent,/0 项/);
+ assert.doesNotMatch(f.get('formalSyncState').textContent,/云端数据已更新|已同步 ·/);
 });

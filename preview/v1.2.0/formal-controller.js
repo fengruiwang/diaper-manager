@@ -119,7 +119,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let documentSnapshot=null,documentScope='',documentPending='',renderedReference=null;
  let primaryViewBase=null;
  let documentEpoch=0,documentReadSerial=0;
- let documentReadTask=null,fullyReadAt=null,fullReadVerified=false;
+ let documentReadTask=null,fullyReadAt=null,fullReadVerified=false,fullReadScope='';
  let documentClientCache=null;
  let refreshBusy=false,pendingReviewSerial=0,syncActionBusy=false;
  let pendingCount=0,pendingCountsVerified=false;
@@ -128,6 +128,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',
   hour:'2-digit',minute:'2-digit',hour12:false
  }).format(fullyReadAt);
+ const syncScope=()=>mode==='ready'&&actor&&family&&primaryViewBase?.childId
+  ?actor+'\x00'+family+'\x00'+primaryViewBase.childId:'';
+ const currentFullRead=()=>Boolean(fullReadVerified&&fullyReadAt
+  &&fullReadScope&&fullReadScope===syncScope());
  function showSync(message,phase='checking'){
   const el=$('formalSyncState');
   if(el)el.textContent=message;
@@ -173,6 +177,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    pendingCountsVerified=false;pendingCount=0;syncButtonState();return null;
   }
   const key=actor+'\x00'+family,epoch=documentEpoch,serial=++pendingReviewSerial;
+  const pendingChild=primary?.selectedScope?.()?.childId;
   const domains=[
    {enabled:purchaseReleaseEnabled===true&&purchaseOperatorApproved()===true,
     guard:pendingGuard,expected:'PRIMARY_QUEUE_COUNTS_VERIFIED'},
@@ -185,25 +190,43 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    try{return x.guard?.pending?await x.guard.pending():null;}catch(_){return null;}
   }));
   if(mode!=='ready'||documentEpoch!==epoch||serial!==pendingReviewSerial
-    ||key!==actor+'\x00'+family)return null;
+    ||key!==actor+'\x00'+family
+    ||pendingChild!==primary?.selectedScope?.()?.childId)return null;
   const verified=results.every((x,i)=>x?.status===domains[i].expected
    &&Number.isSafeInteger(x.outstanding)&&x.outstanding>=0);
   pendingCountsVerified=verified;
   pendingCount=verified?results.reduce((n,x)=>n+x.outstanding,0):0;
   syncButtonState();
   const status=$('formalSyncState')?.textContent||'';
-  const generic=/^(正在核对待处理|已同步 ·|有 \d+ 项待处理|待同步队列状态尚未核实)/.test(status);
+  const generic=/^(正在核对待处理|已同步 ·|上次完整获取：|有 \d+ 项待处理|待同步队列状态尚未核实|本机待同步：)/.test(status);
   if(generic){
    if(!verified)showSync('待同步队列状态尚未核实，请先核验。','partial');
    else if(pendingCount>0)showSync('有 '+pendingCount+' 项待处理操作。','pending');
-   else if(fullReadVerified&&fullyReadAt)showSync('已同步 · '+syncTime(),'synced');
+   else if(currentFullRead())showSync('上次完整获取：'+syncTime(),'synced');
+   else showSync('本机待同步：0 项；云端完整获取尚未核实。','partial');
   }
   return verified?{status:'verified',outstanding:pendingCount}:null;
  }
- function confirmedFullRead(){
-  fullyReadAt=new Date();fullReadVerified=true;
-  showSync('正在核对待处理操作…','checking');
-  void checkPending().catch(()=>showSync('同步状态暂未核实，请点击刷新。','partial'));
+ // A verified primary read plus all five documents is the only source of
+ // the "last complete cloud read" timestamp. Single-document/stock ACKs
+ // and empty local queues never enter this function.
+ function confirmedFullRead(ctx,childId){
+  const current=controller?.verifiedContext?.(),selected=primary?.selectedScope?.();
+  if(mode!=='ready'||!ctx||!childId||actor!==ctx.actorUid
+    ||family!==ctx.familyId||current?.actorUid!==ctx.actorUid
+    ||current?.familyId!==ctx.familyId
+    ||primaryViewBase?.childId!==childId
+    ||(selected&&(selected.actorUid!==actor
+     ||selected.familyId!==family||selected.childId!==childId)))return false;
+  const scope=syncScope();
+  if(!scope)return false;
+  fullyReadAt=new Date();fullReadScope=scope;fullReadVerified=true;
+  const status=$('formalSyncState')?.textContent||'';
+  // Do not replace a business-specific success / conflict message from B5-02.
+  if(!status||/^(正在刷新|正在核对待处理|已同步 ·|上次完整获取：|云端数据已更新 ·|库存已更新，|部分数据读取失败|部分云端数据尚未获取成功|待同步队列状态尚未核实|本机待同步：|有 \d+ 项待处理)/.test(status))
+   showSync('云端数据已更新 · '+syncTime(),'synced');
+  void checkPending().catch(()=>{});
+  return true;
  }
  function restoreOtpCooldown(){
   try{
@@ -323,7 +346,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
   primaryViewBase=null;
   documentEpoch++;documentReadSerial++;pendingReviewSerial++;
-  documentReadTask=null;fullyReadAt=null;fullReadVerified=false;
+  documentReadTask=null;fullyReadAt=null;fullReadVerified=false;fullReadScope='';
+  const sync=$('formalSyncState'),feedback=$('formalCloudSyncFeedback');
+  if(sync)sync.textContent='';
+  if(feedback)feedback.textContent='';
+  const bar=$('formalNotice');
+  if(bar?.dataset)bar.dataset.syncPhase='checking';
   documentClientCache?.client?.invalidateReadScope?.();
   documentClientCache=null;
   pendingCount=0;pendingCountsVerified=false;syncButtonState();
@@ -429,12 +457,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     throw Error('formal_entry:five_documents_unverified');
    showCloudView(merged,ctx);
    documentSnapshot=safeSnapshot;documentScope=scopeKey;
-   confirmedFullRead();
+   confirmedFullRead(ctx,latest.childId);
    return true;
   }).catch(()=>{
    if(current()){
     fullReadVerified=false;
-    showSync('部分数据读取失败或超时，未完全同步；请点击刷新重试。','partial');
+    const status=$('formalSyncState')?.textContent||'';
+    if(/^(正在刷新|正在核对待处理|库存已更新，|部分数据读取失败|部分云端数据尚未获取成功|云端数据已更新 ·|上次完整获取：|待同步队列状态尚未核实)/.test(status))
+     showSync('部分数据读取失败或超时，未完全同步；请点击刷新重试。','partial');
    }
    return false;
   }).finally(()=>{
@@ -982,7 +1012,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         showCloudView(updated,current);
        }catch(_){return 'pending';}
        documentSnapshot=snapshot;
-       confirmedFullRead();
+       // An 026 ACK proves only this document write, not a full cloud read.
+       void checkPending().catch(()=>{});
        return 'ready';
       },
       onReferenceReadback:async({requestId,record,action,expectedRevision})=>{
@@ -1426,7 +1457,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    $('formalCurrentFamily').textContent=ctx.familyId;
    screen('ready');syncButtonState();
    void checkPending().catch(()=>{});
-   if(documentsVerified)confirmedFullRead();
+   if(documentsVerified)confirmedFullRead(ctx,verified.childId);
    else showSync(documentsClient?'库存已更新，正在核验共享数据…':
     '库存已更新，共享数据暂不可用；请点击刷新重试。','partial');
    // Enrich the account label only; cannot gate UI readiness or leak across
@@ -1588,7 +1619,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    try{
     const next=await restore({requireComplete:true});
     if(epoch!==documentEpoch||actor!==account||family!==household)return;
-    if(node)node.textContent=next==='ready'&&fullReadVerified
+    if(node)node.textContent=next==='ready'&&currentFullRead()
      ?'云端数据已更新':next==='offline'
      ?'当前网络不可用，请联网后重试'
      :'部分云端数据尚未获取成功，请稍后重试';
@@ -1887,7 +1918,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       ?'部分操作存在数据冲突，请先处理冲突'
       :host.navigator?.onLine===false
        ?'网络中断，未完成操作已保留'
-      :final?.outstanding===0&&!hasPendingPageReview()&&fullReadVerified===true
+      :final?.outstanding===0&&!hasPendingPageReview()
        ?'待同步操作已处理完成'
       :'已处理部分操作，仍有待核验记录';
     }
