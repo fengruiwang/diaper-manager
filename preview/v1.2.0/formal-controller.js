@@ -924,7 +924,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        &&purchaseOperatorApproved()===true,
       buildAllowsDocumentWrites:documentWritesEnabled===true,
       documentOperatorApproved:()=>documentWritesEnabled===true,
-      purchaseOnly:true,allowConsume:false,allowReverse:false,
+      purchaseOnly:true,allowConsume:true,allowReverse:false,
       allowStocktake:false,readStocktakeBaseline:()=>mode==='ready'?shownStock:null,
       readPurchaseBaseline:()=>{
        const current=controller.verifiedContext();
@@ -947,6 +947,30 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         revisions:{...shownStock.revisions}
        });
       },
+      readConsumeBaseline:()=>{
+       const current=controller.verifiedContext();
+       const base=primaryViewBase,selected=primary?.selectedScope?.();
+       if(mode!=='ready'||!current||!selected||!base||!shownStock
+         ||identityEpoch!==documentEpoch
+         ||actor!==ctx.actorUid||family!==ctx.familyId
+         ||current.actorUid!==ctx.actorUid||current.familyId!==ctx.familyId
+         ||selected.familyId!==ctx.familyId
+         ||selected.actorUid!==ctx.actorUid||selected.childId!==base.childId
+         ||base.familyId!==ctx.familyId||base.actorUid!==ctx.actorUid
+         ||base.status!=='PRIMARY_READ_ONLY_READY'
+         ||!base.state?.inventory||!shownStock.revisions)return null;
+       const settings=documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
+         &&documentScope===ctx.actorUid+'\x00'+ctx.familyId
+         &&documentSnapshot.documents?.settings?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+         ?documentSnapshot.documents.settings.body:null;
+       return Object.freeze({
+        status:'PRIMARY_CONSUME_BASELINE_VERIFIED',
+        familyId:ctx.familyId,actorUid:ctx.actorUid,
+        childId:base.childId,inventory:{...base.state.inventory},
+        revisions:{...shownStock.revisions},
+        daily:{...(settings?.daily||base.state.daily||{})}
+       });
+      },
       onPurchaseAck:async(ack)=>{
        const current=controller.verifiedContext();
        const selected=primary?.selectedScope?.();
@@ -961,7 +985,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ||ack.familyId!==ctx.familyId||ack.actorUid!==ctx.actorUid
          ||ack.childId!==base.childId||op?.familyId!==ctx.familyId
          ||op.actorUid!==ctx.actorUid||op.type!=='inventory.delta'
-         ||payload?.kind!=='buy'||payload.childId!==base.childId
+         ||!['buy','use'].includes(payload?.kind)
+         ||payload.childId!==base.childId
          ||receipt?.operationId!==op.id||ack.operationId!==op.id
          ||receipt.childId!==base.childId
          ||receipt.size!==payload.size||!SIZES.includes(receipt.size)
@@ -971,17 +996,32 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ||!Number.isSafeInteger(receipt.revision)||receipt.revision<1
          ||!Number.isSafeInteger(shownStock?.revisions?.[payload.size])
          ||receipt.revision<=shownStock.revisions[payload.size]
-         ||!payload.purchase||!Number.isSafeInteger(payload.purchase.totalFen)
-         ||!payload.purchase.purchaseDate
+         ||(payload.kind==='buy'
+          &&(!payload.purchase
+            ||!Number.isSafeInteger(payload.purchase.totalFen)
+            ||!payload.purchase.purchaseDate))
+         ||(payload.kind==='use'&&payload.purchase!=null)
+         ||(payload.kind==='use'
+          &&(!Number.isSafeInteger(payload.amount)||payload.amount<1
+           ||!root.XBPrimaryBusinessDate?.fromTimestamp))
          ||base.state?.transactions?.some(x=>x.operationId===op.id))
         return 'pending';
        const p=payload.purchase;
-       const row={id:'cloud:'+op.id,type:'buy',
+       const row=payload.kind==='buy'?{
+        id:'cloud:'+op.id,type:'buy',
         date:p.purchaseDate,brand:p.brand,series:p.series,
         size:payload.size,pieces:payload.amount,
         price:p.totalFen/100,operationId:op.id,
         reversed:false,reversedByOperationId:null,
-        origin:'cloud_post_migration'};
+        origin:'cloud_post_migration'
+       }:{
+        id:'cloud:'+op.id,type:'use',
+        date:root.XBPrimaryBusinessDate.fromTimestamp(payload.occurredAt),
+        size:payload.size,pieces:payload.amount,price:0,
+        occurredAt:payload.occurredAt,operationId:op.id,
+        reversed:false,reversedByOperationId:null,
+        origin:'cloud_post_migration'
+       };
        const inventory={...base.state.inventory,[payload.size]:receipt.quantity};
        const revisions={...base.revisions,[payload.size]:receipt.revision};
        const nextBase=Object.freeze({...base,
@@ -1123,9 +1163,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ?'上次共享文档请求尚未核实，请使用待同步重试，不要重复保存。'
          :['PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
           'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED',
+          'PRIMARY_USE_CLOUD_ACK_APPLIED',
           'PRIMARY_USE_CLOUD_READBACK_VERIFIED',
           'PRIMARY_REVERSE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
-         ?'云端采购、消耗或撤销已确认，正式库存及记录已重新读取。'
+         ?'云端操作已确认，库存及记录已更新。'
          :'云端操作状态：'+String(answer?.status||'UNVERIFIED')
           +(documentWritesEnabled===true
            ?'；请核验原参考价请求状态，未确认前不要重复保存。'
@@ -1612,7 +1653,7 @@ function browserStart(){
    runnerFactory:root.XBInventoryOutboxRunner,
    syncFactory:root.XBInventorySyncReader,
    cloudWritesEnabled:cloudWritesEnabled===true,
-   purchaseOnly:true,allowConsume:false,allowReverse:false,
+   purchaseOnly:true,allowConsume:true,allowReverse:false,
     allowStocktake:false
   }),
   commandsFactory:root.XBPrimaryBusinessCommands,

@@ -42,7 +42,7 @@
    return {...base,kind:p.kind,amount:p.amount,purchase:p.kind==='buy'?p.purchase:null};
   }
   async function flush(scope,{uploadEnabled=false,maxItems=20,purchaseOnly=false,allowConsume=false,
-  allowReverse=false,allowStocktake=false,fastPurchaseId=null}={}){
+  allowReverse=false,allowStocktake=false,fastPurchaseId=null,fastConsumeId=null}={}){
    if(!scope||typeof scope.familyId!=='string'||typeof scope.actorUid!=='string'
      ||!scope.familyId||!scope.actorUid)throw Error('replay:scope_required');
    if(!Number.isInteger(maxItems)||maxItems<1||maxItems>50)
@@ -51,7 +51,9 @@
    if(uploadEnabled!==true)
     return {status:'upload-disabled',attempted:0,accepted:0,remaining:null};
 
-   if(fastPurchaseId===null){
+   const fastId=fastConsumeId??fastPurchaseId;
+   const consume=fastConsumeId!==null;
+   if(fastId===null){
     let grant;
     try{grant=await verifyAccess({familyId:scope.familyId,actorUid:scope.actorUid});}
     catch(_){
@@ -66,10 +68,11 @@
    const queued=await outbox.ready(scope);
    // The trusted caller already checked the current login, displayed stock,
    // pending IDB count, and a newly persisted one-time operation UUID.
-   if(fastPurchaseId!==null){
-    if(queued.length!==1||queued[0]?.id!==fastPurchaseId
+   if(fastId!==null){
+    if(queued.length!==1||queued[0]?.id!==fastId
       ||queued[0].type!=='inventory.delta'
-      ||queued[0].payload?.kind!=='buy'
+      ||queued[0].payload?.kind!==(consume?'use':'buy')
+      ||(consume&&allowConsume!==true)
       ||queued[0].familyId!==scope.familyId
       ||queued[0].actorUid!==scope.actorUid)
      return {status:'fast-purchase-not-single-pending',attempted:0,accepted:0};
@@ -85,8 +88,9 @@
      await outbox.recordResult(scope,op.id,{
       kind:receipt.duplicate?'duplicate':'accepted',receiptId:op.id
      });
-     return {status:receipt.duplicate?'purchase-ack-recovered':
-       'purchase-ack-confirmed',attempted:1,accepted:1,
+     return {status:(consume?'consume':'purchase')
+       +(receipt.duplicate?'-ack-recovered':'-ack-confirmed'),
+       attempted:1,accepted:1,
        receipt,operation:op,remaining:0};
     }catch(e){
      if(String(e?.message||'').startsWith('outbox_store:'))

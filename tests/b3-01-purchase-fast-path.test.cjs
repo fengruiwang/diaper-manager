@@ -21,8 +21,9 @@ const controllerSource=fs.readFileSync(path.join(__dirname,
 const ackStart=controllerSource.indexOf('onPurchaseAck:async(ack)=>{');
 const ackEnd=controllerSource.indexOf('onPurchaseReadback:',ackStart);
 assert.ok(ackStart>0&&ackEnd>ackStart,'real formal purchase ACK callback');
-function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
- let stock={NB:80,S:140,M:0,L:0,XL:0,XXL:0};
+function fixture({fromQuote=false,unknownAck=false,delayed=false,
+ consume=false,stockS=140,dailyS=8,useCount=1}={}){
+ let stock={NB:80,S:stockS,M:0,L:0,XL:0,XXL:0};
  let revisions={NB:1,S:2,M:0,L:0,XL:0,XXL:0};
  const server={inventory:clone(stock),revisions:clone(revisions)};
  const scope={familyId:F,actorUid:'A',childId:C};
@@ -38,16 +39,17 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
     assert.equal(name,'xb_apply_inventory_operation');
     assert.equal(arg.p_family_id,F);
     assert.equal(arg.p_child_id,C);
-    assert.equal(arg.p_kind,'buy');
+    assert.equal(arg.p_kind,consume?'use':'buy');
     assert.equal(arg.p_operation_id,ID);
-    assert.equal(arg.p_amount,60);
+    assert.equal(arg.p_amount,consume?useCount:60);
     assert.equal(arg.p_size,'S');
-    assert.deepEqual(arg.p_purchase,{
+    if(consume)assert.equal(arg.p_purchase,null);
+    else assert.deepEqual(arg.p_purchase,{
      brand:'好奇',series:'小森林',total_fen:12995,
      purchase_date:'2026-11-12'
     });
     if(gate)await gate;
-    server.inventory.S+=60;
+    server.inventory.S+=consume?-arg.p_amount:60;
     server.revisions.S++;
     if(unknownAck)throw Error('NETWORK_ERROR');
     return {data:{accepted:true,operation_id:ID,child_id:C,
@@ -101,7 +103,7 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
   inventoryReconciler:{build(){}},
   runnerFactory:Runner,syncFactory:{create(){throw Error('unexpected reconcile');}},
   cloudWritesEnabled:true,purchaseOnly:true,
-  allowConsume:false,allowReverse:false,allowStocktake:false
+  allowConsume:consume,allowReverse:false,allowStocktake:false
  });
  const base={
   status:'PRIMARY_READ_ONLY_READY',source:'cloudbase-primary-receipt-verified',
@@ -113,7 +115,7 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
    quotes:[],weightRecords:[],referenceOverrides:{},
    babyProfile:{name:'小宝'},dueDate:'2027-01-08',
    target:{NB:90,S:150,M:80,L:50,XL:20,XXL:10},
-   daily:{NB:8,S:8,M:7,L:6,XL:5,XXL:4}
+   daily:{NB:8,S:dailyS,M:7,L:6,XL:5,XXL:4}
   },
   revisions:clone(revisions),historyCount:1
  };
@@ -131,10 +133,11 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
   profile:doc('profile',{babyProfile:{name:'小宝'},dueDate:'2027-01-08'}),
   settings:doc('settings',{currentSize:'S',sizeMode:'manual',goalPrice:1.5,
    target:{NB:90,S:150,M:80,L:50,XL:20,XXL:10},
-   daily:{NB:8,S:8,M:7,L:6,XL:5,XXL:4}})
+   daily:{NB:8,S:dailyS,M:7,L:6,XL:5,XXL:4}})
  }};
  const env={
   ctx:{actorUid:'A',familyId:F},controller,primary,SIZES,
+  root:{XBPrimaryBusinessDate:require('../sync/primary-business-date.js')},
   actor:'A',family:F,mode:'ready',identityEpoch:1,documentEpoch:1,
   primaryViewBase:base,shownStock:{inventory:clone(stock),revisions:clone(revisions)},
   documentSnapshot:snapshot,documentScope:'A\x00'+F,
@@ -143,6 +146,11 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
  };
  const onPurchaseAck=vm.runInNewContext('('+controllerSource.slice(
   ackStart+'onPurchaseAck:'.length,ackEnd).trim().replace(/,\s*$/,'')+')',env);
+ const consumeStart=controllerSource.indexOf('readConsumeBaseline:()=>{');
+ const consumeEnd=controllerSource.indexOf('onPurchaseAck:async(ack)=>{',consumeStart);
+ const readConsumeBaseline=consumeStart<0?null:vm.runInNewContext('('+
+  controllerSource.slice(consumeStart+'readConsumeBaseline:'.length,
+   consumeEnd).trim().replace(/,\s*$/,'')+')',env);
  const commands=Business.create({primary,
   uuid:()=>{uuidCount++;return ID;},
   clock:()=> '2026-11-12T08:30:00.000Z'});
@@ -156,11 +164,12 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
    inventory:clone(env.primaryViewBase.state.inventory),
    revisions:clone(env.shownStock.revisions)
   }),
+  readConsumeBaseline:consume?readConsumeBaseline:null,
   onPurchaseAck,onPurchaseReadback:async()=>{readback++;return 'pending';},
   notify:a=>notices.push(a),formalModeSelected:()=>true,
   buildAllowsWrites:true,operatorApproved:()=>true,
   buildAllowsDocumentWrites:true,documentOperatorApproved:()=>true,
-  purchaseOnly:true,allowConsume:false,allowReverse:false,
+  purchaseOnly:true,allowConsume:consume,allowReverse:false,
   allowStocktake:false,allowReference:true,allowQuotes:true,
   allowGrowth:true,allowProfile:true,allowSettings:true
  });
@@ -169,11 +178,19 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
    disabled:false,classList:{contains:()=>false},closest(){return this;}},
   candidate:{id:'',dataset:{action:'buyquote',id:'candidate'},
    textContent:'入库',disabled:false,classList:{contains:()=>false},
-   closest(){return this;}}
+   closest(){return this;}},
+  consumeOne:{id:'',dataset:{action:'consume',size:'S',count:'1'},
+   textContent:'− 用 1 片',disabled:stockS===0,
+   classList:{contains:()=>false},closest(){return this;}},
+  consumeDay:{id:'',dataset:{action:'consume',size:'S',
+   count:String(Math.min(stockS,Math.round(dailyS)))},
+   textContent:'− 记 1 天',disabled:stockS===0,
+   classList:{contains:()=>false},closest(){return this;}}
  };
  const feedback={
   formalCompareActionFeedback:{textContent:''},
-  formalQuotePurchaseFeedback:{textContent:''}
+  formalQuotePurchaseFeedback:{textContent:''},
+  formalConsumeActionFeedback:{textContent:''}
  };
  const handlers={};
  const dom={
@@ -181,6 +198,8 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
   removeEventListener(){},
   getElementById:id=>id==='quoteList'?{
     querySelectorAll:()=>[buttons.candidate]
+   }:id==='sizeCards'?{
+    querySelectorAll:()=>[buttons.consumeOne,buttons.consumeDay]
    }:buttons[id]||feedback[id]||null
  };
  async function activate(){
@@ -191,9 +210,12 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false}={}){
   buttons,feedback,handlers,
   click:id=>ui.handle({id:id||'',dataset:id?{}:
    {action:'buyquote',id:'candidate'}},dom),
+  consumeClick:mode=>ui.handle(mode==='day'?buttons.consumeDay:buttons.consumeOne,dom),
   capture:id=>{
    if(!handlers.click)ui.attach(dom);
-   const button=id==='buyNow'?buttons.buyNow:buttons.candidate;
+   const button=id==='buyNow'?buttons.buyNow:
+    id==='consumeOne'?buttons.consumeOne:
+    id==='consumeDay'?buttons.consumeDay:buttons.candidate;
    handlers.click({target:button,preventDefault(){},
     stopImmediatePropagation(){}});
   },
@@ -296,6 +318,122 @@ test('B3-01 purchase-only gate keeps consumption, reversal and all stocktakes cl
  }
  assert.equal(f.uuidCount,0);
  assert.equal(f.trace.some(x=>x.startsWith('rpc.')),false);
+ assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
+ assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
+ assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);
+});
+
+function fastUse(f,count,remaining){
+ assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,1);
+ assert.equal(f.trace.some(x=>x.startsWith('rpc.xb_read_')),false);
+ assert.equal(f.trace.filter(x=>x==='ui.show').length,1);
+ assert.equal(f.readback,0);
+ assert.equal(f.uuidCount,1);
+ assert.equal(f.rows.get(ID).status,'acked');
+ assert.equal(f.env.primaryViewBase.state.inventory.S,remaining);
+ assert.equal(f.env.primaryViewBase.revisions.S,3);
+ assert.equal(f.env.shownStock.inventory.S,remaining);
+ assert.equal(f.env.shownStock.revisions.S,3);
+ assert.equal(f.env.primaryViewBase.historyCount,2);
+ assert.equal(f.env.primaryViewBase.state.transactions.filter(t=>t.operationId===ID).length,1);
+ const row=f.env.primaryViewBase.state.transactions[0];
+ assert.equal(row.type,'use');
+ assert.equal(row.price,0);
+ assert.equal(row.pieces,count);
+ assert.equal(row.size,'S');
+ assert.equal(row.id,'cloud:'+ID);
+ assert.equal(row.origin,'cloud_post_migration');
+ assert.equal(row.occurredAt,'2026-11-12T08:30:00.000Z');
+ assert.equal(row.date,'2026-11-12');
+ assert.equal(f.renders.at(-1).state.inventory.S,remaining);
+ assert.equal(f.renders.at(-1).state.transactions.filter(t=>t.type==='buy')
+  .reduce((n,t)=>n+t.price,0),40);
+ assert.ok(f.trace.indexOf('idb.commitInventory')<
+  f.trace.indexOf('rpc.xb_apply_inventory_operation'));
+}
+test('B3-02 use one: one 009, ACK updates inventory and use history',async()=>{
+ const f=fixture({consume:true,useCount:1});await f.activate();
+ const a=await f.consumeClick('one');
+ assert.equal(a.status,'PRIMARY_USE_CLOUD_ACK_APPLIED');
+ fastUse(f,1,139);
+});
+test('B3-02 one day reads current settings daily rather than stale button count',async()=>{
+ const f=fixture({consume:true,dailyS:9,useCount:9});await f.activate();
+ f.buttons.consumeDay.dataset.count='1';
+ assert.equal((await f.consumeClick('day')).status,'PRIMARY_USE_CLOUD_ACK_APPLIED');
+ fastUse(f,9,131);
+});
+test('B3-02 daily 9 with only five pieces consumes all five',async()=>{
+ const f=fixture({consume:true,stockS:5,dailyS:9,useCount:5});await f.activate();
+ assert.equal((await f.consumeClick('day')).status,'PRIMARY_USE_CLOUD_ACK_APPLIED');
+ fastUse(f,5,0);
+});
+test('B3-02 stock 0 rejects both buttons before UUID and 009 RPC',async()=>{
+ const f=fixture({consume:true,stockS:0,dailyS:9});await f.activate();
+ for(const mode of ['one','day'])
+  assert.equal((await f.consumeClick(mode)).status,'PRIMARY_INSUFFICIENT_STOCK');
+ assert.equal(f.uuidCount,0);
+ assert.equal(f.rows.size,0);
+ assert.equal(f.trace.filter(x=>x.startsWith('rpc.')).length,0);
+ assert.equal(f.renders.length,0);
+});
+test('B3-02 after use ACK, each following 026 overlay preserves use and stock',async()=>{
+ const f=fixture({consume:true,dailyS:9,useCount:9});await f.activate();
+ assert.equal((await f.consumeClick('day')).status,'PRIMARY_USE_CLOUD_ACK_APPLIED');
+ for(const kind of ['reference','quotes','growth','profile','settings']){
+  const snapshot=clone(f.env.documentSnapshot);
+  snapshot.documents[kind].revision++;
+  f.env.documentSnapshot=snapshot;
+  const view=Docs.apply(f.env.primaryViewBase,snapshot);
+  assert.equal(view.state.inventory.S,131,kind);
+  assert.equal(view.state.transactions.filter(t=>t.operationId===ID).length,1,kind);
+  assert.equal(view.state.transactions.filter(t=>t.type==='buy').length,1,kind);
+  assert.equal(view.state.transactions.find(t=>t.type==='use').price,0,kind);
+ }
+});
+test('B3-02 instant per-card feedback and double tap retain single UUID',async()=>{
+ for(const mode of ['consumeOne','consumeDay']){
+  const day=mode==='consumeDay';
+  const f=fixture({consume:true,delayed:true,dailyS:9,
+   useCount:day?9:1});await f.activate();
+  f.capture(mode);
+  assert.equal(f.feedback.formalConsumeActionFeedback.textContent,
+   day?'正在记录今日消耗…':'正在记录消耗 1 片…');
+  assert.equal(f.buttons.consumeOne.disabled,true);
+  assert.equal(f.buttons.consumeDay.disabled,true);
+  assert.equal(f.buttons.buyNow.disabled,false);
+  f.capture(mode);
+  await tick();await tick();
+  f.releaseRpc();await tick();await tick();await tick();
+  assert.equal(f.feedback.formalConsumeActionFeedback.textContent,
+   day?'今日消耗已记录，库存已更新':'已消耗 1 片，库存已更新');
+  assert.equal(f.notices.at(-1).status,'PRIMARY_USE_CLOUD_ACK_APPLIED');
+  fastUse(f,day?9:1,day?131:139);
+  assert.equal(f.buttons.consumeOne.disabled,false);
+  assert.equal(f.buttons.consumeDay.disabled,false);
+ }
+});
+test('B3-02 ambiguous use ACK retains original UUID and unchanged visible stock',async()=>{
+ const f=fixture({consume:true,unknownAck:true});await f.activate();
+ const ans=await f.consumeClick('one');
+ assert.equal(ans.operationId,ID);
+ assert.notEqual(ans.status,'PRIMARY_USE_CLOUD_ACK_APPLIED');
+ assert.equal(f.rows.get(ID).status,'retry');
+ assert.equal(f.uuidCount,1);
+ assert.equal(f.renders.length,0);
+ assert.equal(f.env.primaryViewBase.state.inventory.S,140);
+ assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,1);
+});
+test('B3-02 use release keeps reverse and stocktake disabled',async()=>{
+ const f=fixture({consume:true});await f.activate();
+ for(const [id,dataset] of [
+  ['',{action:'deletetx',id:'some'}],['saveStocks',{}]
+ ]){
+  const ans=await f.ui.handle({id,dataset},{getElementById:()=>null});
+  assert.equal(ans.status,'FORMAL_PURCHASE_ONLY');
+ }
+ assert.equal(f.uuidCount,0);
+ assert.equal(f.trace.filter(x=>x.startsWith('rpc.')).length,0);
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
  assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
  assert.equal(Formal.FORMAL_PURCHASE_ENABLED,true);

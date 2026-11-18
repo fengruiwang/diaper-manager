@@ -81,7 +81,7 @@
      expectedRevision,createdAt,payload};
   }
   async function submit(action,value,{operatorApproved=false,
-    verifiedPurchaseBaseline=null}={}){
+    verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null}={}){
    if(busy)return ret('BUSY');
    // This is intentionally ahead of UUID generation and read/SDK calls.
    if(primary.cloudWritesEnabled!==true||operatorApproved!==true)
@@ -92,13 +92,16 @@
     if(!scope||!UUID.test(scope.familyId)||!UUID.test(scope.childId)
       ||typeof scope.actorUid!=='string'||!scope.actorUid)
      return ret('PRIMARY_NOT_SELECTED');
-    const fast=action==='purchase'
-      &&verifiedPurchaseBaseline?.status==='PRIMARY_PURCHASE_BASELINE_VERIFIED'
-      &&verifiedPurchaseBaseline.familyId===scope.familyId
-      &&verifiedPurchaseBaseline.actorUid===scope.actorUid
-      &&verifiedPurchaseBaseline.childId===scope.childId
-      &&verifiedPurchaseBaseline.inventory&&verifiedPurchaseBaseline.revisions;
-    const fresh=fast?verifiedPurchaseBaseline:await primary.read();
+    const baseline=action==='consume'?verifiedConsumeBaseline:
+     verifiedPurchaseBaseline;
+    const fast=['purchase','consume'].includes(action)
+      &&baseline?.status===(action==='purchase'
+       ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':'PRIMARY_CONSUME_BASELINE_VERIFIED')
+      &&baseline.familyId===scope.familyId
+      &&baseline.actorUid===scope.actorUid
+      &&baseline.childId===scope.childId
+      &&baseline.inventory&&baseline.revisions;
+    const fresh=fast?baseline:await primary.read();
     if(!fast&&(fresh?.status!=='PRIMARY_CLOUD_READ_VERIFIED'
       ||!fresh.inventory||!fresh.revisions))
      return ret('PRIMARY_FRESH_STOCK_UNVERIFIED');
@@ -118,7 +121,8 @@
     // queue() persists stable immutable operation into the primary-only IDB.
     // Never auto flush from a click; the explicit send action is separate.
     const queued=await primary.queue(operation,{operatorApproved:true,
-      verifiedPurchaseBaseline:fast?fresh:null});
+      verifiedPurchaseBaseline:fast&&action==='purchase'?fresh:null,
+      verifiedConsumeBaseline:fast&&action==='consume'?fresh:null});
     if(!queued||!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued.status)){
      return ret('PRIMARY_QUEUE_UNVERIFIED_PRESERVE_ORIGINAL_ID',
@@ -126,6 +130,7 @@
     }
     return ret(queued.status,{operationId:operation.id,
       fastPurchase:queued.fastPurchase===true,
+      fastConsume:queued.fastConsume===true,
       cloudWriteCommitted:false});
    }catch(_){return ret('PRIMARY_OPERATION_REVIEW_REQUIRED');}
    finally{busy=false;}

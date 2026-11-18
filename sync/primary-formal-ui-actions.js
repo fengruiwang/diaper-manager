@@ -16,7 +16,7 @@
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
  function create({commands,primary,readPurchase,readQuote,readTransaction,
-  readPurchaseBaseline=null,onPurchaseAck=null,
+  readPurchaseBaseline=null,readConsumeBaseline=null,onPurchaseAck=null,
   notify,formalModeSelected,onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
@@ -47,11 +47,12 @@
   let referenceNeedsReview=null,referenceButtonLabel='';
   let activeReferenceAction=null,referenceResetLabel='';
   // UI-only holds; no UUID, queue, CAS or RPC behaviour is changed.
-  const minimalBusy={purchase:false,quotes:false};
-  const minimalReview={purchase:null,quotes:null};
+  const minimalBusy={purchase:false,consume:false,quotes:false};
+  const minimalReview={purchase:null,consume:null,quotes:null};
   const minimalLabels={purchase:null,quotes:null};
   let minimalQuoteIntent=null,quoteButton=null,quoteButtonLabel='',quoteAction='add';
   let purchaseButton=null,purchaseButtonLabel='',purchaseFromQuote=false;
+  let consumeButton=null,consumeSize='',consumeDay=false;
   function quoteFeedback(phase,answer=null){
    const doc=attached?.doc;
    const action=minimalQuoteIntent?.action||quoteAction;
@@ -105,8 +106,41 @@
     return name+'未确认：数据版本已变化，请刷新后核对。';
    return name+'保存未完成，请检查网络及同步状态后再操作。';
   }
+  function consumeFeedback(phase,answer=null){
+   const dom=attached?.doc;
+   const controls=[...(dom?.getElementById('sizeCards')
+      ?.querySelectorAll?.('[data-action="consume"]')||[])];
+   if(consumeButton&&!controls.includes(consumeButton))controls.push(consumeButton);
+   const sizeButton=controls.find(button=>button.dataset?.size===consumeSize);
+   const card=sizeButton?.closest?.('.sizecard')
+     ||consumeButton?.closest?.('.sizecard');
+   let node=card?.querySelector?.('[data-consume-feedback]')
+     ||dom?.getElementById('formalConsumeActionFeedback');
+   if(!card?.querySelector?.('[data-consume-feedback]')
+     &&card&&typeof dom?.createElement==='function'){
+    node=dom.createElement('div');
+    node.className='fine';node.dataset.consumeFeedback=consumeSize;
+    node.setAttribute('role','status');
+    node.setAttribute('aria-live','polite');
+    card.appendChild(node);
+   }
+   const status=String(answer?.status||'');
+   if(node)node.textContent=phase==='working'
+    ?consumeDay?'正在记录今日消耗…':'正在记录消耗 1 片…'
+    :phase==='success'
+     ?consumeDay?'今日消耗已记录，库存已更新':'已消耗 1 片，库存已更新'
+    :phase==='pending'?'消耗结果待核验，原 operation UUID 已保留，请勿重复提交。'
+    :phase==='recovered'?'原消耗操作已核验，库存已更新。'
+    :/STOCK|CONFLICT|REVISION/.test(status)
+     ?'库存不足或云端库存已变化，请获取云端最新后检查。'
+    :'消耗未完成，库存未修改，请检查网络及同步状态。';
+   const waiting=phase==='working'||phase==='pending';
+   for(const button of controls)button.disabled=waiting;
+   if(!waiting){consumeButton=null;consumeSize='';consumeDay=false;}
+  }
   function minimalFeedback(kind,phase,answer=null){
    if(kind==='quotes')return quoteFeedback(phase,answer);
+   if(kind==='consume')return consumeFeedback(phase,answer);
    const dom=attached?.doc;
    const buttons=[dom?.getElementById('buyNow'),
     ...(dom?.getElementById('quoteList')
@@ -146,6 +180,11 @@
     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
    }
    minimalBusy[kind]=true;
+   if(kind==='consume'){
+    consumeButton=el;consumeSize=el.dataset?.size||'';
+    consumeDay=el.dataset?.useMode==='day'
+      ||/记s*1s*天/.test(el.textContent||'');
+   }
    if(kind==='purchase'){
     purchaseButton=el;
     purchaseButtonLabel=el.textContent||'入库';
@@ -167,13 +206,18 @@
     const success=kind==='purchase'
      ?['PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
        'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
-     :['QUOTES_CLOUD_ACK_APPLIED',
-       'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
+     :kind==='consume'
+      ?['PRIMARY_USE_CLOUD_ACK_APPLIED',
+        'PRIMARY_USE_CLOUD_READBACK_VERIFIED'].includes(answer?.status)
+      :['QUOTES_CLOUD_ACK_APPLIED',
+        'QUOTES_CLOUD_READBACK_VERIFIED'].includes(answer?.status);
     if(!success){
-     const id=kind==='purchase'?answer?.operationId:answer?.requestId;
+     const id=kind==='purchase'||kind==='consume'
+      ?answer?.operationId:answer?.requestId;
      if(typeof id==='string'&&id)
-      minimalReview[kind]=Object.freeze(kind==='purchase'
-       ?{operationId:id,kind:'buy'}:{requestId:id,
+      minimalReview[kind]=Object.freeze(
+       kind==='purchase'||kind==='consume'
+       ?{operationId:id,kind:kind==='purchase'?'buy':'use'}:{requestId:id,
          action:minimalQuoteIntent?.action,record:minimalQuoteIntent?.record,
          expectedRevision:minimalQuoteIntent?.expectedRevision,
          actorUid:minimalQuoteIntent?.actorUid,
@@ -192,7 +236,7 @@
   async function recoverMinimalButtons({domain}={}){
    const pending=minimalReview[domain];
    if(!pending||minimalBusy[domain])return false;
-   const callback=domain==='purchase'?onPurchaseReadback:
+   const callback=['purchase','consume'].includes(domain)?onPurchaseReadback:
     domain==='quotes'?onQuotesReadback:null;
    if(typeof callback!=='function')return false;
    let verified=null;
@@ -378,7 +422,7 @@
    &&operatorApproved()===true;
   const documentsAuthorized=()=>buildAllowsDocumentWrites===true
    &&documentOperatorApproved()===true;
-  async function invoke(action,value){
+  async function invoke(action,value,verifiedConsumeBaseline=null){
    if(!purchaseAuthorized())
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(busy)return result('BUSY');
@@ -387,7 +431,8 @@
     const baseline=action==='purchase'
      &&typeof readPurchaseBaseline==='function'?readPurchaseBaseline():null;
     const queued=await commands.submit(action,value,{
-     operatorApproved:true,verifiedPurchaseBaseline:baseline
+     operatorApproved:true,verifiedPurchaseBaseline:baseline,
+     verifiedConsumeBaseline:action==='consume'?verifiedConsumeBaseline:null
     });
     if(purchaseOnly!==true
       ||(action!=='purchase'
@@ -405,28 +450,31 @@
     let synced;
     try{synced=await primary.flush({operatorApproved:true,
       fastPurchaseId:action==='purchase'&&queued.fastPurchase===true
+       ?queued.operationId:null,
+      fastConsumeId:action==='consume'&&queued.fastConsume===true
        ?queued.operationId:null});}
     catch(_){
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     }
-    if(action==='purchase'
-      &&synced?.status==='PRIMARY_PURCHASE_ACK_CONFIRMED'){
+    if((action==='purchase'&&synced?.status==='PRIMARY_PURCHASE_ACK_CONFIRMED')
+      ||(action==='consume'&&synced?.status==='PRIMARY_USE_ACK_CONFIRMED')){
      let applied='pending';
      try{applied=typeof onPurchaseAck==='function'
       ?await onPurchaseAck(synced):'pending';}catch(_){}
      if(applied==='ready')return Object.freeze({
-      status:'PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
+      status:statusPrefix+'_CLOUD_ACK_APPLIED',
       operationId:queued.operationId,cloudWriteCommitted:true
      });
      // This was a real commit; only the local view still needs recovery.
      return Object.freeze({
-      status:'PRIMARY_PURCHASE_COMMITTED_READBACK_REQUIRED',
+      status:statusPrefix+'_COMMITTED_READBACK_REQUIRED',
       operationId:queued.operationId,cloudWriteCommitted:true
      });
     }
     if(synced?.status!=='PRIMARY_CLOUD_SYNCED_VERIFIED'
-      &&synced?.status!=='PRIMARY_PURCHASE_ACK_RECOVERED_NEEDS_REFRESH')
+      &&synced?.status!=='PRIMARY_PURCHASE_ACK_RECOVERED_NEEDS_REFRESH'
+      &&synced?.status!=='PRIMARY_USE_ACK_RECOVERED_NEEDS_REFRESH')
      return Object.freeze({status:statusPrefix+'_PENDING_REVIEW',
       operationId:queued.operationId,cloudWriteCommitted:false});
     try{
@@ -1009,8 +1057,25 @@
     const quote=readQuote(el.dataset?.id);
     return quote?invoke('purchase',quote):result('QUOTE_NOT_VERIFIED');
    }
-   if(action==='consume')
-    return invoke('consume',{size:el.dataset?.size,count:Number(el.dataset?.count)});
+   if(action==='consume'){
+    const baseline=typeof readConsumeBaseline==='function'
+     ?readConsumeBaseline():null;
+    const size=el.dataset?.size;
+    if(baseline?.status==='PRIMARY_CONSUME_BASELINE_VERIFIED'){
+     if(!SIZES.includes(size))return result('PRIMARY_INVALID_SIZE');
+     const stock=baseline.inventory?.[size];
+     if(!Number.isSafeInteger(stock)||stock<1)
+      return result('PRIMARY_INSUFFICIENT_STOCK');
+     const day=el.dataset?.useMode==='day'
+      ||/记s*1s*天/.test(el.textContent||'');
+     const daily=Number(baseline.daily?.[size]);
+     const count=day?Math.min(stock,Math.round(Math.max(1,
+      Math.min(30,daily||8)))):1;
+     return invoke('consume',{size,count},baseline);
+    }
+    // Existing verified-read/reconciliation fallback for missing baselines.
+    return invoke('consume',{size,count:Number(el.dataset?.count)});
+   }
    if(el.id==='saveStocks')
     return readStocktakeInputs(doc);
    if(referenceEvent)return invokeReference(el,doc);
@@ -1298,6 +1363,9 @@
     }
     if(el.id==='buyNow'||action==='buyquote'){
      dispatchMinimal(el,doc,'purchase');return;
+    }
+    if(action==='consume'){
+     dispatchMinimal(el,doc,'consume');return;
     }
     if(el.id==='saveQuote'||el.id==='clearQuotes'
       ||action==='deletequote'){
