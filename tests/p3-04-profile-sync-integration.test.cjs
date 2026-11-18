@@ -166,10 +166,14 @@ function fixture({enabled=true,ackLost=false,unknownReceipt=0}={}){
    const fresh=await documentClient.read({...scope,kind:'profile',readEnabled:true});
    if(fresh.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
      ||fresh.revision<=expectedRevision)return 'pending';
-   if(fresh.body.dueDate!==record.dueDate
-     ||fresh.body.birthDate!==record.birthDate
-     ||Object.entries(record.babyProfile).some(
-      ([key,value])=>fresh.body.babyProfile[key]!==value))return 'pending';
+   // The ACK/readback expectation is the exact submitted patch. Do not
+   // require unchanged legacy fields to be present in the patch.
+   if(Object.entries(record||{}).some(([key,value])=>
+     key==='babyProfile'
+      ?!value||typeof value!=='object'
+       ||Object.entries(value).some(([field,next])=>
+         fresh.body.babyProfile?.[field]!==next)
+      :fresh.body[key]!==value))return 'pending';
    shown={...fresh,actorUid:'dad'};
    rendered={...rendered,...clone(fresh.body)};
    return 'ready';
