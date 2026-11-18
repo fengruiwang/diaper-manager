@@ -87,6 +87,8 @@ function fixture({enabled=true,ackLost=false,hiddenReceipts=0,fast=false,
   syncVerifiedReadModel:async({verifiedReadModel,batchQueue})=>{
    if(batchQueue?.status!=='BATCH_QUEUE_VERIFIED'||batchQueue.outstanding!==0)
     return {status:'PRIMARY_LOCAL_BASELINE_PENDING'};
+   if(baselineSyncStatus!=='PRIMARY_LOCAL_BASELINE_SYNCED')
+    return {status:baselineSyncStatus};
    localInventory={...verifiedReadModel.inventory};
    localRevisions={...verifiedReadModel.revisions};
    Object.assign(displayed,{inventory:{...localInventory},
@@ -387,5 +389,7 @@ test('T02-P1-02 recovered 027 receipt is not declared complete when local 009 br
  assert.equal(result.cloudWriteCommitted,true);
  assert.equal(f.batchWrites,1);
  assert.equal(f.queued.get(BATCH).status,'acked');
+ assert.equal(f.localInventory.NB,100,'unverified bridge does not claim local sync');
+ assert.equal(f.localInventory.S,200,'unverified bridge preserves old snapshot');
  assert.equal(f.uuidCalls,1);
 });
