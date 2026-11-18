@@ -581,26 +581,27 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        .some(row=>row.operationId===expectedOriginalId
         &&row.reversed===true
         &&row.reversedByOperationId===expectedReverseId));
-   const stocktakeAppears=expectedStocktake===null
-     ||(expectedStocktake&&SIZES.includes(expectedStocktake.size)
-       &&verified?.inventory?.[expectedStocktake.size]===expectedStocktake.count
-       &&Number.isSafeInteger(verified?.revisions?.[expectedStocktake.size])
-       &&verified.revisions[expectedStocktake.size]>expectedStocktake.expectedRevision);
-    const batchAppears=expectedBatch===null
-     ||(Array.isArray(expectedBatch)&&expectedBatch.length>=2
-       &&expectedBatch.every(item=>SIZES.includes(item.size)
-        &&verified?.inventory?.[item.size]===item.count
-        &&Number.isSafeInteger(verified?.revisions?.[item.size])
-        &&verified.revisions[item.size]>item.expectedRevision));
     const readContext=controller?.verifiedContext?.();
     const selectedAfterRead=primary?.selectedScope?.();
-    if(token!==revision||readStartEpoch!==documentEpoch
-      ||readContext?.actorUid!==ctx.actorUid
+    if(token!==revision||readStartEpoch!==documentEpoch)return mode;
+    const stocktakeReadbackRequested=expectedStocktake!==null
+      ||expectedBatch!==null;
+    const readIdentityMismatch=readContext?.actorUid!==ctx.actorUid
       ||readContext?.familyId!==ctx.familyId
+      ||(verified?.status==='PRIMARY_READ_ONLY_READY'
+        &&(verified.familyId!==ctx.familyId
+          ||verified.actorUid!==ctx.actorUid
+          ||typeof verified.childId!=='string'||!verified.childId))
       ||(selectedAfterRead
         &&(selectedAfterRead.actorUid!==ctx.actorUid
           ||selectedAfterRead.familyId!==ctx.familyId
-          ||selectedAfterRead.childId!==verified?.childId)))return mode;
+          ||selectedAfterRead.childId!==verified?.childId))
+      ||(stocktakeReadbackRequested&&!selectedAfterRead);
+    if(readIdentityMismatch){
+     clear();
+     screen('unverified','账号、家庭或正式宝宝作用域已变化，盘点结果未完成核验。');
+     return mode;
+    }
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
     clear();screen('unverified',notes[verified?.status]||
@@ -612,6 +613,28 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    let data=projection.project(verified,ui.defaults());
    if(data.canWrite!==false)throw Error('formal_entry:unsafe_projection');
    const baseView=data;
+   // A confirmed original receipt plus a newer per-size revision is the
+   // recovery proof. Quantity may legitimately have changed again on another
+   // device; render this complete current server snapshot, never the old count.
+   const stocktakeAppears=expectedStocktake===null
+     ||(expectedStocktake&&SIZES.includes(expectedStocktake.size)
+       &&Number.isSafeInteger(expectedStocktake.count)
+       &&expectedStocktake.count>=0&&expectedStocktake.count<=100000
+       &&Number.isSafeInteger(expectedStocktake.expectedRevision)
+       &&expectedStocktake.expectedRevision>=0
+       &&Number.isSafeInteger(verified?.revisions?.[expectedStocktake.size])
+       &&verified.revisions[expectedStocktake.size]>expectedStocktake.expectedRevision);
+   const batchSizes=Array.isArray(expectedBatch)
+     ?expectedBatch.map(item=>item?.size):[];
+   const batchAppears=expectedBatch===null
+     ||(Array.isArray(expectedBatch)&&expectedBatch.length>=2
+       &&expectedBatch.length<=SIZES.length
+       &&new Set(batchSizes).size===expectedBatch.length
+       &&expectedBatch.every(item=>item&&SIZES.includes(item.size)
+        &&Number.isSafeInteger(item.count)&&item.count>=0&&item.count<=100000
+        &&Number.isSafeInteger(item.expectedRevision)&&item.expectedRevision>=0
+        &&Number.isSafeInteger(verified?.revisions?.[item.size])
+        &&verified.revisions[item.size]>item.expectedRevision));
    // The primary read above has already verified the current actor, family,
    // active primary, completed migration receipt and server inventory scope.
    // Reuse this current-session read scope for document RPCs only.
