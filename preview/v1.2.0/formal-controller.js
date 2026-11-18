@@ -1332,7 +1332,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    actor=ctx.actorUid;family=ctx.familyId;
    $('formalCurrentAccount').textContent=ctx.actorUid;
    $('formalCurrentFamily').textContent=ctx.familyId;
-   screen('ready');
+   screen('ready');syncButtonState();
+   void checkPending().catch(()=>{});
    if(documentsVerified)confirmedFullRead();
    else showSync(documentsClient?'库存已更新，正在核验共享数据…':
     '库存已更新，共享数据暂不可用；请点击刷新重试。','partial');
@@ -1463,7 +1464,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   });
   restoreOtpCooldown();startOtpTicker();redrawConfirmButton();
   function on(id,fn){
-   $(id).addEventListener('click',()=>{
+   $(id)?.addEventListener('click',()=>{
     Promise.resolve().then(fn).catch(()=>{
      $('formalGateMessage').textContent='操作未核实，请检查网络。';
     });
@@ -1472,20 +1473,36 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalSendOtp',sendOtp);
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
-  on('formalRefresh',async()=>{
-   if(busy||refreshBusy)return;
-   refreshBusy=true;fullReadVerified=false;
-   const button=$('formalRefresh');
-   if(button)button.disabled=true;
+  async function fetchCloudLatest(){
+   if(busy||refreshBusy||syncActionBusy)return;
+   if(host.navigator?.onLine===false){
+    const node=$('formalCloudSyncFeedback');
+    if(node)node.textContent='当前网络不可用，请联网后重试';
+    syncButtonState();return;
+   }
+   refreshBusy=true;fullReadVerified=false;syncButtonState();
+   const node=$('formalCloudSyncFeedback');
+   if(node)node.textContent='正在获取云端最新数据…';
    showSync('正在刷新…','refreshing');
+   const epoch=documentEpoch,account=actor,household=family;
    try{
     const next=await restore({requireComplete:true});
-    if(next!=='ready'&&next!=='SYNC_PARTIAL'&&mode==='ready')
-     showSync('读取尚未完成，请稍后刷新。','partial');
+    if(epoch!==documentEpoch||actor!==account||family!==household)return;
+    if(node)node.textContent=next==='ready'&&fullReadVerified
+     ?'云端数据已更新':next==='offline'
+     ?'当前网络不可用，请联网后重试'
+     :'部分云端数据尚未获取成功，请稍后重试';
+    if(next!=='ready')showSync('部分云端数据尚未获取成功，请稍后重试','partial');
+   }catch(_){
+    if(epoch===documentEpoch&&actor===account&&family===household&&node)
+     node.textContent='部分云端数据尚未获取成功，请稍后重试';
    }finally{
-    refreshBusy=false;if(button)button.disabled=false;
+    refreshBusy=false;syncButtonState();
+    await checkPending().catch(()=>{});
    }
-  });
+  }
+  on('formalRefresh',fetchCloudLatest);
+  on('formalGetCloudLatest',fetchCloudLatest);
    // The 027 conflict must be proven uncommitted before user-confirmed archival.
    if($('formalResolveBatchConflict'))on('formalResolveBatchConflict',async()=>{
     if(mode!=='ready'||purchaseReleaseEnabled!==true
@@ -1597,7 +1614,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    $('formalSyncNow').disabled=false;
    $('formalSyncNow').textContent='核验待处理';
   }
-  on('formalSyncNow',async()=>{
+  async function processPendingOnce(){
    if(!documentsApproved()&&!purchasesApproved()){
     $('formalSyncState').textContent='正式业务写入尚未批准，未发送操作。';
     return;
@@ -1726,7 +1743,59 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       :'云端操作已确认，页面读取仍需重试。';
    }else $('formalSyncState').textContent=
     '待确认操作：'+String(sent.status)+'；保留原操作 ID，不要重复提交。';
-  });
+  }
+  async function submitPending(){
+   if(syncActionBusy||refreshBusy||busy)return;
+   if(mode!=='ready'||!actor||!family||host.navigator?.onLine===false){
+    const node=$('formalCloudSyncFeedback');
+    if(node)node.textContent=host.navigator?.onLine===false
+     ?'网络中断，未完成操作已保留':'请先登录并确认当前家庭和宝宝';
+    syncButtonState();return;
+   }
+   syncActionBusy=true;syncButtonState();
+   const node=$('formalCloudSyncFeedback');
+   if(node)node.textContent='正在处理待同步操作…';
+   const account=actor,household=family,epoch=documentEpoch;
+   let remaining=null,conflict=false;
+   try{
+    // Three bounded passes at most: 026, 027, then 009. Each pass invokes
+    // precisely the existing top-button recovery implementation.
+    for(let pass=0;pass<3;pass++){
+     const before=await checkPending();
+     if(epoch!==documentEpoch||actor!==account||family!==household)break;
+     if(!before){if(node)node.textContent='队列状态待核验，请先检查网络及原请求';break;}
+     remaining=before.outstanding;
+     if(remaining===0)break;
+     await processPendingOnce();
+     if(epoch!==documentEpoch||actor!==account||family!==household)break;
+     const after=await checkPending();
+     if(!after){if(node)node.textContent='已处理部分操作，仍有待核验记录';break;}
+     remaining=after.outstanding;
+     const message=$('formalSyncState')?.textContent||'';
+     if(/冲突|CONFLICT|拒绝/.test(message)){conflict=true;break;}
+     // No progress means ambiguous ACK, conflict or a pending readback.
+     if(after.outstanding>=before.outstanding)break;
+    }
+    if(epoch===documentEpoch&&actor===account&&family===household){
+     const final=await checkPending();
+     if(node)node.textContent=conflict
+      ?'部分操作存在数据冲突，请先处理冲突'
+      :host.navigator?.onLine===false
+       ?'网络中断，未完成操作已保留'
+      :final?.outstanding===0
+       ?'待同步操作已处理完成'
+      :'已处理部分操作，仍有待核验记录';
+    }
+   }catch(_){
+    if(node&&epoch===documentEpoch&&actor===account&&family===household)
+     node.textContent='已处理部分操作，仍有待核验记录';
+   }finally{
+    syncActionBusy=false;syncButtonState();
+    await checkPending().catch(()=>{});
+   }
+  }
+  on('formalSyncNow',submitPending);
+  on('formalSubmitPending',submitPending);
   on('formalSignOut',signOut);
   on('formalGateSignOut',signOut);
   host.addEventListener('online',restore);
