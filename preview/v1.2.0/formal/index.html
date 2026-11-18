@@ -3850,6 +3850,7 @@ restoreActiveTab();
    contract:outboxContract,projection:inventoryProjection,
    reconciler:inventoryReconciler,dbName:PRIMARY_DB_NAME});
   if(!outbox?.readInventory||!outbox?.initializeInventory
+    ||!outbox?.updateVerifiedInventory
     ||!outbox?.commitInventory||!outbox?.stats)
    throw Error('primary_operations:primary_outbox_unverified');
   let selected=null,busy=false;
@@ -3918,9 +3919,8 @@ restoreActiveTab();
    return Object.freeze({familyId:scope.familyId,actorUid:scope.actorUid,
     appCode:'xb',member:true,initialized:true});
   }
-  function verifiedScope(view){
-   // This startup shortcut is only legal in the existing READ-ONLY build.
-   if(cloudWritesEnabled===true||view?.status!=='PRIMARY_READ_ONLY_READY'
+  function verifiedReadScope(view){
+   if(view?.status!=='PRIMARY_READ_ONLY_READY'
      ||view.source!=='cloudbase-primary-receipt-verified'
      ||view.canWrite!==false||view.legacyPurchasesAppliedToInventory!==false
      ||view.legacyHistory?.complete!==true)
@@ -3934,6 +3934,12 @@ restoreActiveTab();
     revision:view.revisions?.[size]}));
    return {scope:{app:ctx.app,familyId:ctx.familyId,
     actorUid:ctx.actorUid,childId:view.childId},stock:knownRows(rows)};
+  }
+  function verifiedScope(view){
+   // The startup shortcut remains limited to the read-only activation path.
+   if(cloudWritesEnabled===true)
+    throw Error('primary_operations:untrusted_view');
+   return verifiedReadScope(view);
   }
   async function activate({verifiedReadModel=null}={}){
    if(busy)return result('BUSY');
@@ -3978,6 +3984,92 @@ restoreActiveTab();
      childId:scope.childId};
     return result('PRIMARY_OUTBOX_READ_ONLY_READY',{childId:scope.childId});
    }catch(_){selected=null;freshPurchaseIds.clear();freshConsumeIds.clear();freshReverseIds.clear();freshStocktakeIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
+   finally{busy=false;}
+  }
+  // A successful formal primary read is also the source for the local
+  // 009 baseline. This is IDB-only: no reconciliation RPC or second restore.
+  async function syncVerifiedReadModel({verifiedReadModel=null,batchQueue=null}={}){
+   if(!selected)return result('PRIMARY_NOT_SELECTED');
+   if(busy)return result('BUSY');
+   if(!online())return result('OFFLINE_READ_UNVERIFIED');
+   busy=true;
+   try{
+    const trusted=verifiedReadScope(verifiedReadModel);
+    const scope=trusted.scope,{stock}=trusted;
+    if(selected.familyId!==scope.familyId||selected.actorUid!==scope.actorUid
+      ||selected.childId!==scope.childId)
+     return result('PRIMARY_LOCAL_BASELINE_SCOPE_MISMATCH');
+    if(!batchQueue||batchQueue.status!=='BATCH_QUEUE_VERIFIED'
+      ||!Number.isSafeInteger(batchQueue.outstanding)
+      ||batchQueue.outstanding<0)
+     return result('PRIMARY_LOCAL_BASELINE_BATCH_QUEUE_UNVERIFIED');
+    if(batchQueue.outstanding>0)
+     return result('PRIMARY_LOCAL_BASELINE_BATCH_PENDING',{
+      outstanding:batchQueue.outstanding
+     });
+    const current=controller.verifiedContext();
+    if(!current||current.familyId!==scope.familyId
+      ||current.actorUid!==scope.actorUid||!current.app)
+     return result('PRIMARY_LOCAL_BASELINE_SCOPE_MISMATCH');
+    let local=await outbox.readInventory(scope,scope.childId);
+    if(!local){
+     try{
+      local=await outbox.initializeInventory(scope,{
+       childId:scope.childId,inventory:stock.stock,
+       serverRevisions:stock.revisions,source:'verified-server'
+      });
+     }catch(e){
+      if(String(e?.message)==='outbox_store:queue_exists_before_baseline')
+       return result('PRIMARY_LOCAL_BASELINE_PENDING_OPERATIONS');
+      if(String(e?.message)!=='outbox_store:snapshot_already_initialized')
+       throw e;
+      local=await outbox.readInventory(scope,scope.childId);
+     }
+     if(!local||local.source!=='verified-server'
+       ||local.familyId!==scope.familyId||local.actorUid!==scope.actorUid
+       ||local.childId!==scope.childId
+       ||!equalRows(SIZES.map(size=>({size,quantity:local.inventory?.[size],
+        revision:local.serverRevisions?.[size]})),
+       SIZES.map(size=>({size,quantity:stock.stock[size],
+        revision:stock.revisions[size]}))))
+      return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');
+    }else{
+     const applied=await outbox.updateVerifiedInventory(scope,{
+      childId:scope.childId,inventory:stock.stock,
+      serverRevisions:stock.revisions
+     });
+     if(applied?.status==='LOCAL_OPERATIONS_PENDING')
+      return result('PRIMARY_LOCAL_BASELINE_PENDING_OPERATIONS',{
+       outstanding:applied.outstanding||0
+      });
+     if(applied?.status==='SERVER_REVISION_ROLLBACK')
+      return result('PRIMARY_LOCAL_BASELINE_SERVER_REVISION_ROLLBACK',{
+       sizes:applied.sizes||[]
+      });
+     if(applied?.status==='SERVER_REVISION_QUANTITY_MISMATCH')
+      return result('PRIMARY_LOCAL_BASELINE_REVISION_QUANTITY_MISMATCH',{
+       sizes:applied.sizes||[]
+      });
+     if(!['UPDATED','UNCHANGED'].includes(applied?.status)
+       ||!applied.snapshot||applied.snapshot.source!=='verified-server'
+       ||applied.snapshot.familyId!==scope.familyId
+       ||applied.snapshot.actorUid!==scope.actorUid
+       ||applied.snapshot.childId!==scope.childId)
+      return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');
+     local=applied.snapshot;
+    }
+    const latest=controller.verifiedContext();
+    if(!latest||latest.familyId!==scope.familyId
+      ||latest.actorUid!==scope.actorUid
+      ||selected.familyId!==scope.familyId
+      ||selected.actorUid!==scope.actorUid
+      ||selected.childId!==scope.childId)
+     return result('PRIMARY_LOCAL_BASELINE_SCOPE_CHANGED');
+    return result('PRIMARY_LOCAL_BASELINE_SYNCED',{
+     childId:scope.childId,inventory:local.inventory,
+     revisions:local.serverRevisions
+    });
+   }catch(_){return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');}
    finally{busy=false;}
   }
   async function read(){
@@ -4212,6 +4304,9 @@ restoreActiveTab();
    }catch(_){return result('BATCH_LOCAL_SNAPSHOT_UNVERIFIED',{batchId});}
   }
   async function pending(){
+   // Do not let a new 027 batch begin while the local baseline transaction
+   // is active. The batch client checks this existing queue-status contract.
+   if(busy)return result('PRIMARY_QUEUE_COUNTS_UNVERIFIED');
    // Explicit local IDB-only check. Do not erase or upload pending events
    // merely because a user requested logout or a different account signed in.
    if(!selected)return result('PRIMARY_QUEUE_SCOPE_NOT_VERIFIED');
@@ -4228,7 +4323,7 @@ restoreActiveTab();
     });
    }catch(_){return result('PRIMARY_QUEUE_COUNTS_UNVERIFIED');}
   }
-  return Object.freeze({activate,read,queue,flush,pending,applyBatchInventoryAck,
+  return Object.freeze({activate,read,syncVerifiedReadModel,queue,flush,pending,applyBatchInventoryAck,
    selectedScope:()=>selected?Object.freeze({...selected}):null,
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }
@@ -4336,6 +4431,8 @@ restoreActiveTab();
     const baseline=action==='stocktake'?verifiedStocktakeBaseline:
      action==='reverse'?verifiedReverseBaseline:
      action==='consume'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
+    if(baseline?.status==='PRIMARY_LOCAL_BASELINE_PENDING')
+     return ret('PRIMARY_LOCAL_BASELINE_UNVERIFIED');
     const fast=['purchase','consume','reverse','stocktake'].includes(action)
       &&baseline?.status===(action==='purchase'
        ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':action==='consume'
@@ -5589,6 +5686,8 @@ restoreActiveTab();
    if(action==='consume'){
     const baseline=typeof readConsumeBaseline==='function'
      ?readConsumeBaseline():null;
+    if(baseline?.status==='PRIMARY_LOCAL_BASELINE_PENDING')
+     return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');
     const size=el.dataset?.size;
     if(baseline?.status==='PRIMARY_CONSUME_BASELINE_VERIFIED'){
      if(!SIZES.includes(size))return result('PRIMARY_INVALID_SIZE');
@@ -6003,6 +6102,9 @@ function create({controller,host,primary,outboxFactory,contract,
   return result;
  }
  async function pending(){
+  // A refresh must not treat a queue as empty while a batch is being created,
+  // submitted or recovered. Retry after the active operation has completed.
+  if(busy)return answer('BATCH_QUEUE_UNVERIFIED');
   try{
    const id=scope(),t=await store.stats(id);
    if(!Number.isSafeInteger(t.outstanding)||t.outstanding<0)

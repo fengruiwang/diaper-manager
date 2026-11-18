@@ -30,7 +30,6 @@
    contract:outboxContract,projection:inventoryProjection,
    reconciler:inventoryReconciler,dbName:PRIMARY_DB_NAME});
   if(!outbox?.readInventory||!outbox?.initializeInventory
-    ||!outbox?.updateVerifiedInventory
     ||!outbox?.commitInventory||!outbox?.stats)
    throw Error('primary_operations:primary_outbox_unverified');
   let selected=null,busy=false;
@@ -214,6 +213,8 @@
         revision:stock.revisions[size]}))))
       return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');
     }else{
+     if(typeof outbox.updateVerifiedInventory!=='function')
+      return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');
      const applied=await outbox.updateVerifiedInventory(scope,{
       childId:scope.childId,inventory:stock.stock,
       serverRevisions:stock.revisions

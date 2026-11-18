@@ -260,7 +260,7 @@ test('T02-P1-02 pending, retry, conflict and blocked 009 operations prevent base
   assert.equal(rows[0].id,O1);
   assert.equal(rows[0].status,status);
   assert.deepEqual(rows[0].payload,delta().payload);
- });
+ }
 });
 test('T02-P1-02 ACKed and abandoned history does not block a verified baseline update or initialization',async()=>{
  const x=make(fakeIndexedDB(),'terminal-history');
