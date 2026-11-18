@@ -1660,6 +1660,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      if(['BATCH_ATOMIC_COMMIT_ACKED','BATCH_ACK_RECOVERED']
        .includes(batchSent?.status)){
       const next=await restore({expectedBatch:batchSent.items});
+      if(next==='ready')await attached?.recoverMinimalButtons?.({
+       domain:'stocktake',verifiedBatch:true});
       $('formalSyncState').textContent=next==='ready'
        ?'原批次已确认，六尺码库存已从云端刷新。'
        :'批次回执已确认，云端库存仍需重新读取。';
