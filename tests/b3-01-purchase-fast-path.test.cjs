@@ -314,6 +314,7 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   releaseRpc:()=>resolveRpc?.(),
   get readback(){return readback;},
   get uuidCount(){return uuidCount;},
+  get localSnapshot(){return clone(local);},
   get localSnapshot(){return clone(local);}
  };
 }
@@ -570,6 +571,106 @@ function fastReverse(f,{remaining,kind}){
  assert.ok(!f.trace.includes('idb.commitInventory'));
  assert.ok(f.trace.indexOf('idb.enqueue')<f.trace.indexOf(
   'rpc.xb_apply_inventory_operation'));
+}
+
+for(const count of [95,0]){
+ test('B4-01 single S stocktake 80 -> '+count+' uses one 009 and syncs IDB',
+  async()=>{
+   const f=fixture({stocktake:true,stockS:80,stocktakeCount:count});
+   await f.activate();
+   const ans=await f.stocktakeClick();
+   assert.equal(ans.status,'PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED');
+   assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,1);
+   assert.equal(f.trace.filter(x=>x==='idb.stocktakeAck').length,1);
+   assert.ok(f.trace.indexOf('idb.enqueue')<
+    f.trace.indexOf('rpc.xb_apply_inventory_operation'));
+   assert.equal(f.trace.includes('idb.commitInventory'),false);
+   assert.equal(f.trace.some(x=>/reconcil|xb_read_inventory/.test(x)),false);
+   assert.equal(f.env.primaryViewBase.state.inventory.S,count);
+   assert.equal(f.env.shownStock.inventory.S,count);
+   assert.equal(f.env.primaryViewBase.revisions.S,3);
+   assert.equal(f.localSnapshot.inventory.S,count);
+   assert.equal(f.localSnapshot.serverRevisions.S,3);
+   assert.equal(f.env.primaryViewBase.state.transactions.length,1);
+   assert.equal(f.rows.get(ID).status,'acked');
+   assert.equal(f.rows.get(ID).expectedRevision,2);
+   assert.equal(f.rows.get(ID).payload.count,count);
+   assert.equal(f.uuidCount,1);
+   assert.equal(f.readback,0);
+   for(const kind of ['reference','quotes','growth','profile','settings']){
+    const docs=clone(f.env.documentSnapshot);docs.documents[kind].revision++;
+    const view=Docs.apply(f.env.primaryViewBase,docs);
+    assert.equal(view.state.inventory.S,count,kind);
+   }
+  });
+}
+test('B4-01 unchanged, invalid and multi-size edits never write or allocate UUID',async()=>{
+ for(const count of [80,-1,1.5,100001,'text']){
+  const f=fixture({stocktake:true,stockS:80,stocktakeCount:count});
+  await f.activate();
+  const ans=await f.stocktakeClick();
+  assert.equal(ans.status,count===80?'PRIMARY_STOCK_UNCHANGED':'STOCK_FORM_INVALID');
+  assert.equal(f.uuidCount,0);
+  assert.equal(f.rows.size,0);
+  assert.equal(f.trace.some(x=>x.startsWith('rpc.')),false);
+ }
+ const f=fixture({stocktake:true,stockS:80,stocktakeCount:95,
+  extraChanged:{M:20}});
+ await f.activate();
+ assert.equal((await f.stocktakeClick()).status,'MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED');
+ assert.equal(f.uuidCount,0);assert.equal(f.rows.size,0);
+ assert.equal(f.trace.some(x=>x.startsWith('rpc.')),false);
+});
+test('B4-01 CAS conflict and ambiguous 009 preserve stock and original UUID',async()=>{
+ const conflict=fixture({stocktake:true,stockS:80,stocktakeCount:95,
+  stocktakeConflict:true});
+ await conflict.activate();
+ const denied=await conflict.stocktakeClick();
+ assert.equal(denied.status,'PRIMARY_STOCK_REVISION_CONFLICT');
+ assert.equal(conflict.env.primaryViewBase.state.inventory.S,80);
+ assert.equal(conflict.renders.length,0);
+ assert.equal(conflict.rows.get(ID).status,'conflict');
+ const unknown=fixture({stocktake:true,stockS:80,stocktakeCount:95,
+  unknownAck:true});
+ await unknown.activate();
+ const uncertain=await unknown.stocktakeClick();
+ assert.equal(uncertain.operationId,ID);
+ assert.notEqual(uncertain.status,'PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED');
+ assert.equal(unknown.rows.get(ID).status,'retry');
+ assert.equal(unknown.localSnapshot.inventory.S,80);
+ assert.equal(unknown.env.primaryViewBase.state.inventory.S,80);
+ assert.equal(unknown.uuidCount,1);
+});
+for(const nextKind of ['buy','use']){
+ test('B4-01 stocktake then immediate '+nextKind+' continues fast 009',async()=>{
+  const f=fixture({stocktake:true,stockS:80,stocktakeCount:95,nextKind});
+  await f.activate();
+  assert.equal((await f.stocktakeClick()).status,'PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED');
+  const op=Contract.createOperation({
+   id:NEXT,type:'inventory.delta',familyId:F,actorUid:'A',
+   createdAt:'2026-11-12T08:31:00.000Z',
+   payload:{childId:C,size:'S',kind:nextKind,
+    amount:nextKind==='use'?1:10,
+    occurredAt:'2026-11-12T08:31:00.000Z',
+    ...(nextKind==='buy'?{purchase:{brand:'好奇',series:'小森林',
+     totalFen:1000,purchaseDate:'2026-11-12'}}:{})}
+  });
+  const baseline={status:nextKind==='buy'
+   ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':'PRIMARY_CONSUME_BASELINE_VERIFIED',
+   familyId:F,actorUid:'A',childId:C,
+   inventory:clone(f.env.primaryViewBase.state.inventory),
+   revisions:clone(f.env.shownStock.revisions)};
+  const queued=await f.primary.queue(op,{operatorApproved:true,
+   ...(nextKind==='buy'
+    ?{verifiedPurchaseBaseline:baseline}:{verifiedConsumeBaseline:baseline})});
+  assert.equal(queued.status,'PRIMARY_OPERATION_DURABLY_QUEUED');
+  const sent=await f.primary.flush({operatorApproved:true,
+   ...(nextKind==='buy'?{fastPurchaseId:NEXT}:{fastConsumeId:NEXT})});
+  assert.equal(sent.status,nextKind==='buy'
+   ?'PRIMARY_PURCHASE_ACK_CONFIRMED':'PRIMARY_USE_ACK_CONFIRMED');
+  assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,2);
+  assert.equal(f.trace.some(x=>/reconcil|xb_read_inventory/.test(x)),false);
+ });
 }
 test('B3-03 reverse cloud purchase: one 009 and immediate stock/history ACK',async()=>{
  const f=fixture({reverse:true,reverseKind:'buy',remoteOnly:true});await f.activate();
