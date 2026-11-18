@@ -268,6 +268,16 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
   <div class="action-row"><button id="formalSignOut" class="btn ghost sm" type="button">退出登录 / 切换账号</button></div>
   <p class="fine">退出前检查未同步队列，原有 operation ID 不会被清空。</p>
  </div>
+      <div class="head"><h2>☁️ 云端数据同步</h2></div>
+      <div class="card" id="formalCloudSyncSection">
+        <div class="action-row">
+          <button id="formalGetCloudLatest" class="btn secondary" type="button">获取云端最新</button>
+          <button id="formalSubmitPending" class="btn" type="button" disabled>提交待同步操作</button>
+        </div>
+        <p class="fine">获取云端最新：读取家庭云端已保存的数据。提交待同步操作：继续提交或核验本机之前未完成的操作。</p>
+        <div class="fine" id="formalPendingCount">待同步：正在核验</div>
+        <div class="fine" id="formalCloudSyncFeedback" role="status" aria-live="polite"></div>
+      </div>
       <div class="head"><h2>👶 宝宝基本资料</h2></div>
       <div class="card">
         <div class="profile">
