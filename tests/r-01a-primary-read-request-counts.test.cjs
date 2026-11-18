@@ -56,6 +56,11 @@ function sdkFixture(){
        }}]:[]};
     if(table==='xb_transactions'||table==='xb_inventory_operations')
      return {data:[]};
+    if(table==='xb_inventory')
+     return {data:SIZES.map(size=>({
+      size,quantity:size==='S'?stockS:0,revision:size==='S'?1:0,
+      updated_at:'2026-11-18T08:00:00.000Z'
+     }))};
     throw Error('unexpected table: '+table);
    }
    return q;
