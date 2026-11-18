@@ -224,8 +224,14 @@ test('B2-04 pre-birth plan: all six sizes, daily rates and unknown fields preser
  assert.equal(a.status,'SETTINGS_CLOUD_ACK_APPLIED');
  fastResult(f,a.status);
  assert.equal(f.submitted.preset,'custom');
- assert.equal(Object.keys(f.submitted.target).length,6);
- assert.equal(Object.keys(f.submitted.daily).length,6);
+ // 6 sizes remain in the full body; only the 5 genuinely changed values
+ // appear in each submitted patch.
+ assert.equal(Object.keys(f.submitted.target).length,5);
+ assert.equal(Object.keys(f.submitted.daily).length,5);
+ for(const size of SIZES){
+  assert.ok(Object.hasOwn(f.body.target,size));
+  assert.ok(Object.hasOwn(f.body.daily,size));
+ }
  assert.equal(f.body.target.NB,120);
  assert.equal(f.body.daily.XXL,5);
  assert.equal(f.body.target.legacyExtra,444);
@@ -266,7 +272,9 @@ test('B2-04 three prenatal presets use one identical settings queue and change N
   const a=await f.click('',{preset});
   assert.equal(a.status,'SETTINGS_CLOUD_ACK_APPLIED',preset);
   fastResult(f,a.status);
-  assert.deepEqual(f.submitted,{preset,target:{NB:nb,S:s}});
+  const changed={target:{NB:nb,S:s}};
+  if(preset!=='balanced')changed.preset=preset;
+  assert.deepEqual(f.submitted,changed);
   assert.equal(f.body.target.NB,nb);
   assert.equal(f.body.target.S,s);
   assert.equal(f.body.target.M,130);
