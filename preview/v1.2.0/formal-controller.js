@@ -1504,8 +1504,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    // Do not wait for an additional getSession() call after showing UI.
    showCloudView(data,ctx);
    shownStock=Object.freeze({
-    inventory:Object.freeze({...displayBase.state.inventory}),
-    revisions:Object.freeze({...displayBase.revisions})
+    // Real projected views carry state + revisions; keep the earlier
+    // minimal read-model fallback for login-only integration harnesses.
+    inventory:Object.freeze({...((displayBase.state?.inventory)||verified.inventory)}),
+    revisions:Object.freeze({...((displayBase.revisions)||verified.revisions)})
    });
    actor=ctx.actorUid;family=ctx.familyId;
    $('formalCurrentAccount').textContent=ctx.actorUid;
