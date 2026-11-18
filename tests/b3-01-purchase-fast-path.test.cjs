@@ -307,7 +307,8 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
    const button=id==='buyNow'?buttons.buyNow:
     id==='consumeOne'?buttons.consumeOne:
     id==='consumeDay'?buttons.consumeDay:
-    id==='reverse'?buttons.reverse:buttons.candidate;
+    id==='reverse'?buttons.reverse:
+    id==='stocktake'?buttons.stocktake:buttons.candidate;
    handlers.click({target:button,preventDefault(){},
     stopImmediatePropagation(){}});
   },
@@ -621,6 +622,27 @@ test('B4-01 unchanged, invalid and multi-size edits never write or allocate UUID
  assert.equal(f.uuidCount,0);assert.equal(f.rows.size,0);
  assert.equal(f.trace.some(x=>x.startsWith('rpc.')),false);
 });
+test('B4-01 saveStocks displays immediate feedback and double click keeps one UUID',
+ async()=>{
+  const f=fixture({stocktake:true,delayed:true,stockS:80,stocktakeCount:95});
+  await f.activate();
+  f.capture('stocktake');
+  assert.equal(f.feedback.formalStocktakeActionFeedback.textContent,
+   '正在保存库存盘点…');
+  assert.equal(f.buttons.stocktake.disabled,true);
+  assert.equal(f.buttons.buyNow.disabled,false);
+  f.capture('stocktake');
+  await tick();await tick();
+  f.releaseRpc();
+  await tick();await tick();await tick();
+  assert.equal(f.feedback.formalStocktakeActionFeedback.textContent,
+   '库存盘点成功，库存已更新');
+  assert.equal(f.notices.at(-1)?.status,'PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED');
+  assert.equal(f.uuidCount,1);
+  assert.equal(f.rows.size,1);
+  assert.equal(f.trace.filter(x=>x==='rpc.xb_apply_inventory_operation').length,1);
+  assert.equal(f.buttons.stocktake.disabled,false);
+ });
 test('B4-01 CAS conflict and ambiguous 009 preserve stock and original UUID',async()=>{
  const conflict=fixture({stocktake:true,stockS:80,stocktakeCount:95,
   stocktakeConflict:true});
