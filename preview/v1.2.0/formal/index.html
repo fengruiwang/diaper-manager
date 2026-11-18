@@ -5727,6 +5727,11 @@ function create({controller,host,primary,outboxFactory,contract,
     &&verifiedBaseline.familyId===id.familyId
     &&verifiedBaseline.actorUid===id.actorUid
     &&verifiedBaseline.childId===id.childId;
+   if(fast&&typeof primary.pending==='function'){
+    const prior=await primary.pending();
+    if(prior?.status!=='PRIMARY_QUEUE_COUNTS_VERIFIED'
+      ||prior.outstanding!==0)return answer('BATCH_PENDING_REVIEW_FIRST');
+   }
    const fresh=fast?verifiedBaseline:await primary.read();
    if(fresh?.status!==(fast?'PRIMARY_BATCH_BASELINE_VERIFIED':'PRIMARY_CLOUD_READ_VERIFIED'))
     return answer('BATCH_STOCK_NOT_VERIFIED');
