@@ -96,6 +96,8 @@
     const baseline=action==='stocktake'?verifiedStocktakeBaseline:
      action==='reverse'?verifiedReverseBaseline:
      action==='consume'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
+    if(baseline?.status==='PRIMARY_LOCAL_BASELINE_PENDING')
+     return ret('PRIMARY_LOCAL_BASELINE_UNVERIFIED');
     const fast=['purchase','consume','reverse','stocktake'].includes(action)
       &&baseline?.status===(action==='purchase'
        ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':action==='consume'
