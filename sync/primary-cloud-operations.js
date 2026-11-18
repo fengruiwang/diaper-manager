@@ -371,6 +371,26 @@
    }catch(_){return result('PRIMARY_ACK_UNKNOWN_PRESERVE_ID_AND_QUEUE');}
    finally{busy=false;}
   }
+  // A verified 027 batch ACK updates only the 009 local stock baseline.
+  async function applyBatchInventoryAck({batchId,changes}={}){
+   if(!selected||busy||!Array.isArray(changes)
+     ||typeof outbox.applyVerifiedBatchInventory!=='function')
+    return result('BATCH_LOCAL_SNAPSHOT_UNVERIFIED');
+   const ctx=controller.verifiedContext();
+   if(!ctx||ctx.familyId!==selected.familyId
+     ||ctx.actorUid!==selected.actorUid||!ctx.app)
+    return result('BATCH_LOCAL_SNAPSHOT_UNVERIFIED');
+   try{
+    const snap=await outbox.applyVerifiedBatchInventory(selected,{
+     childId:selected.childId,changes
+    });
+    return result('BATCH_LOCAL_SNAPSHOT_ACK_APPLIED',{
+     batchId,childId:selected.childId,
+     familyId:selected.familyId,actorUid:selected.actorUid,
+     inventory:snap.inventory,revisions:snap.serverRevisions
+    });
+   }catch(_){return result('BATCH_LOCAL_SNAPSHOT_UNVERIFIED',{batchId});}
+  }
   async function pending(){
    // Explicit local IDB-only check. Do not erase or upload pending events
    // merely because a user requested logout or a different account signed in.
@@ -388,7 +408,7 @@
     });
    }catch(_){return result('PRIMARY_QUEUE_COUNTS_UNVERIFIED');}
   }
-  return Object.freeze({activate,read,queue,flush,pending,
+  return Object.freeze({activate,read,queue,flush,pending,applyBatchInventoryAck,
    selectedScope:()=>selected?Object.freeze({...selected}):null,
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }
