@@ -198,3 +198,171 @@ test('B2-03 growth business action applies exact ACK without full restore',async
  assert.equal(result.status,'GROWTH_CLOUD_ACK_APPLIED');
  assert.equal(readbacks,0);
 });
+
+
+const vm=require('node:vm');
+const fs=require('node:fs');
+const path=require('node:path');
+
+// The real profile ACK callback is private to the formal controller. Exercise
+// its unchanged production body, including profileChangeVisible(), from the
+// actual business bridge through the existing 026 queue and UI render hook.
+function auditedProfileSave(original,form){
+ const trace=[],rows=new Map(),rendered=[];
+ let body=clone(original),revision=3,ackRecord=null,readbacks=0;
+ const base={status:'PRIMARY_DOCUMENT_READ_VERIFIED',kind:'profile',
+  familyId:F,actorUid:'A',childId:C,revision:3,body:clone(original)};
+ const untouched={
+  reference:{status:'PRIMARY_DOCUMENT_READ_VERIFIED',kind:'reference',
+   familyId:F,childId:C,revision:2,body:{referenceOverrides:{'brand|series|S':1.6}}},
+  quotes:{status:'PRIMARY_DOCUMENT_READ_VERIFIED',kind:'quotes',
+   familyId:F,childId:C,revision:1,body:{items:[{id:'q',price:80}]}},
+  growth:{status:'PRIMARY_DOCUMENT_READ_VERIFIED',kind:'growth',
+   familyId:F,childId:C,revision:1,body:{items:[{id:'g',weight:3.2}]}},
+  settings:{status:'PRIMARY_DOCUMENT_READ_VERIFIED',kind:'settings',
+   familyId:F,childId:C,revision:0,body:{currentSize:'NB'}}
+ };
+ const snapshot={status:'PRIMARY_DOCUMENTS_FULLY_READ',
+  documents:{...untouched,profile:base}};
+ const identity=()=>({familyId:F,actorUid:'A'});
+ const environment={
+  controller:{verifiedContext:identity},
+  ctx:identity(),actor:'A',family:F,mode:'ready',
+  identityEpoch:1,documentEpoch:1,
+  documentScope:'A\x00'+F,documentSnapshot:snapshot,
+  primaryViewBase:{primaryReady:true},
+  documentsOverlay:{apply(_primary,next){
+   trace.push('ui.overlay');
+   for(const [kind,doc] of Object.entries(untouched))
+    assert.strictEqual(next.documents[kind],doc,
+     'fast profile ACK must not change '+kind);
+   return {sharedBusinessDocumentsVerified:true,
+    cloudDocumentsActorScope:{childId:C},
+    babyProfile:next.documents.profile.body.babyProfile,
+    dueDate:next.documents.profile.body.dueDate};
+  }},
+  showCloudView(view,current){
+   assert.equal(current.familyId,F);
+   trace.push('ui.render');rendered.push(clone(view));
+  }
+ };
+ const controllerSource=fs.readFileSync(path.join(__dirname,
+  '../preview/v1.2.0/formal-controller.js'),'utf8');
+ const begin=controllerSource.indexOf('function profileChangeVisible(');
+ const end=controllerSource.indexOf('function settingsChangeVisible(',begin);
+ assert.ok(begin>=0&&end>begin,'production profile verifier required');
+ vm.runInNewContext(controllerSource.slice(begin,end),environment);
+ const callbackStart=controllerSource.indexOf('onProfileAck:async(ack)=>{');
+ const callbackEnd=controllerSource.indexOf(
+  'onProfileReadback:async(expected)=>{',callbackStart);
+ assert.ok(callbackStart>=0&&callbackEnd>callbackStart,
+  'production profile ACK handler required');
+ const callbackSource=controllerSource.slice(callbackStart+
+  'onProfileAck:'.length,callbackEnd).trim().replace(/,\s*$/,'');
+ const realProfileAck=vm.runInNewContext('('+callbackSource+')',environment);
+ const storage={
+  async get(_scope,id){trace.push('idb.get');return rows.get(id)||null;},
+  async enqueue(op){trace.push('idb.enqueue');
+   rows.set(op.id,{...clone(op),status:'pending'});return{duplicate:false};},
+  async ready(){trace.push('idb.ready');
+   return [...rows.values()].filter(x=>x.status==='pending');},
+  async stats(){return{outstanding:[...rows.values()]
+   .filter(x=>x.status!=='acked').length};},
+  async recordResult(_scope,id,result){trace.push('idb.ack');
+   rows.get(id).status=result.kind==='accepted'?'acked':'conflict';}
+ };
+ const client={
+  async read(){trace.push('rpc.read');throw Error('unexpected document read');},
+  async checkRequest(){trace.push('rpc.receipt');
+   throw Error('unexpected receipt query');},
+  async put(op){trace.push('rpc.put');
+   assert.equal(op.fastDocument,true);
+   assert.equal(op.kind,'profile');
+   assert.equal(op.expectedRevision,3);
+   body=clone(op.nextBody);revision++;
+   return {status:'PRIMARY_DOCUMENT_COMMITTED',kind:'profile',
+    requestId:op.requestId,familyId:F,childId:C,revision,duplicate:false};
+  }
+ };
+ const queue=Operations.create({
+  controller:{verifiedContext:identity},
+  host:{indexedDB:{open(){}},navigator:{onLine:true}},
+  documentsClient:client,outboxFactory:{create:()=>storage},
+  contract:{createOperation:clone},cloudWritesEnabled:true,
+  referenceAndQuotes:true,fastProfileEnabled:true,
+  allowGrowth:false,allowProfile:true,allowSettings:false
+ });
+ const commands=Commands.create({client,queue,uuid:()=>ID});
+ let submitted=null;
+ const actions=Bridge.create({
+  primary:{read:async()=>({status:'PRIMARY_CLOUD_READ_VERIFIED'})},
+  commands:{submit:async()=>{throw Error('unexpected purchase write');}},
+  readPurchase:()=>null,readQuote:()=>null,readTransaction:()=>null,
+  notify:()=>{},formalModeSelected:()=>true,
+  buildAllowsWrites:false,operatorApproved:()=>false,
+  buildAllowsDocumentWrites:true,documentOperatorApproved:()=>true,
+  purchaseOnly:true,allowReference:false,allowQuotes:false,
+  allowGrowth:false,allowProfile:true,allowSettings:false,
+  documentCommands:{submit:async input=>{
+   submitted=clone(input.record);return commands.submit(input);
+  }},
+  documentQueue:queue,
+  readProfileBaseline:()=>({...base,actorUid:'A'}),
+  readDocumentInput:()=>({kind:'profile',action:'patch',record:clone(form)}),
+  onProfileAck:async ack=>{
+   ackRecord=clone(ack.record);return realProfileAck(ack);
+  },
+  onProfileReadback:async()=>{readbacks++;return 'pending';}
+ });
+ return {save:()=>actions.handle({id:'saveProfile',dataset:{}},
+   {getElementById:()=>null}),
+  trace,rendered,rows,environment,
+  get submitted(){return submitted;},get ackRecord(){return ackRecord;},
+  get body(){return body;},get revision(){return revision;},
+  get readbacks(){return readbacks;}};
+}
+function assertAuditAck(f,patch){
+ assert.deepEqual(f.submitted,patch);
+ assert.deepEqual(f.ackRecord,patch,
+  'ACK verification must expect exactly the committed patch');
+ assert.equal(f.trace.filter(x=>x==='rpc.put').length,1);
+ assert.equal(f.trace.filter(x=>x==='rpc.read').length,0);
+ assert.equal(f.trace.filter(x=>x==='rpc.receipt').length,0);
+ assert.ok(f.trace.indexOf('idb.enqueue')<f.trace.indexOf('rpc.put'));
+ assert.equal(f.trace.filter(x=>x==='ui.render').length,1);
+ assert.equal(f.readbacks,0);
+ assert.equal(f.rendered.length,1);
+ assert.equal(f.environment.documentSnapshot.documents.profile.revision,4);
+ assert.equal(f.rows.get(ID).status,'acked');
+}
+test('B2-03 audit A: missing legacy optionals, dueDate-only patch passes real controller ACK to page',async()=>{
+ const f=auditedProfileSave(
+  {dueDate:'2027-01-08',babyProfile:{name:'小宝'},unknownTop:{keep:'yes'}},
+  {dueDate:'2027-01-10',birthDate:'',
+   babyProfile:{name:'小宝',sex:'',birthTime:'',birthWeight:'',birthLength:''}}
+ );
+ const result=await f.save();
+ assert.equal(result.status,'PROFILE_CLOUD_ACK_APPLIED');
+ assertAuditAck(f,{dueDate:'2027-01-10'});
+ assert.equal(f.body.dueDate,'2027-01-10');
+ assert.deepEqual(f.body.babyProfile,{name:'小宝'});
+ assert.deepEqual(f.body.unknownTop,{keep:'yes'});
+ assert.equal(f.rendered[0].dueDate,'2027-01-10');
+});
+test('B2-03 audit B: numeric strings remain unchanged on name-only patch and ACK renders immediately',async()=>{
+ const f=auditedProfileSave(
+  {dueDate:'2027-01-08',babyProfile:{name:'小宝',
+    birthWeight:'3.250',birthLength:'50.0',unknown:'keep'}},
+  {dueDate:'2027-01-08',birthDate:'',
+   babyProfile:{name:'小宝二',sex:'',birthTime:'',
+    birthWeight:3.25,birthLength:50}}
+ );
+ const result=await f.save();
+ assert.equal(result.status,'PROFILE_CLOUD_ACK_APPLIED');
+ assertAuditAck(f,{babyProfile:{name:'小宝二'}});
+ assert.equal(f.body.babyProfile.name,'小宝二');
+ assert.equal(f.body.babyProfile.birthWeight,'3.250');
+ assert.equal(f.body.babyProfile.birthLength,'50.0');
+ assert.equal(f.body.babyProfile.unknown,'keep');
+ assert.equal(f.rendered[0].babyProfile.name,'小宝二');
+});

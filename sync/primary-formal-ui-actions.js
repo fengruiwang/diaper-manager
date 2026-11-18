@@ -749,16 +749,16 @@
     try{synced=await documentQueue.send({operatorApproved:true,
      fastDocumentId:requestId,fastDocumentKind:'profile'});}
     catch(_){return Object.freeze({status:'PROFILE_ACK_UNKNOWN_KEEP_REQUEST_ID',
-     requestId,record:input.record,expectedRevision:baseline.revision,
+     requestId,record:patch,expectedRevision:baseline.revision,
      familyId:baseline.familyId,actorUid:baseline.actorUid,
      cloudWriteCommitted:false});}
-    const expected={requestId,record:input.record,
+    const expected={requestId,record:patch,
      expectedRevision:baseline.revision,
      receiptVerified:synced?.receiptVerified===true};
     if(synced?.status==='DOCUMENT_PROFILE_ACK_CONFIRMED'){
      let applied='pending';
      try{applied=typeof onProfileAck==='function'
-      ?await onProfileAck({...synced,action:'patch',record:input.record}):'pending';
+      ?await onProfileAck({...synced,action:'patch',record:patch}):'pending';
      }catch(_){}
      if(applied==='ready')return Object.freeze({
       status:'PROFILE_CLOUD_ACK_APPLIED',requestId,
