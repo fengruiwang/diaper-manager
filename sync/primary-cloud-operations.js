@@ -34,7 +34,7 @@
    throw Error('primary_operations:primary_outbox_unverified');
   let selected=null,busy=false;
   const freshPurchaseIds=new Set(),freshConsumeIds=new Set(),
-   freshReverseIds=new Set();
+   freshReverseIds=new Set(),freshStocktakeIds=new Set();
   const online=()=>host?.navigator?.onLine!==false;
   function knownRows(rows){
    if(!Array.isArray(rows)||rows.length!==6)
@@ -157,7 +157,7 @@
     selected={familyId:scope.familyId,actorUid:scope.actorUid,
      childId:scope.childId};
     return result('PRIMARY_OUTBOX_READ_ONLY_READY',{childId:scope.childId});
-   }catch(_){selected=null;freshPurchaseIds.clear();freshConsumeIds.clear();freshReverseIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
+   }catch(_){selected=null;freshPurchaseIds.clear();freshConsumeIds.clear();freshReverseIds.clear();freshStocktakeIds.clear();return result('PRIMARY_INITIALIZATION_UNVERIFIED');}
    finally{busy=false;}
   }
   async function read(){
@@ -187,7 +187,7 @@
   }
   async function queue(op,{operatorApproved=false,
     verifiedPurchaseBaseline=null,verifiedConsumeBaseline=null,
-    verifiedReverseBaseline=null}={}){
+    verifiedReverseBaseline=null,verifiedStocktakeBaseline=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -198,16 +198,24 @@
    busy=true;
    try{
     const ctx=controller.verifiedContext();
-    const kind=op?.type==='transaction.reverse'?'reverse':op?.payload?.kind;
-    const baseline=kind==='reverse'?verifiedReverseBaseline:
+    const kind=op?.type==='transaction.reverse'?'reverse':
+     op?.type==='inventory.count'?'stocktake':op?.payload?.kind;
+    const baseline=kind==='stocktake'?verifiedStocktakeBaseline:
+     kind==='reverse'?verifiedReverseBaseline:
      kind==='use'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
     const fast=((op?.type==='inventory.delta'&&['buy','use'].includes(kind))
-       ||(op?.type==='transaction.reverse'&&kind==='reverse'))
+       ||(op?.type==='transaction.reverse'&&kind==='reverse')
+       ||(op?.type==='inventory.count'&&kind==='stocktake'&&op.payload?.kind!=='stocktake_batch'))
       &&(kind==='buy'||(kind==='use'&&allowConsume===true)
-       ||(kind==='reverse'&&allowReverse===true))
+       ||(kind==='reverse'&&allowReverse===true)
+       ||(kind==='stocktake'&&allowStocktake===true))
       &&baseline?.status===(kind==='buy'
        ?'PRIMARY_PURCHASE_BASELINE_VERIFIED':kind==='use'
-        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
+        ?'PRIMARY_CONSUME_BASELINE_VERIFIED':kind==='stocktake'
+        ?'PRIMARY_STOCKTAKE_BASELINE_VERIFIED':'PRIMARY_REVERSE_BASELINE_VERIFIED')
+      &&(kind!=='stocktake'||(op.expectedRevision===baseline.revisions?.[op.payload.size]
+       &&Number.isSafeInteger(op.payload.count)&&op.payload.count>=0
+       &&op.payload.count<=100000))
       &&(kind!=='reverse'||(baseline.originalId===op.payload.reversesOperationId
         &&baseline.originalSize===op.payload.size))
       &&selected&&ctx?.app
@@ -247,13 +255,14 @@
      // The cloud-visible original may come from another device and not be
      // present in this device's optimistic IDB transaction projection.
      // Reverse is therefore queued durably without mutating stock until ACK.
-     if(kind==='reverse'){
+     if(kind==='reverse'||kind==='stocktake'){
       const written=await outbox.enqueue(op);
       const created=written?.id===op.id&&written.status==='pending';
-      if(created)freshReverseIds.add(op.id);
+      if(created)(kind==='reverse'?freshReverseIds:freshStocktakeIds).add(op.id);
       return result(created?'PRIMARY_OPERATION_DURABLY_QUEUED':
        'PRIMARY_OPERATION_ALREADY_QUEUED',{
-        operationId:op.id,fastReverse:created
+        operationId:op.id,fastReverse:kind==='reverse'&&created,
+        fastStocktake:kind==='stocktake'&&created
        });
      }
      const written=await outbox.commitInventory(scope,op);
@@ -285,7 +294,7 @@
    }catch(_){return result('PRIMARY_LOCAL_QUEUE_UNVERIFIED');}
    finally{busy=false;}
   }
-  async function flush({operatorApproved=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null}={}){
+  async function flush({operatorApproved=false,fastPurchaseId=null,fastConsumeId=null,fastReverseId=null,fastStocktakeId=null}={}){
    if(cloudWritesEnabled!==true||operatorApproved!==true)
     return result('FORMAL_CLOUD_WRITES_NOT_AUTHORIZED');
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -294,13 +303,16 @@
    busy=true;
    try{
     const ctx=controller.verifiedContext();
-    const fastId=fastReverseId??fastConsumeId??fastPurchaseId;
-    const reverse=fastReverseId!==null,consume=!reverse&&fastConsumeId!==null;
-    const freshIds=reverse?freshReverseIds:consume?freshConsumeIds:freshPurchaseIds;
+    const fastId=fastStocktakeId??fastReverseId??fastConsumeId??fastPurchaseId;
+    const stocktake=fastStocktakeId!==null,reverse=!stocktake&&fastReverseId!==null,
+     consume=!stocktake&&!reverse&&fastConsumeId!==null;
+    const freshIds=stocktake?freshStocktakeIds:reverse?freshReverseIds:
+     consume?freshConsumeIds:freshPurchaseIds;
     const fast=typeof fastId==='string'&&freshIds.has(fastId)
       &&selected&&ctx?.app&&selected.familyId===ctx.familyId
       &&selected.actorUid===ctx.actorUid
-      &&(reverse?allowReverse===true:!consume||allowConsume===true);
+      &&(stocktake?allowStocktake===true:reverse?allowReverse===true:
+       !consume||allowConsume===true);
     if(fastId!==null&&!fast)
      return result('PRIMARY_PENDING_OR_CONFLICT_REVIEW_BEFORE_NEW_OPERATION',
       {operationId:fastId});
@@ -312,12 +324,14 @@
     const sent=await runner.flush(scope,{uploadEnabled:true,maxItems:20,
      purchaseOnly:purchaseOnly===true,allowConsume:allowConsume===true,
      allowReverse:allowReverse===true,allowStocktake:allowStocktake===true,
-     fastPurchaseId:fast&&!consume?fastId:null,
+     fastPurchaseId:fast&&!consume&&!reverse&&!stocktake?fastId:null,
      fastConsumeId:fast&&consume?fastId:null,
-     fastReverseId:fast&&reverse?fastId:null});
+     fastReverseId:fast&&reverse?fastId:null,
+     fastStocktakeId:fast&&stocktake?fastId:null});
     if(fast){
-     const prefix=reverse?'PRIMARY_REVERSE':consume?'PRIMARY_USE':'PRIMARY_PURCHASE';
-     const receiptPrefix=reverse?'reverse':consume?'consume':'purchase';
+     const prefix=stocktake?'PRIMARY_STOCKTAKE':reverse?'PRIMARY_REVERSE':
+      consume?'PRIMARY_USE':'PRIMARY_PURCHASE';
+     const receiptPrefix=stocktake?'stocktake':reverse?'reverse':consume?'consume':'purchase';
      if(sent?.status===receiptPrefix+'-ack-confirmed'
        &&sent.receipt?.duplicate!==true)
       return result(prefix+'_ACK_CONFIRMED',{
@@ -325,6 +339,10 @@
        receipt:sent.receipt,cloudWriteCommitted:true,
        familyId:scope.familyId,actorUid:scope.actorUid,
        childId:scope.childId
+      });
+     if(stocktake&&sent?.status==='stocktake-rejected')
+      return result('PRIMARY_STOCK_REVISION_CONFLICT',{
+       operationId:fastId,cloudWriteCommitted:false,rejected:true
       });
      if(reverse&&sent?.status==='reverse-rejected')
       return result('PRIMARY_REVERSE_SERVER_REJECTED',{
