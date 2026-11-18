@@ -33,6 +33,7 @@ function fixture({build=false,approved=false,selected=true,stockChanges={},
    origin:'cloud_post_migration',size:'S',type:'buy',reversed:false}:
    {id,origin:'legacy_migration',size:'S'},
   notify:x=>notifications.push(x.status),
+  confirmReverse:()=>true,
   formalModeSelected:()=>selected,buildAllowsWrites:build,
   operatorApproved:()=>approved,
   batchStocktake:batchReady?{queue:async args=>{log.push(['batch.queue',args]);

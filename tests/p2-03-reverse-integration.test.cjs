@@ -192,7 +192,7 @@ test('P2-03 UI queues verified buy/use reverse; old history, reversed row and un
  },formalModeSelected:()=>true,buildAllowsWrites:true,
  operatorApproved:()=>true,purchaseOnly:true,allowConsume:true,allowReverse:true,
  readPurchase:()=>null,readQuote:()=>null,readTransaction:id=>entries[id],
- notify:()=>{}});
+ confirmReverse:()=>true,notify:()=>{}});
  assert.equal((await ui.handle({dataset:{action:'deletetx',id:'old'}},{})).status,
   'IMMUTABLE_LEGACY_HISTORY_NOT_REVERSIBLE');
  assert.equal((await ui.handle({dataset:{action:'deletetx',id:'done'}},{})).status,

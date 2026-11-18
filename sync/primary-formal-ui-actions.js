@@ -201,6 +201,13 @@
     minimalFeedback(kind,'pending');
     notify(result('DOCUMENT_PENDING_REVIEW_REQUIRED'));return;
    }
+   // Denied domains cannot ask for confirmation or allocate a fresh UUID.
+   if(kind==='reverse'&&(!purchaseAuthorized()
+     ||(purchaseOnly===true&&allowReverse!==true))){
+    void Promise.resolve(handle(el,doc)).then(notify,
+     ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
+    return;
+   }
    let prepared=null;
    if(kind==='reverse'){
     const record=readTransaction(el.dataset?.id);
