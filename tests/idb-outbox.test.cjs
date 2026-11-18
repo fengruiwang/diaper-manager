@@ -237,7 +237,7 @@ test('T02-P1-02 verified refresh updates an existing six-size snapshot and prese
  assert.equal(after.familyId,initial.familyId);
  assert.equal(after.actorUid,initial.actorUid);
  assert.equal(after.childId,CHILD);
- assert.equal(after.key,undefined,'snapshot key remains storage metadata only');
+ assert.equal(after.key,before.key,'storage identity is preserved');
 });
 test('T02-P1-02 pending, retry, conflict and blocked 009 operations prevent baseline replacement',async()=>{
  const cases=[
@@ -259,7 +259,7 @@ test('T02-P1-02 pending, retry, conflict and blocked 009 operations prevent base
   const rows=await x.list(scope,{includeAcked:true});
   assert.equal(rows[0].id,O1);
   assert.equal(rows[0].status,status);
-  assert.equal(rows[0]._signature,delta()._signature);
+  assert.deepEqual(rows[0].payload,delta().payload);
  });
 });
 test('T02-P1-02 ACKed and abandoned history does not block a verified baseline update or initialization',async()=>{
