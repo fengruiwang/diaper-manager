@@ -26,7 +26,8 @@ assert.ok(ackStart>0&&ackEnd>ackStart,'real formal purchase ACK callback');
 function fixture({fromQuote=false,unknownAck=false,delayed=false,
  consume=false,stockS=140,dailyS=8,useCount=1,
  reverse=false,reverseKind='buy',legacy=false,alreadyReversed=false,
- cancel=false,reject=false,remoteOnly=false,nextKind=null}={}){
+ cancel=false,reject=false,remoteOnly=false,nextKind=null,
+ stocktake=false,stocktakeCount=95,stocktakeConflict=false,extraChanged=null}={}){
  let stock={NB:80,S:stockS,M:0,L:0,XL:0,XXL:0};
  let revisions={NB:1,S:2,M:0,L:0,XL:0,XXL:0};
  const server={inventory:clone(stock),revisions:clone(revisions)};
@@ -44,16 +45,20 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
     assert.equal(arg.p_family_id,F);
     assert.equal(arg.p_child_id,C);
     const next=arg.p_operation_id===NEXT;
-    assert.equal(arg.p_kind,next?nextKind:reverse?'reverse':consume?'use':'buy');
+    assert.equal(arg.p_kind,next?nextKind:stocktake?'stocktake':reverse?'reverse':consume?'use':'buy');
     assert.equal(arg.p_operation_id,next?NEXT:ID);
     assert.equal(arg.p_amount,next?(nextKind==='use'?1:10):
-     reverse?null:consume?useCount:60);
+     stocktake?stocktakeCount:reverse?null:consume?useCount:60);
     assert.equal(arg.p_size,'S');
     if(next){
      assert.equal(arg.p_reverses_operation_id,null);
      if(nextKind==='use')assert.equal(arg.p_purchase,null);
      else assert.deepEqual(arg.p_purchase,{brand:'好奇',series:'小森林',
       total_fen:1000,purchase_date:'2026-11-12'});
+    }else if(stocktake){
+     assert.equal(arg.p_expected_revision,2);
+     assert.equal(arg.p_purchase,null);
+     assert.equal(arg.p_reverses_operation_id,null);
     }else if(reverse){
      assert.equal(arg.p_reverses_operation_id,ORIG);
      assert.equal(arg.p_purchase,null);
@@ -64,9 +69,10 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
     });
     if(gate)await gate;
     if(reject)return {error:{code:'23514',message:'stock out of bounds'}};
-    server.inventory.S+=next?(nextKind==='use'?-1:10):
+    if(stocktakeConflict)return {error:{code:'DATABASE_40001'}};
+    server.inventory.S=stocktake&&!next?stocktakeCount:server.inventory.S+(next?(nextKind==='use'?-1:10):
      reverse?(reverseKind==='buy'?-60:9):
-     consume?-arg.p_amount:60;
+     consume?-arg.p_amount:60);
     server.revisions.S++;
     if(unknownAck)throw Error('NETWORK_ERROR');
     return {data:{accepted:true,operation_id:ID,child_id:C,
@@ -109,6 +115,15 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
    trace.push('idb.ack');
    rows.set(id,Contract.applyResult(rows.get(id),result));
   },
+  async recordStocktakeAck(_scope,id,receipt){
+   trace.push('idb.stocktakeAck');
+   assert.equal(rows.get(id).type,'inventory.count');
+   rows.set(id,Contract.applyResult(rows.get(id),{
+    kind:'accepted',receiptId:id}));
+   local={...local,inventory:{...local.inventory,
+    [receipt.size]:receipt.quantity},serverRevisions:{
+     ...local.serverRevisions,[receipt.size]:receipt.revision}};
+  },
   async recordReverseAck(_scope,id,receipt){
    trace.push('idb.reverseAck');
    assert.equal(rows.get(id).type,'transaction.reverse');
@@ -136,7 +151,7 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   inventoryReconciler:{build(){}},
   runnerFactory:Runner,syncFactory:{create(){throw Error('unexpected reconcile');}},
   cloudWritesEnabled:true,purchaseOnly:true,
-  allowConsume:consume||nextKind==='use',allowReverse:reverse,allowStocktake:false
+  allowConsume:consume||nextKind==='use',allowReverse:reverse,allowStocktake:stocktake
  });
  const base={
   status:'PRIMARY_READ_ONLY_READY',source:'cloudbase-primary-receipt-verified',
@@ -215,6 +230,9 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   }),
   readConsumeBaseline:consume?readConsumeBaseline:null,
   readReverseBaseline:reverse?readReverseBaseline:null,
+  readStocktakeBaseline:stocktake?()=>({
+   ...scope,inventory:clone(env.shownStock.inventory),
+   revisions:clone(env.shownStock.revisions)}):null,
   confirmReverse:record=>{
    confirmMessages.push(record.type==='buy'
     ?'确认撤销这条采购记录吗？库存将相应调整。'
@@ -225,8 +243,8 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   notify:a=>notices.push(a),formalModeSelected:()=>true,
   buildAllowsWrites:true,operatorApproved:()=>true,
   buildAllowsDocumentWrites:true,documentOperatorApproved:()=>true,
-  purchaseOnly:true,allowConsume:consume,allowReverse:reverse,
-  allowStocktake:false,allowReference:true,allowQuotes:true,
+  purchaseOnly:true,allowConsume:consume||nextKind==='use',allowReverse:reverse,
+  allowStocktake:stocktake,allowReference:true,allowQuotes:true,
   allowGrowth:true,allowProfile:true,allowSettings:true
  });
  const buttons={
@@ -242,6 +260,8 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
    count:String(Math.min(stockS,Math.round(dailyS)))},
    textContent:'− 记 1 天',disabled:stockS===0,
    classList:{contains:()=>false},closest(){return this;}},
+  stocktake:{id:'saveStocks',dataset:{},textContent:'保存实际库存',
+   disabled:false,classList:{contains:()=>false},closest(){return this;}},
   reverse:{id:'',dataset:{action:'deletetx',
    id:legacy?'legacy:remote':'cloud:'+ORIG},
    textContent:'撤销',disabled:alreadyReversed,
@@ -251,13 +271,18 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
   formalCompareActionFeedback:{textContent:''},
   formalQuotePurchaseFeedback:{textContent:''},
   formalConsumeActionFeedback:{textContent:''},
-  formalReverseActionFeedback:{textContent:''}
+  formalReverseActionFeedback:{textContent:''},
+  formalStocktakeActionFeedback:{textContent:''}
  };
  const handlers={};
  const dom={
   addEventListener:(event,fn)=>{handlers[event]=fn;},
   removeEventListener(){},
-  getElementById:id=>id==='quoteList'?{
+  getElementById:id=>id.startsWith('inv_')?{
+    value:String(id==='inv_S'?stocktakeCount:
+     extraChanged&&Object.prototype.hasOwnProperty.call(extraChanged,id.slice(4))
+      ?extraChanged[id.slice(4)]:stock[id.slice(4)])
+   }:id==='quoteList'?{
     querySelectorAll:()=>[buttons.candidate]
    }:id==='sizeCards'?{
     querySelectorAll:()=>[buttons.consumeOne,buttons.consumeDay]
@@ -276,6 +301,7 @@ function fixture({fromQuote=false,unknownAck=false,delayed=false,
    {action:'buyquote',id:'candidate'}},dom),
   consumeClick:mode=>ui.handle(mode==='day'?buttons.consumeDay:buttons.consumeOne,dom),
   reverseClick:()=>ui.handle(buttons.reverse,dom),
+  stocktakeClick:()=>ui.handle(buttons.stocktake,dom),
   capture:id=>{
    if(!handlers.click)ui.attach(dom);
    const button=id==='buyNow'?buttons.buyNow:
