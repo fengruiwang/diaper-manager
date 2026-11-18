@@ -142,7 +142,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  function syncButtonState(){
   const connected=host.navigator?.onLine!==false;
-  const scoped=mode==='ready'&&Boolean(actor&&family&&primary);
+  const current=controller?.verifiedContext?.();
+  const selected=primary?.selectedScope?.();
+  const scoped=mode==='ready'&&Boolean(actor&&family&&primary
+   &&current?.actorUid===actor&&current.familyId===family
+   &&(!selected||(selected.actorUid===actor&&selected.familyId===family
+    &&selected.childId===primaryViewBase?.childId)));
   const blocked=syncActionBusy||refreshBusy||busy;
   const headerRecovery=hasPendingPageReview();
   const get=$('formalGetCloudLatest'),send=$('formalSubmitPending');
@@ -162,7 +167,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    ?'待同步：'+pendingCount+' 项':'待同步：状态待核验';
  }
  async function checkPending(){
-  if(mode!=='ready'||!actor||!family||host.navigator?.onLine===false){
+  if(mode!=='ready'||!actor||!family||host.navigator?.onLine===false
+    ||controller?.verifiedContext?.()?.actorUid!==actor
+    ||controller?.verifiedContext?.()?.familyId!==family){
    pendingCountsVerified=false;pendingCount=0;syncButtonState();return null;
   }
   const key=actor+'\x00'+family,epoch=documentEpoch,serial=++pendingReviewSerial;
@@ -1769,7 +1776,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   }
   async function submitPending(){
    if(syncActionBusy||refreshBusy||busy)return;
-   if(mode!=='ready'||!actor||!family||host.navigator?.onLine===false){
+   if(mode!=='ready'||!actor||!family||host.navigator?.onLine===false
+     ||controller?.verifiedContext?.()?.actorUid!==actor
+     ||controller?.verifiedContext?.()?.familyId!==family){
     const node=$('formalCloudSyncFeedback');
     if(node)node.textContent=host.navigator?.onLine===false
      ?'网络中断，未完成操作已保留':'请先登录并确认当前家庭和宝宝';
