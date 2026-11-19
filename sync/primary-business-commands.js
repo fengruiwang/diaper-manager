@@ -15,7 +15,7 @@
   ||(typeof require==='function'
    ?require('./primary-business-date.js'):null))?.fromTimestamp;
  function ret(status,extras={}){return Object.freeze({status,...extras});}
- function create({primary,uuid,clock}={}){
+ function create({primary,uuid,clock,isOnline=()=>true}={}){
   if(!primary?.selectedScope||!primary?.read||!primary?.queue
     ||typeof uuid!=='function'||typeof clock!=='function')
    throw Error('primary_commands:dependencies_required');
@@ -93,6 +93,8 @@
     if(!scope||!UUID.test(scope.familyId)||!UUID.test(scope.childId)
       ||typeof scope.actorUid!=='string'||!scope.actorUid)
      return ret('PRIMARY_NOT_SELECTED');
+    // Explicitly offline: reject before allocating a UUID or touching IDB.
+    if(isOnline()===false)return ret('OFFLINE_FORMAL_QUEUE_NOT_APPROVED');
     const baseline=action==='stocktake'?verifiedStocktakeBaseline:
      action==='reverse'?verifiedReverseBaseline:
      action==='consume'?verifiedConsumeBaseline:verifiedPurchaseBaseline;
@@ -135,6 +137,10 @@
       verifiedConsumeBaseline:fast&&action==='consume'?fresh:null,
       verifiedReverseBaseline:fast&&action==='reverse'?fresh:null,
       verifiedStocktakeBaseline:fast&&action==='stocktake'?fresh:null});
+    // queue() may reject after the network drops following preflight;
+    // this refusal means definitely not enqueued, unlike an unknown IDB result.
+    if(queued?.status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED')
+     return ret('OFFLINE_FORMAL_QUEUE_NOT_APPROVED');
     if(!queued||!['PRIMARY_OPERATION_DURABLY_QUEUED',
       'PRIMARY_OPERATION_ALREADY_QUEUED'].includes(queued.status)){
      return ret('PRIMARY_QUEUE_UNVERIFIED_PRESERVE_ORIGINAL_ID',

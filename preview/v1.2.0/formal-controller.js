@@ -721,7 +721,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     primary=p;pendingGuard=p;
     const commands=commandsFactory.create({
      primary:p,uuid:()=>host.crypto.randomUUID(),
-     clock:()=>new Date().toISOString()
+     clock:()=>new Date().toISOString(),
+     isOnline:()=>host.navigator?.onLine!==false
     });
     if(!attached){
      let documentCommands=null;
@@ -1428,7 +1429,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         conflictButton(true);
        void checkPending().catch(()=>{});
        $('formalSyncState').textContent=
-        answer?.status==='PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED'
+        answer?.status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED'
+         ?'当前网络不可用，本次操作未保存，请联网后重新操作。'
+        :answer?.status==='PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED'
          ?'库存盘点成功，库存已更新'
         :answer?.status==='PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED'
          ?'单尺码盘点已保存，六尺码云端库存已重新读取。'

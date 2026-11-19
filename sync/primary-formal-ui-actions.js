@@ -101,6 +101,8 @@
   }
   function errorText(status,kind){
    const name=kind==='purchase'?'采购':kind==='quotes'?'候选价':'默认价';
+   if(status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED')
+    return '当前网络不可用，本次操作未保存，请联网后重新操作。';
    if(/NOT_AUTHORIZED|CONTRACT_NOT_READY|FORMAL_PURCHASE_ONLY/.test(status))
     return '当前云端操作未开放，请核对账号及家庭授权。';
    if(/FORM_INVALID|INVALID|NOT_VERIFIED|INPUT/.test(status))
@@ -134,6 +136,8 @@
      ?consumeDay?'今日消耗已记录，库存已更新':'已消耗 1 片，库存已更新'
     :phase==='pending'?'消耗结果待核验，原 operation UUID 已保留，请勿重复提交。'
     :phase==='recovered'?'原消耗操作已核验，库存已更新。'
+    :status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED'
+     ?'当前网络不可用，本次操作未保存，请联网后重新操作。'
     :status==='PRIMARY_DAILY_SETTINGS_LOADING'
      ?'日用量加载中，请稍后。'
     :status==='PRIMARY_DAILY_SETTINGS_UNVERIFIED'
@@ -147,7 +151,7 @@
    for(const button of controls)button.disabled=waiting;
    if(!waiting){consumeButton=null;consumeSize='';consumeDay=false;}
   }
-  function reverseFeedback(phase){
+  function reverseFeedback(phase,answer=null){
    const dom=attached?.doc;
    const controls=[...(dom?.getElementById('historyList')
      ?.querySelectorAll?.('[data-action="deletetx"]')||[])];
@@ -158,6 +162,8 @@
     :phase==='pending'?'撤销结果待核验，原请求已保留，请勿重复提交。'
     :phase==='recovered'?'原撤销请求已核验，库存与历史已更新。'
     :phase==='cancelled'?'已取消撤销，库存和历史记录没有变化。'
+    :answer?.status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED'
+     ?'当前网络不可用，本次操作未保存，请联网后重新操作。'
     :'撤销失败，请检查当前库存或刷新后重试。';
    const waiting=phase==='working'||phase==='pending';
    for(const button of controls)button.disabled=waiting;
@@ -174,6 +180,8 @@
     :phase==='success'?(stocktakeBatchAction?'批量盘点成功，库存已更新':'库存盘点成功，库存已更新')
     :phase==='pending'?(stocktakeBatchAction?'批量盘点结果待核验，原批次已保留，请勿重复提交':'盘点结果待核验，原请求已保留，请勿重复提交')
     :phase==='recovered'?'原盘点请求已核验，库存已更新'
+    :status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED'
+     ?'当前网络不可用，本次操作未保存，请联网后重新操作。'
     :status==='PRIMARY_STOCK_UNCHANGED'?'库存没有变化，无需保存'
     :status==='MULTI_SIZE_STOCKTAKE_BATCH_REQUIRED'
      ?'多尺码批量盘点功能尚未开放，请等待下一阶段。'
