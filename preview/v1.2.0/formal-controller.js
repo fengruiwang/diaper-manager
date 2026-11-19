@@ -757,7 +757,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       documentsGuard=queue;
       documentCommands=documentCommandsFactory.create({
        client:documentsClient,queue,
-       uuid:()=>host.crypto.randomUUID()
+       uuid:()=>host.crypto.randomUUID(),
+       isOnline:()=>host.navigator?.onLine!==false
       });
      }
      if(typeof batchStocktakeFactory==='function'){
@@ -1452,7 +1453,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         conflictButton(true);
        void checkPending().catch(()=>{});
        $('formalSyncState').textContent=
-        answer?.status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED'
+        ['OFFLINE_FORMAL_QUEUE_NOT_APPROVED',
+          'DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE'].includes(answer?.status)
          ?'当前网络不可用，本次操作未保存，请联网后重新操作。'
         :answer?.status==='PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED'
          ?'库存盘点成功，库存已更新'

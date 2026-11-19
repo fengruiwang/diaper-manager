@@ -15,6 +15,10 @@
  const guardedActions=new Set(['deletequote','editquote','deleteweight',
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
+ const DOCUMENT_OFFLINE='DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE';
+ const OFFLINE_MESSAGE='当前网络不可用，本次操作未保存，请联网后重新操作。';
+ const hasDocumentRequest=answer=>typeof answer?.requestId==='string'
+  &&answer.requestId!==''&&answer.status!==DOCUMENT_OFFLINE;
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   readPurchaseBaseline=null,readConsumeBaseline=null,
   readReverseBaseline=null,confirmReverse=()=>false,onPurchaseAck=null,
@@ -101,8 +105,8 @@
   }
   function errorText(status,kind){
    const name=kind==='purchase'?'采购':kind==='quotes'?'候选价':'默认价';
-   if(status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED')
-    return '当前网络不可用，本次操作未保存，请联网后重新操作。';
+   if(status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED'
+     ||status===DOCUMENT_OFFLINE)return OFFLINE_MESSAGE;
    if(/NOT_AUTHORIZED|CONTRACT_NOT_READY|FORMAL_PURCHASE_ONLY/.test(status))
     return '当前云端操作未开放，请核对账号及家庭授权。';
    if(/FORM_INVALID|INVALID|NOT_VERIFIED|INPUT/.test(status))
@@ -316,7 +320,7 @@
     if(!success){
      const id=kind==='stocktake'&&answer?.batchId
       ?answer.batchId:['purchase','consume','reverse','stocktake'].includes(kind)
-      ?answer?.operationId:answer?.requestId;
+      ?answer?.operationId:hasDocumentRequest(answer)?answer.requestId:null;
      if(typeof id==='string'&&id&&answer?.rejected!==true
       &&answer?.status!=='BATCH_REVISION_CONFLICT_MANUAL_REVIEW')
       minimalReview[kind]=Object.freeze(
@@ -454,6 +458,7 @@
       :phase==='working'||Object.prototype.hasOwnProperty.call(PROFILE_STAGES,phase)
        ?PROFILE_STAGES[phase]
       :phase==='idle'?'原宝宝资料请求已核验，可以继续操作。'
+      :status===DOCUMENT_OFFLINE?OFFLINE_MESSAGE
       :/UNCHANGED/.test(status)?'资料没有变化，无需保存。'
       :/FORM_INVALID|INPUT/.test(status)?'资料未保存：请检查日期、出生时间和测量数据。'
       :/PERMISSION|NOT_AUTHORIZED/.test(status)?'服务器拒绝保存宝宝资料，请检查账号及家庭权限。'
@@ -478,6 +483,7 @@
         ?'云端版本已变化，请获取云端最新后重新编辑；原请求已保留。'
         :'设置保存结果待核验，原 UUID 已保留，请勿重复提交。'
       :phase==='idle'?'原设置请求已核验，可以继续操作。'
+      :status===DOCUMENT_OFFLINE?OFFLINE_MESSAGE
       :/UNCHANGED/.test(status)?'设置没有变化，无需保存'
       :/FORM_INVALID|INPUT/.test(status)?'设置未保存：请检查输入。'
       :/CONFLICT|REVISION/.test(status)
@@ -525,6 +531,7 @@
      :phase==='recovered'?'原体重记录请求已核验，可以继续操作。'
      :phase==='cancelled'||status==='GROWTH_DELETE_CANCELLED'
       ?'已取消删除，体重记录未变化。'
+     :status===DOCUMENT_OFFLINE?OFFLINE_MESSAGE
      :/FORM_INVALID|INPUT/.test(status)
       ?'体重记录未保存：请检查测量日期、体重和时间。'
      :/PERMISSION|NOT_AUTHORIZED/.test(status)
@@ -1297,7 +1304,7 @@
     void handle(el,doc).then(answer=>{
      // A committed/ambiguous request stays locked until its own receipt
      // and the same account's rendered reference are verified together.
-     if(answer?.requestId&&!['REFERENCE_CLOUD_READBACK_VERIFIED',
+     if(hasDocumentRequest(answer)&&!['REFERENCE_CLOUD_READBACK_VERIFIED',
       'REFERENCE_CLOUD_ACK_APPLIED'].includes(answer.status))
       referenceNeedsReview=Object.freeze({
        requestId:answer.requestId,action:intent?.action,
@@ -1408,7 +1415,7 @@
    void Promise.resolve(promise).then(answer=>{
     const ok=['GROWTH_CLOUD_ACK_APPLIED','GROWTH_CLOUD_READBACK_VERIFIED']
      .includes(answer?.status);
-    if(answer?.requestId&&!ok){
+    if(hasDocumentRequest(answer)&&!ok){
      pendingDocumentReview.growth=Object.freeze({
       requestId:answer.requestId,action:answer.action||input.action,
       record:answer.record||input.record,
@@ -1448,7 +1455,8 @@
        .includes(answer?.status)
      :['SETTINGS_CLOUD_ACK_APPLIED','SETTINGS_CLOUD_READBACK_VERIFIED']
       .includes(answer?.status);
-    if(answer?.requestId&&!ok)pendingDocumentReview[kind]=answer.requestId;
+    if(hasDocumentRequest(answer)&&!ok)
+     pendingDocumentReview[kind]=answer.requestId;
     documentProgress(kind,pendingDocumentReview[kind]?'pending':
      ok?'success':'failed',answer?.timings||{},answer);
     notify(answer);

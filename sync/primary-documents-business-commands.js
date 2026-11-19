@@ -9,7 +9,7 @@ const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const clone=x=>JSON.parse(JSON.stringify(x));
 const reply=(status,extra={})=>Object.freeze({status,...extra});
 const sizeSet=new Set(['NB','S','M','L','XL','XXL']);
-function create({client,queue,uuid}={}){
+function create({client,queue,uuid,isOnline=()=>true}={}){
  if(!client?.read||!queue?.queue||!queue?.pending||typeof uuid!=='function')
   throw Error('document_commands:dependencies_required');
  let busy=false;
@@ -87,6 +87,10 @@ function create({client,queue,uuid}={}){
   if(queue.cloudWritesEnabled!==true||operatorApproved!==true)
    return reply('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return reply('BUSY');
+  // This formal path has no approved offline document writes.
+  // A known offline save must not allocate a UUID or alter IndexedDB.
+  if(isOnline()===false)
+   return reply('DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE');
   busy=true;
   try{
    // Do not issue a second request while a prior ACK or conflict is unsettled.
@@ -135,9 +139,18 @@ function create({client,queue,uuid}={}){
     action,verifiedBaseline:fastKind
      &&read.familyId===familyId&&typeof read.childId==='string'
      ?{...read,actorUid}:null});
-   return reply(saved.status,{
-    requestId:saved.requestId||requestId,cloudWriteCommitted:false
-   });
+   // The queue can refuse before IndexedDB persistence, including a late
+   // network drop. Only durable or locally uncertain requests retain an ID.
+   const noQueue=new Set(['DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE',
+    'DOCUMENT_WRITES_NOT_AUTHORIZED','DOCUMENT_QUEUE_BUSY',
+    'INVALID_DOCUMENT_OPERATION','DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED']);
+   if(saved&&noQueue.has(saved.status))
+    return reply(saved.status,{cloudWriteCommitted:false});
+   // Unknown local queue results remain ambiguous: NEVER invent a new ID
+   // for recovery, but preserve the one already allocated for this attempt.
+   const status=saved?.status||'DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID';
+   return reply(status,{requestId:saved?.requestId||requestId,
+    cloudWriteCommitted:false});
   }catch(_){return reply('DOCUMENT_COMMAND_REJECTED');}
   finally{busy=false;}
  }
