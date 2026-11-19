@@ -41,7 +41,7 @@ test('RC6 T04-P1/P2 and R01-02 protections are present in the released business 
  const h=text('index.html'),c=text('formal-controller.js');
  assert.match(h,/PRIMARY_DAILY_SETTINGS_LOADING/);
  assert.match(h,/PRIMARY_DAILY_SETTINGS_UNVERIFIED/);
- assert.match(h,/dailySettingsStatus==='verified'/);
+ assert.match(h,/dailySettingsStatus!=='verified'/);
  assert.match(h,/OFFLINE_FORMAL_QUEUE_NOT_APPROVED/);
  assert.match(h,/PRIMARY_QUEUE_UNVERIFIED_PRESERVE_ORIGINAL_ID/);
  assert.match(h,/isOnline\(\)===false/);
