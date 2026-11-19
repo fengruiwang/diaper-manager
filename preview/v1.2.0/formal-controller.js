@@ -541,8 +541,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   // OTP just verified a session, so skip the login-checking label in that path.
   const loginAlreadyVerified=validLogin.has(verifiedStatus)
    &&controller.verifiedContext();
-  if(mode!=='ready')screen('boot',loginAlreadyVerified
-   ?'正在获取家庭与库存数据…':'正在检查登录状态…');
+  if(mode!=='ready'){
+   const stage=loginAlreadyVerified
+    ?'正在获取家庭与库存数据…':'正在检查登录状态…';
+   if(mode==='boot')bootStage(token,stage);
+   else screen('boot',stage);
+  }
   if(host.navigator?.onLine===false){
    clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);
    busy=false;return mode;
