@@ -16,7 +16,7 @@ const DOCUMENT_READ_TIMEOUT_MS=60000;
 const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
 const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED','FORMAL_FAMILY_VERIFIED']);
 const notes={
- LOGIN_REQUIRED:'首次使用请邮箱验证码登录；后续使用 CloudBase 已保持的会话。',
+ LOGIN_REQUIRED:'欢迎使用小宝管家，请使用邮箱验证码登录。',
  OFFLINE_LOCAL_ONLY:'当前离线，未清除登录会话。请联网后重试。',
  SESSION_UNVERIFIED:'暂时不能验证会话，请联网重试；不会自动退出。',
  CONNECT_FAILED:'云端连接暂时失败，请检查网络后重新检查。不会自动退出登录。',
@@ -310,6 +310,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   $('formalGateMessage').textContent=message;
   $('formalAccountState').textContent=next==='ready'?'已连接':next==='boot'?'检查中':next==='login'?'未登录':next==='offline'?'离线':'需检查';
  }
+ // Only update the existing spinner text while this restore still owns
+ // the loading gate. An in-flight read must not replace a newer page state.
+ function bootStage(token,message){
+  if(token!==revision||mode!=='boot')return;
+  if($('formalGateMessage')?.textContent!==message)screen('boot',message);
+ }
  function conflictButton(visible){
   const button=$('formalResolveDocumentConflict');
   if(!button)return;
@@ -531,9 +537,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   busy=true;localInventoryBaselineReady=false;syncButtonState();
   const token=++revision;
   fullReadVerified=false;
-  // Retain the verified same-account view during visibility/online rechecks.
-  // A real identity, permission or primary failure still clears it below.
-  if(mode!=='ready'&&mode!=='boot')screen('boot','正在打开小宝管家…');
+  // Keep the already visible home during same-scope refreshes.
+  // OTP just verified a session, so skip the login-checking label in that path.
+  const loginAlreadyVerified=validLogin.has(verifiedStatus)
+   &&controller.verifiedContext();
+  if(mode!=='ready')screen('boot',loginAlreadyVerified
+   ?'正在获取家庭与库存数据…':'正在检查登录状态…');
   if(host.navigator?.onLine===false){
    clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);
    busy=false;return mode;
@@ -541,7 +550,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   try{
    // Reuse the just-confirmed session/family only for OTP; every new reload
    // still verifies afresh. Formal primary, receipt and RLS remain checked.
-   const status=validLogin.has(verifiedStatus)&&controller.verifiedContext()
+   const status=loginAlreadyVerified
     ?verifiedStatus:await bounded(()=>controller.connect(),18000);
    if(token!==revision)return mode;
    if(status==='LOGIN_REQUIRED'){
@@ -555,7 +564,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     clear();screen('unverified',notes[status]||notes.SESSION_UNVERIFIED);
     return mode;
    }
-   if(actor!==ctx.actorUid||family!==ctx.familyId)clear();
+   if(actor!==ctx.actorUid||family!==ctx.familyId){
+    const wasReady=mode==='ready';
+    clear();
+    // A changed account must not show the previous account's home or
+    // the old boot message while the new family's stock is being read.
+    if(wasReady)screen('boot','正在获取家庭与库存数据…');
+   }
+   bootStage(token,'正在获取家庭与库存数据…');
    // Capture BEFORE the asynchronous primary read, not after it returns.
    // The existing ACK callbacks replace primaryViewBase only after a server
    // receipt was validated. A changed reference is therefore fresh evidence.
@@ -708,6 +724,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      documentSnapshot=null;documentScope='';
     }
    }
+   // The next real step is validating the local inventory bridge.
+   // Do not show this stage before the primary cloud read succeeds.
+   bootStage(token,'正在核对本机库存…');
    // An authenticated, receipt-backed primary is required for outbox setup.
    if(!primary){
     const p=primaryFactory({controller,host,
@@ -1562,6 +1581,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       ||(selectedNow&&(selectedNow.actorUid!==ctx.actorUid
         ||selectedNow.familyId!==ctx.familyId
         ||selectedNow.childId!==displayBase.childId)))return mode;
+   // Still the same local-inventory stage when an existing primary bridge
+   // skips activate() but must perform a fresh IDB baseline sync.
+   bootStage(token,'正在核对本机库存…');
    // Keep the local 009 baseline aligned with this already verified read.
    // Check the separate 027 queue first; the 009 queue and snapshot are then
    // checked atomically by the IndexedDB outbox transaction.
@@ -1746,7 +1768,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   }finally{otpConfirming=false;redrawConfirmButton();}
  }
  async function start(){
-  screen('boot','正在打开小宝管家…');
+  screen('boot','正在检查登录状态…');
   controller=loginController.create({
    host,storage:null,view:authView(),scriptLoader,
    deferChildReadToFormal:true
