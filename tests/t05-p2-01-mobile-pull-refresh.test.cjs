@@ -991,3 +991,13 @@ test('T05-P3-02 late lightweight result during an active business action does no
   &&h.currentView.state.inventory.S===115);
  assert.equal(h.currentView.state.inventory.S,115);
 });
+
+test('T05-P3-02 interrupted hidden poll does not permanently block future foreground checks',async()=>{
+ const h=harness();await ready(h);h.visibility('visible');
+ h.hold('poll');h.advance(30000);await until(()=>h.pollCount===1);
+ h.visibility('hidden');assert.equal(h.timers,0);
+ await h.release('poll');
+ h.visibility('visible');assert.equal(h.timers,1);
+ h.advance(30000);await until(()=>h.pollCount===2);
+ assert.equal(h.readCount,1,'both unchanged checks avoid heavy reads');
+});

@@ -150,6 +150,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    host.clearInterval?.(inventoryPollTimer);inventoryPollTimer=null;
   }
   inventoryPollSerial++;
+  // The old in-flight RPC is now stale and its finally handler must not
+  // hold the next foreground cycle hostage.
+  inventoryPollBusy=false;
  }
  function updateInventoryPolling(){
   const eligible=mode==='ready'&&doc.visibilityState==='visible'
