@@ -30,14 +30,16 @@ function cloudModel(scope){
  };
 }
 function harness({session=true,connectResult=null,offline=false,
- readError=false,baselineStatus='PRIMARY_LOCAL_BASELINE_SYNCED',hold=[],mobile=true}={}){
+ readError=false,baselineStatus='PRIMARY_LOCAL_BASELINE_SYNCED',hold=[],mobile=true,
+ cached=null,cloudInventory=null}={}){
  const scope={familyId:FAMILY,childId:CHILD_A,actorUid:'actor-A'};
  const events=[],messages=[],elements=new Map(),listeners=new Map(),pauses=new Set(hold);
  const waiters=new Map();
  let loggedIn=session,connected=false,failRead=readError,
   connectStatus=connectResult,networkOnline=!offline,
   currentView=null,actions=null,submitted=0,readCount=0,activateCount=0,
-  baselineCount=0,loginCount=0,clears=0,currentBaselineStatus=baselineStatus;
+  baselineCount=0,loginCount=0,clears=0,currentBaselineStatus=baselineStatus,
+  cacheReads=0;
  let businessBusy=false,actionCallbacks=null;
  const docEvents=new Map();
  const item=id=>{
@@ -133,13 +135,25 @@ function harness({session=true,connectResult=null,offline=false,
   readModelFactory:()=>({read:async()=>{
    readCount++;await pause('read');
    if(failRead)throw Error('synthetic cloud read failure');
-   return cloudModel(scope);
+   const data=cloudModel(scope);
+   if(cloudInventory)data.inventory={...data.inventory,...cloudInventory};
+   return data;
   }}),
   primaryFactory:()=>{
    const activatedScope={...scope};
    return {
     cloudWritesEnabled:true,
     selectedScope:()=>({...activatedScope}),
+    async lastConfirmedInventory(){
+     cacheReads++;await pause('cache');
+     const snapshot=cached?{status:'PRIMARY_LAST_CONFIRMED_INVENTORY',
+      ...activatedScope,
+      inventory:{NB:0,S:90,M:0,L:0,XL:0,XXL:0},
+      revisions:{NB:1,S:1,M:1,L:1,XL:1,XXL:1},
+      ...cached}:null;
+     // Mirror the primary bridge's active-child IDB key check.
+     return snapshot?.childId===activatedScope.childId?snapshot:null;
+    },
     async activate(){
      activateCount++;await pause('activate');
      return {status:'PRIMARY_OUTBOX_READ_ONLY_READY'};
@@ -187,6 +201,7 @@ function harness({session=true,connectResult=null,offline=false,
   get readCount(){return readCount;},
   get activateCount(){return activateCount;},
   get baselineCount(){return baselineCount;},
+  get cacheReads(){return cacheReads;},
   get loginCount(){return loginCount;},
   get submitted(){return submitted;},
   get clears(){return clears;},
@@ -468,4 +483,110 @@ test('T05-P2-01A revert to focused baseline permits refresh without save',async(
  assert.equal(touch(h,{dy:110}).prevented,0);
  field.value='1.50';h.listeners.get('document:input')({target:field});
  await expectOneMorePull(h);
+});
+
+test('T05-P2-02A previously confirmed stock appears while cloud read is still running',async()=>{
+ const h=harness({cached:{},hold:['read']});
+ const started=h.app.start();
+ await until(()=>h.item('formalCachedStockGrid').innerHTML?.includes('90'));
+ assert.equal(h.app.mode,'boot');
+ assert.equal(h.doc.body.dataset.formalState,'boot');
+ assert.equal(h.item('formalCachedInventory').hidden,false);
+ assert.match(h.item('formalGateMessage').textContent,/上次已确认库存.*正在同步云端.*暂不可修改/);
+ assert.equal(h.item('formalLoadingCard').hidden,true);
+ assert.equal(h.currentView,null,'no fake full five-page projection');
+ assert.equal(h.cacheReads,1);
+ await h.release('read');assert.equal(await started,'ready');
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+ assert.equal(h.currentView.state.inventory.S,140,'server replaces cached S=90');
+});
+test('T05-P2-02A cached gate never exposes business actions, even with queued UUID',async()=>{
+ const h=harness({cached:{},hold:['read','cache']});
+ const started=h.app.start();await h.release('cache');
+ await until(()=>h.item('formalCachedInventory').hidden===false);
+ assert.equal(h.app.mode,'boot');
+ assert.equal(h.actions,null,'formal business action handlers not installed');
+ assert.equal(h.submitted,0);
+ assert.equal(h.item('formalRefresh').disabled,true);
+ assert.equal(h.item('formalSubmitPending').disabled,true);
+ assert.equal(h.readCount,1);
+ await h.release('read');await started;
+});
+test('T05-P2-02A no cache preserves original boot and ready lifecycle',async()=>{
+ const h=harness({hold:['read']});
+ const started=h.app.start();
+ await until(()=>h.readCount===1);
+ await tick();
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+ assert.equal(h.item('formalLoadingCard').hidden,false);
+ await h.release('read');assert.equal(await started,'ready');
+});
+test('T05-P2-02A login required never reads or displays prior account cache',async()=>{
+ const h=harness({session:false,cached:{}});
+ assert.equal(await h.app.start(),'login');
+ assert.equal(h.cacheReads,0);
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+});
+test('T05-P2-02A wrong actor or family cache never renders',async()=>{
+ for(const change of [{actorUid:'actor-B'},{familyId:'4b3ac16f-25fb-4fbd-8df8-0c7f9f390146'}]){
+  const h=harness({cached:change,hold:['read']});
+  const started=h.app.start();await until(()=>h.cacheReads===1);await tick();
+  assert.equal(h.item('formalCachedInventory').hidden,true);
+  await h.release('read');assert.equal(await started,'ready');
+ }
+});
+test('T05-P2-02A wrong active baby cache never renders',async()=>{
+ const h=harness({cached:{childId:CHILD_B},hold:['read']});
+ const started=h.app.start();await until(()=>h.cacheReads===1);await tick();
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+ await h.release('read');await started;
+});
+test('T05-P2-02A read failure retains same-scope old stock only as unsynced gate',async()=>{
+ const h=harness({cached:{},readError:true,hold:['read']});
+ const started=h.app.start();
+ await until(()=>h.item('formalCachedInventory').hidden===false);
+ await h.release('read');
+ assert.equal(await started,'cached');
+ assert.equal(h.app.mode,'cached');
+ assert.match(h.item('formalGateMessage').textContent,/云端暂未同步/);
+ assert.equal(h.currentView,null);
+ assert.equal(h.submitted,0);
+});
+test('T05-P2-02A network loss while cache is visible cannot fake sync success',async()=>{
+ const h=harness({cached:{},hold:['read']});
+ const started=h.app.start();
+ await until(()=>h.item('formalCachedInventory').hidden===false);
+ h.setOnline(false);h.setReadError(true);
+ await h.release('read');
+ assert.equal(await started,'cached');
+ assert.match(h.item('formalGateMessage').textContent,/暂未同步/);
+ assert.equal(h.item('formalCachedInventory').hidden,false);
+});
+test('T05-P2-02A changed account while loading erases cached stock immediately',async()=>{
+ const h=harness({cached:{},hold:['read']});
+ const started=h.app.start();
+ await until(()=>h.item('formalCachedInventory').hidden===false);
+ h.switchAccount('actor-B',CHILD_B);
+ await h.release('read');await started;
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+ assert.equal(h.item('formalCachedStockGrid').innerHTML,'');
+ assert.notEqual(h.app.mode,'ready');
+});
+test('T05-P2-02A late IDB cache cannot replace already verified current cloud stock',async()=>{
+ const h=harness({cached:{},hold:['cache']});
+ const started=h.app.start();assert.equal(await started,'ready');
+ assert.equal(h.currentView.state.inventory.S,140);
+ await h.release('cache');await tick();await tick();
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+ assert.equal(h.app.mode,'ready');
+ assert.equal(h.currentView.state.inventory.S,140);
+});
+test('T05-P2-02A cached counts cannot populate expense or profile fields',async()=>{
+ const h=harness({cached:{},hold:['read']});
+ const started=h.app.start();
+ await until(()=>h.item('formalCachedInventory').hidden===false);
+ assert.equal(h.currentView,null);
+ assert.ok(!h.item('formalCachedStockGrid').innerHTML.includes('合成宝宝'));
+ assert.ok(!h.item('formalCachedStockGrid').innerHTML.includes('¥'));
+ await h.release('read');await started;
 });

@@ -94,12 +94,19 @@
 <style>
 #formalGate{min-height:100vh;display:flex;justify-content:center;align-items:center;
 padding:20px;background:linear-gradient(155deg,#f0f9f6,#edf2fb)}
-.formal-gate-card{width:min(450px,100%);background:#fff;border-radius:20px;
+.formal-gate-card{width:min(640px,100%);background:#fff;border-radius:20px;
 padding:30px 26px;box-shadow:0 12px 60px #263b5222}
 .formal-logo{font-size:48px;text-align:center}
 .formal-gate-card h1{text-align:center;font-size:24px;margin:8px 0 16px}
 .formal-gate-card p{font-size:14px;line-height:1.7}
 .formal-gate-card .field{display:block;margin:12px 0}
+#formalCachedInventory{margin:14px 0 6px}
+#formalCachedInventory .sizes{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+#formalCachedInventory .sizecard{padding:11px 12px}
+#formalCachedInventory .stock-number{margin:7px 0 0}
+#formalCachedInventory .stock-number b{font-size:24px}
+#formalCachedInventory .fine{margin:12px 0 0}
+@media(max-width:450px){#formalCachedInventory .sizes{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .formal-spinner{height:28px;width:28px;border:3px solid #dce9e3;
 border-top-color:#428a72;border-radius:50%;margin:22px auto;animation:formalspin 1s linear infinite}
 @keyframes formalspin{to{transform:rotate(360deg)}}
@@ -134,6 +141,10 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
   <p id="formalGateMessage" role="status" aria-live="polite">正在检查登录状态…</p>
   <div id="formalLoadingCard">
    <div class="formal-spinner" aria-hidden="true"></div>
+  </div>
+  <div id="formalCachedInventory" hidden aria-label="上次已确认库存，仅供查看">
+   <div id="formalCachedStockGrid" class="sizes"></div>
+   <p class="fine">仅展示上次核验的六尺码数量，不包含采购金额、宝宝资料或设置。云端确认前所有修改操作不可用。</p>
   </div>
   <div id="formalGateActions" hidden>
    <div class="action-row">

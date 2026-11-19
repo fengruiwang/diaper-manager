@@ -110,10 +110,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    ||!ui?.show||!ui?.clear||!ui?.defaults||typeof scriptLoader!=='function')
   throw Error('formal_entry:dependencies_required');
  const $=id=>doc.getElementById(id);
- let controller=null,primary=null,attached=null,pendingGuard=null,
+ let controller=null,primary=null,warmPrimary=null,attached=null,pendingGuard=null,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
- let shownStock=null,localInventoryBaselineReady=false;
+ let shownStock=null,localInventoryBaselineReady=false,cachedPreview=null;
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
@@ -305,11 +305,48 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  function screen(next,message=''){
   mode=next;doc.body.dataset.formalState=next;
+  // Cache is a separate, non-ready gate. The five real pages remain hidden,
+  // therefore no purchase/consume/026/027 button can act on stale stock.
+  const viewingCache=Boolean(cachedPreview)
+   &&(next==='boot'||next==='cached');
   $('formalLoginCard').hidden=next!=='login';
-  $('formalLoadingCard').hidden=next!=='boot';
+  $('formalLoadingCard').hidden=next!=='boot'||viewingCache;
+  if($('formalCachedInventory'))$('formalCachedInventory').hidden=!viewingCache;
   $('formalGateActions').hidden=next==='boot'||next==='login'||next==='ready';
-  $('formalGateMessage').textContent=message;
-  $('formalAccountState').textContent=next==='ready'?'已连接':next==='boot'?'检查中':next==='login'?'未登录':next==='offline'?'离线':'需检查';
+  $('formalGateMessage').textContent=viewingCache
+   ?next==='cached'
+    ?'上次已确认库存 · 云端暂未同步 · 暂不可修改'
+    :'上次已确认库存 · 正在同步云端 · 暂不可修改'
+   :message;
+  $('formalAccountState').textContent=next==='ready'?'已连接'
+   :next==='boot'?'检查中':next==='cached'?'未同步'
+   :next==='login'?'未登录':next==='offline'?'离线':'需检查';
+ }
+ function sameCachedScope(){
+  const ctx=controller?.verifiedContext?.();
+  return Boolean(cachedPreview&&ctx?.app===cachedPreview.app
+   &&ctx?.actorUid===cachedPreview.actorUid
+   &&ctx?.familyId===cachedPreview.familyId);
+ }
+ function showCachedInventory(snapshot,ctx){
+  if(snapshot?.status!=='PRIMARY_LAST_CONFIRMED_INVENTORY'
+    ||snapshot.actorUid!==ctx.actorUid||snapshot.familyId!==ctx.familyId
+    ||!snapshot.childId||!SIZES.every(size=>
+     Number.isSafeInteger(snapshot.inventory?.[size])
+      &&snapshot.inventory[size]>=0&&snapshot.inventory[size]<=100000
+      &&Number.isSafeInteger(snapshot.revisions?.[size])
+      &&snapshot.revisions[size]>=0))return false;
+  const grid=$('formalCachedStockGrid');
+  if(!grid)return false;
+  // Only fixed size labels and validated integer counts enter this HTML.
+  grid.innerHTML=SIZES.map(size=>
+   '<div class="sizecard"><div class="size-top"><span class="size-pill">'
+    +size+'</span></div><div class="stock-number"><b>'
+    +snapshot.inventory[size]+'</b><small>片</small></div></div>').join('');
+  cachedPreview={app:ctx.app,actorUid:ctx.actorUid,
+   familyId:ctx.familyId,childId:snapshot.childId};
+  screen('boot');
+  return true;
  }
  // Only update the existing spinner text while this restore still owns
  // the loading gate. An in-flight read must not replace a newer page state.
@@ -350,7 +387,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  function clear(){
   historyCache?.invalidate?.();
   conflictButton(false);batchConflictButton(false);
-  ui.clear();mobileDraft?.reset();actor=null;family=null;primary=null;shownStock=null;
+  ui.clear();mobileDraft?.reset();actor=null;family=null;primary=null;
+  warmPrimary=null;cachedPreview=null;shownStock=null;
+  if($('formalCachedInventory'))$('formalCachedInventory').hidden=true;
+  if($('formalCachedStockGrid'))$('formalCachedStockGrid').innerHTML='';
   localInventoryBaselineReady=false;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
@@ -549,6 +589,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    else screen('boot',stage);
   }
   if(host.navigator?.onLine===false){
+   if(sameCachedScope()){
+    screen('cached');busy=false;syncButtonState();return mode;
+   }
    clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);
    busy=false;return mode;
   }
@@ -564,6 +607,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(status==='OFFLINE_LOCAL_ONLY'){
     clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);return mode;
    }
+   // A stale SDK context from an earlier check cannot authorize a new
+   // startup preview when the current login/family check was not successful.
+   if(!validLogin.has(status)&&mode!=='ready'){
+    clear();screen('unverified',notes[status]||notes.SESSION_UNVERIFIED);
+    return mode;
+   }
    const ctx=controller.verifiedContext();
    if(!ctx){
     clear();screen('unverified',notes[status]||notes.SESSION_UNVERIFIED);
@@ -577,6 +626,26 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if(wasReady)screen('boot','正在获取家庭与库存数据…');
    }
    bootStage(token,'正在获取家庭与库存数据…');
+   // A separate read-only IDB preview races the normal complete cloud read.
+   // The existing primary bridge is reused for activation after verification.
+   const cacheEpoch=documentEpoch;
+   if(mode==='boot'&&!primary){
+    try{
+     warmPrimary=primaryFactory({controller,host,
+      cloudWritesEnabled:purchaseReleaseEnabled===true});
+     const candidate=warmPrimary;
+     if(typeof candidate?.lastConfirmedInventory==='function')
+      void Promise.resolve().then(()=>candidate.lastConfirmedInventory())
+       .then(snapshot=>{
+        const current=controller?.verifiedContext?.();
+        if(token!==revision||cacheEpoch!==documentEpoch
+          ||mode!=='boot'||!snapshot
+          ||current?.app!==ctx.app||current?.familyId!==ctx.familyId
+          ||current?.actorUid!==ctx.actorUid)return;
+        showCachedInventory(snapshot,ctx);
+       }).catch(()=>{});
+    }catch(_){warmPrimary=null;}
+   }
    // Capture BEFORE the asynchronous primary read, not after it returns.
    // The existing ACK callbacks replace primaryViewBase only after a server
    // receipt was validated. A changed reference is therefore fresh evidence.
@@ -626,12 +695,24 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     }
     // Preserve the existing superseded-read behavior for ordinary refreshes.
     // Strict identity failure above is scoped to the 009/027 recovery handoff.
-    if(contextChanged||selectedChanged)return mode;
+    if(contextChanged||selectedChanged){
+     if(cachedPreview){clear();screen('unverified',
+      '账号、家庭或宝宝作用域已变化，已隐藏上次库存。');}
+     return mode;
+    }
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
     clear();screen('unverified',notes[verified?.status]||
      '正式云端数据尚未核实；不显示演示数据。');
     return mode;
+   }
+   if(cachedPreview&&cachedPreview.childId!==verified.childId){
+    // The active primary baby changed after the early IDB lookup.
+    // Hide the old child's tile immediately, before slower activation.
+    cachedPreview=null;
+    if($('formalCachedInventory'))$('formalCachedInventory').hidden=true;
+    if($('formalCachedStockGrid'))$('formalCachedStockGrid').innerHTML='';
+    if(mode==='boot')screen('boot','正在核对本机库存…');
    }
    const scopeKey=ctx.actorUid+'\x00'+ctx.familyId;
    const identityEpoch=documentEpoch;
@@ -734,8 +815,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    bootStage(token,'正在核对本机库存…');
    // An authenticated, receipt-backed primary is required for outbox setup.
    if(!primary){
-    const p=primaryFactory({controller,host,
+    const p=warmPrimary||primaryFactory({controller,host,
      cloudWritesEnabled:purchaseReleaseEnabled===true});
+    warmPrimary=null;
     // Write-capable activation retains independent server scope validation.
     const activation=await bounded(()=>p.activate({
      verifiedReadModel:purchaseReleaseEnabled===true?null:verified
@@ -1695,6 +1777,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     !referenceAppears?'REFERENCE_READBACK_PENDING':mode;
   }catch(_){
    const current=controller?.verifiedContext?.();
+   if((mode==='boot'||mode==='cached')&&sameCachedScope()){
+    // Network/read errors must not erase a verified read-only cache.
+    // A cached gate never changes mode to ready or unlocks any command.
+    screen('cached');return mode;
+   }
    if(mode==='ready'&&retainedActor&&retainedFamily
      &&current?.actorUid===retainedActor&&current.familyId===retainedFamily
      &&retainedContext?.actorUid===retainedActor

@@ -313,3 +313,61 @@ test('T02-P1-02 family, actor and child scopes cannot update another snapshot',a
  assert.equal(wrongChild.status,'SNAPSHOT_NOT_INITIALIZED');
  assert.equal((await x.readInventory(scope,CHILD)).inventory.S,100);
 });
+
+const PrimaryCache=require('../sync/primary-cloud-operations.js');
+function cacheReader(factory,authScope=scope,child=CHILD){
+ const app={};
+ const context={app,...authScope};
+ const valid=()=>context;
+ return PrimaryCache.create({
+  controller:{verifiedContext:valid},
+  host:{indexedDB:factory,navigator:{onLine:true}},
+  accessPreflight:{create:()=>({})},
+  childReader:{create:()=>({inspectLegacyTarget:async()=>({
+   familyId:authScope.familyId,childId:child,readyForMigration:false
+  })})},
+  scopeGuard:{requireLegacyMigrationTarget(){}},
+  legacyHistoryReader:{create:()=>({})},
+  inventoryClient:{create:()=>({})},
+  outboxFactory:Durable,outboxContract:Contract,
+  inventoryProjection:Projection,inventoryReconciler:{build(){}},
+  runnerFactory:{create:()=>({})},syncFactory:{create:()=>({})}
+ });
+}
+test('T05-P2-02A reads original persisted primary IDB snapshot after simulated restart, without writes',async()=>{
+ const f=fakeIndexedDB(),x=make(f,PrimaryCache.PRIMARY_DB_NAME);
+ await x.initializeInventory(scope,{childId:CHILD,inventory:stock(90),
+  serverRevisions:revisions(2),source:'verified-server'});
+ const old=await x.readInventory(scope,CHILD);
+ const reopened=cacheReader(f);
+ const visible=await reopened.lastConfirmedInventory();
+ assert.equal(visible.status,'PRIMARY_LAST_CONFIRMED_INVENTORY');
+ assert.equal(visible.inventory.S,90);
+ assert.equal(visible.revisions.S,2);
+ assert.deepEqual(await x.readInventory(scope,CHILD),old,
+  'no inventory or queue writes from preview');
+});
+test('T05-P2-02A optimistic 009 event prevents advertising unconfirmed IDB stock',async()=>{
+ const f=fakeIndexedDB(),x=make(f,PrimaryCache.PRIMARY_DB_NAME);
+ await x.initializeInventory(scope,{childId:CHILD,inventory:stock(90),
+  serverRevisions:revisions(2),source:'verified-server'});
+ await x.commitInventory(scope,delta());
+ assert.equal((await x.readInventory(scope,CHILD)).inventory.S,95);
+ assert.equal(await cacheReader(f).lastConfirmedInventory(),null);
+ assert.equal((await x.ready(scope)).length,1,'original UUID remains untouched');
+});
+test('T05-P2-02A cross-actor, child change, missing cache all fail closed',async()=>{
+ const f=fakeIndexedDB(),x=make(f,PrimaryCache.PRIMARY_DB_NAME);
+ await x.initializeInventory(scope,{childId:CHILD,inventory:stock(90),
+  serverRevisions:revisions(2),source:'verified-server'});
+ assert.equal(await cacheReader(f,otherScope).lastConfirmedInventory(),null);
+ const changed='69918bcb-a7bc-4b2b-a9eb-f160475fd339';
+ assert.equal(await cacheReader(f,scope,changed).lastConfirmedInventory(),null);
+ assert.equal(await cacheReader(fakeIndexedDB()).lastConfirmedInventory(),null);
+});
+test('T05-P2-02A snapshot from other source is not accepted as confirmed',async()=>{
+ const f=fakeIndexedDB(),x=make(f,PrimaryCache.PRIMARY_DB_NAME);
+ await x.initializeInventory(scope,{childId:CHILD,inventory:stock(90),
+  serverRevisions:revisions(2),source:'test-fixture'});
+ assert.equal(await cacheReader(f).lastConfirmedInventory(),null);
+});
