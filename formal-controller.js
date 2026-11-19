@@ -1,4 +1,4 @@
-/* Standalone V1.2.0 rc.6 full-write test candidate.
+/* Standalone V1.2.0 rc.7 full-write upgrade candidate.
  * All implemented authenticated inventory and shared-document write domains
  * are enabled. CloudBase session, family scope, child scope, server RPC/RLS,
  * revision checks and ACK/readback verification remain authoritative.
@@ -14,6 +14,11 @@ const SIZES=['NB','S','M','L','XL','XXL'];
 const OTP_COOLDOWN_MS=60000;
 // Five parallel server-authorized document RPCs, with no full-body second pass.
 const DOCUMENT_READ_TIMEOUT_MS=60000;
+// A short App switch is not a reload. The next eligible foreground return
+// after 45 seconds may reuse the normal authenticated full-cloud refresh.
+const FOREGROUND_REFRESH_MS=45000;
+// Only the six-size read RPC runs on this timer; unchanged stock is a no-op.
+const FOREGROUND_INVENTORY_POLL_MS=30000;
 const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
 const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED','FORMAL_FAMILY_VERIFIED']);
 const notes={
@@ -111,10 +116,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    ||!ui?.show||!ui?.clear||!ui?.defaults||typeof scriptLoader!=='function')
   throw Error('formal_entry:dependencies_required');
  const $=id=>doc.getElementById(id);
- let controller=null,primary=null,attached=null,pendingGuard=null,
+ let controller=null,primary=null,warmPrimary=null,attached=null,pendingGuard=null,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
- let shownStock=null,localInventoryBaselineReady=false;
+ let shownStock=null,localInventoryBaselineReady=false,cachedPreview=null;
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
@@ -124,6 +129,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let documentReadTask=null,fullyReadAt=null,fullReadVerified=false,fullReadScope='';
  let documentClientCache=null;
  let refreshBusy=false,pendingReviewSerial=0,syncActionBusy=false;
+ let lastBackgroundAt=null,lastAutoAttemptAt=0,onlineRecoveryNeeded=false;
+ let inventoryPollTimer=null,inventoryPollBusy=false,inventoryPollSerial=0;
+ let inventoryPollTick=null;
+ let mobileDraft=null;
  let pendingCount=0,pendingCountsVerified=false;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
  const syncTime=()=>new Intl.DateTimeFormat('zh-CN',{
@@ -134,6 +143,28 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   ?actor+'\x00'+family+'\x00'+primaryViewBase.childId:'';
  const currentFullRead=()=>Boolean(fullReadVerified&&fullyReadAt
   &&fullReadScope&&fullReadScope===syncScope());
+ // Stop the timer (and invalidate late reads) when the view is hidden,
+ // offline or no longer verified. The existing startup and full-sync paths
+ // remain the only places that apply stock and revision changes.
+ function stopInventoryPolling(){
+  if(inventoryPollTimer!==null){
+   host.clearInterval?.(inventoryPollTimer);inventoryPollTimer=null;
+  }
+  inventoryPollSerial++;
+  // The old in-flight RPC is now stale and its finally handler must not
+  // hold the next foreground cycle hostage.
+  inventoryPollBusy=false;
+ }
+ function updateInventoryPolling(){
+  const eligible=mode==='ready'&&doc.visibilityState==='visible'
+   &&host.navigator?.onLine!==false;
+  if(!eligible){stopInventoryPolling();return;}
+  if(inventoryPollTimer!==null||typeof host.setInterval!=='function')return;
+  inventoryPollTimer=host.setInterval(()=>{void inventoryPollTick?.();},
+   FOREGROUND_INVENTORY_POLL_MS);
+  // Node fixtures do not need a permanent background task.
+  inventoryPollTimer?.unref?.();
+ }
  function showSync(message,phase='checking'){
   const el=$('formalSyncState');
   if(el)el.textContent=message;
@@ -305,11 +336,49 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  function screen(next,message=''){
   mode=next;doc.body.dataset.formalState=next;
+  // Cache is a separate, non-ready gate. The five real pages remain hidden,
+  // therefore no purchase/consume/026/027 button can act on stale stock.
+  const viewingCache=Boolean(cachedPreview)
+   &&(next==='boot'||next==='cached');
   $('formalLoginCard').hidden=next!=='login';
-  $('formalLoadingCard').hidden=next!=='boot';
+  $('formalLoadingCard').hidden=next!=='boot'||viewingCache;
+  if($('formalCachedInventory'))$('formalCachedInventory').hidden=!viewingCache;
   $('formalGateActions').hidden=next==='boot'||next==='login'||next==='ready';
-  $('formalGateMessage').textContent=message;
-  $('formalAccountState').textContent=next==='ready'?'已连接':next==='boot'?'检查中':next==='login'?'未登录':next==='offline'?'离线':'需检查';
+  $('formalGateMessage').textContent=viewingCache
+   ?next==='cached'
+    ?'上次已确认库存 · 云端暂未同步 · 暂不可修改'
+    :'上次已确认库存 · 正在同步云端 · 暂不可修改'
+   :message;
+  $('formalAccountState').textContent=next==='ready'?'已连接'
+   :next==='boot'?'检查中':next==='cached'?'未同步'
+   :next==='login'?'未登录':next==='offline'?'离线':'需检查';
+  updateInventoryPolling();
+ }
+ function sameCachedScope(){
+  const ctx=controller?.verifiedContext?.();
+  return Boolean(cachedPreview&&ctx?.app===cachedPreview.app
+   &&ctx?.actorUid===cachedPreview.actorUid
+   &&ctx?.familyId===cachedPreview.familyId);
+ }
+ function showCachedInventory(snapshot,ctx){
+  if(snapshot?.status!=='PRIMARY_LAST_CONFIRMED_INVENTORY'
+    ||snapshot.actorUid!==ctx.actorUid||snapshot.familyId!==ctx.familyId
+    ||!snapshot.childId||!SIZES.every(size=>
+     Number.isSafeInteger(snapshot.inventory?.[size])
+      &&snapshot.inventory[size]>=0&&snapshot.inventory[size]<=100000
+      &&Number.isSafeInteger(snapshot.revisions?.[size])
+      &&snapshot.revisions[size]>=0))return false;
+  const grid=$('formalCachedStockGrid');
+  if(!grid)return false;
+  // Only fixed size labels and validated integer counts enter this HTML.
+  grid.innerHTML=SIZES.map(size=>
+   '<div class="sizecard"><div class="size-top"><span class="size-pill">'
+    +size+'</span></div><div class="stock-number"><b>'
+    +snapshot.inventory[size]+'</b><small>片</small></div></div>').join('');
+  cachedPreview={app:ctx.app,actorUid:ctx.actorUid,
+   familyId:ctx.familyId,childId:snapshot.childId};
+  screen('boot');
+  return true;
  }
  // Only update the existing spinner text while this restore still owns
  // the loading gate. An in-flight read must not replace a newer page state.
@@ -348,9 +417,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    &&found.items.length>0);
  }
  function clear(){
+  stopInventoryPolling();
   historyCache?.invalidate?.();
   conflictButton(false);batchConflictButton(false);
-  ui.clear();actor=null;family=null;primary=null;shownStock=null;
+  ui.clear();mobileDraft?.reset();actor=null;family=null;primary=null;
+  warmPrimary=null;cachedPreview=null;shownStock=null;
+  if($('formalCachedInventory'))$('formalCachedInventory').hidden=true;
+  if($('formalCachedStockGrid'))$('formalCachedStockGrid').innerHTML='';
   localInventoryBaselineReady=false;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
@@ -524,7 +597,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null,
   expectedBatch=null,expectedQuotes=null,expectedGrowth=null,
   expectedProfile=null,expectedSettings=null,expectedReference=null,
-  requireComplete=false}={}){
+  requireComplete=false,automatic=false}={}){
   if(busy)return expectedBatch!==null?'BATCH_READBACK_PENDING':
    expectedQuotes!==null?'QUOTES_READBACK_PENDING':
    expectedGrowth!==null?'GROWTH_READBACK_PENDING':
@@ -549,6 +622,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    else screen('boot',stage);
   }
   if(host.navigator?.onLine===false){
+   if(sameCachedScope()){
+    screen('cached');busy=false;syncButtonState();return mode;
+   }
    clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);
    busy=false;return mode;
   }
@@ -564,6 +640,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(status==='OFFLINE_LOCAL_ONLY'){
     clear();screen('offline',notes.OFFLINE_LOCAL_ONLY);return mode;
    }
+   // A stale SDK context from an earlier check cannot authorize a new
+   // startup preview when the current login/family check was not successful.
+   if(!validLogin.has(status)&&mode!=='ready'){
+    clear();screen('unverified',notes[status]||notes.SESSION_UNVERIFIED);
+    return mode;
+   }
    const ctx=controller.verifiedContext();
    if(!ctx){
     clear();screen('unverified',notes[status]||notes.SESSION_UNVERIFIED);
@@ -577,6 +659,26 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if(wasReady)screen('boot','正在获取家庭与库存数据…');
    }
    bootStage(token,'正在获取家庭与库存数据…');
+   // A separate read-only IDB preview races the normal complete cloud read.
+   // The existing primary bridge is reused for activation after verification.
+   const cacheEpoch=documentEpoch;
+   if(mode==='boot'&&!primary){
+    try{
+     warmPrimary=primaryFactory({controller,host,
+      cloudWritesEnabled:purchaseReleaseEnabled===true});
+     const candidate=warmPrimary;
+     if(typeof candidate?.lastConfirmedInventory==='function')
+      void Promise.resolve().then(()=>candidate.lastConfirmedInventory())
+       .then(snapshot=>{
+        const current=controller?.verifiedContext?.();
+        if(token!==revision||cacheEpoch!==documentEpoch
+          ||mode!=='boot'||!snapshot
+          ||current?.app!==ctx.app||current?.familyId!==ctx.familyId
+          ||current?.actorUid!==ctx.actorUid)return;
+        showCachedInventory(snapshot,ctx);
+       }).catch(()=>{});
+    }catch(_){warmPrimary=null;}
+   }
    // Capture BEFORE the asynchronous primary read, not after it returns.
    // The existing ACK callbacks replace primaryViewBase only after a server
    // receipt was validated. A changed reference is therefore fresh evidence.
@@ -626,12 +728,34 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     }
     // Preserve the existing superseded-read behavior for ordinary refreshes.
     // Strict identity failure above is scoped to the 009/027 recovery handoff.
-    if(contextChanged||selectedChanged)return mode;
+    if(contextChanged||selectedChanged){
+     // The old UI must not survive a verified actor or primary-child switch,
+     // including a background refresh with no startup cache on screen.
+     if(mode==='ready'||cachedPreview){
+      clear();screen('unverified',
+       '账号、家庭或宝宝作用域已变化，已隐藏旧库存。');
+     }
+     return mode;
+    }
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
     clear();screen('unverified',notes[verified?.status]||
      '正式云端数据尚未核实；不显示演示数据。');
     return mode;
+   }
+   if(cachedPreview&&cachedPreview.childId!==verified.childId){
+    // The active primary baby changed after the early IDB lookup.
+    // Hide the old child's tile immediately, before slower activation.
+    cachedPreview=null;
+    if($('formalCachedInventory'))$('formalCachedInventory').hidden=true;
+    if($('formalCachedStockGrid'))$('formalCachedStockGrid').innerHTML='';
+    if(mode==='boot')screen('boot','正在核对本机库存…');
+   }
+   // Fresh, correctly scoped primary read was verified; do not overwrite
+   // a form changed after the automatic network request began.
+   if(automatic&&mobileDraft?.hasUnsaved?.()){
+    showSync('刷新期间发现未保存内容，已暂缓自动同步；保存后可刷新。','partial');
+    return 'AUTO_SYNC_DRAFT_DEFERRED';
    }
    const scopeKey=ctx.actorUid+'\x00'+ctx.familyId;
    const identityEpoch=documentEpoch;
@@ -734,8 +858,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    bootStage(token,'正在核对本机库存…');
    // An authenticated, receipt-backed primary is required for outbox setup.
    if(!primary){
-    const p=primaryFactory({controller,host,
+    const p=warmPrimary||primaryFactory({controller,host,
      cloudWritesEnabled:purchaseReleaseEnabled===true});
+    warmPrimary=null;
     // Write-capable activation retains independent server scope validation.
     const activation=await bounded(()=>p.activate({
      verifiedReadModel:purchaseReleaseEnabled===true?null:verified
@@ -758,7 +883,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       documentsGuard=queue;
       documentCommands=documentCommandsFactory.create({
        client:documentsClient,queue,
-       uuid:()=>host.crypto.randomUUID()
+       uuid:()=>host.crypto.randomUUID(),
+       isOnline:()=>host.navigator?.onLine!==false
       });
      }
      if(typeof batchStocktakeFactory==='function'){
@@ -770,6 +896,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       allowSettings:true,
       onDocumentProgress:(kind,phase,timing={})=>{
        if(mode!=='ready'||actor!==ctx.actorUid||family!==ctx.familyId)return;
+       if(phase==='idle')mobileDraft?.recover(kind);
        const what=kind==='profile'?'宝宝资料':'设置';
        const messages={
         checking:'正在检查'+what+'及云端版本，请勿重复点击…',
@@ -1057,6 +1184,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       },
       onReferenceProgress:(phase,timing={})=>{
        if(mode!=='ready'||actor!==ctx.actorUid||family!==ctx.familyId)return;
+       if(phase==='idle')mobileDraft?.recover('reference');
        const messages={
         checking:'正在检查参考价和云端版本，请勿重复点击…',
         queued:'参考价已加入本地持久队列，正在准备云端提交…',
@@ -1435,11 +1563,17 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        expectedStocktake:kind==='stocktake'?{size,count,expectedRevision}:null
       }),
       formalModeSelected:()=>mode==='ready',
+      readSyncBusy:()=>busy||refreshBusy||syncActionBusy,
       readPurchase:()=>root.XBFormalUIData.purchase(),
       readQuote:id=>root.XBFormalUIData.quote(id),
       readTransaction:id=>root.XBFormalUIData.transaction(id),
       notify:answer=>{
+        mobileDraft?.settle(answer);
         const resultCode=String(answer?.status||'');
+        if(resultCode==='FORMAL_REFRESH_IN_PROGRESS'){
+         $('formalSyncState').textContent='正在核验云端数据，暂不可修改；未创建新请求。';
+         return;
+        }
         if(/UNKNOWN|PENDING|REVIEW|CONFLICT|UNVERIFIED|FAILED/.test(resultCode)
           &&(documentWritesEnabled===true||purchaseReleaseEnabled===true)){
          const button=$('formalSyncNow');
@@ -1453,7 +1587,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
         conflictButton(true);
        void checkPending().catch(()=>{});
        $('formalSyncState').textContent=
-        answer?.status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED'
+        ['OFFLINE_FORMAL_QUEUE_NOT_APPROVED',
+          'DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE'].includes(answer?.status)
          ?'当前网络不可用，本次操作未保存，请联网后重新操作。'
         :answer?.status==='PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED'
          ?'库存盘点成功，库存已更新'
@@ -1622,6 +1757,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        ||postSyncSelected.childId!==displayBase.childId))){
     localInventoryBaselineReady=false;return mode;
    }
+   if(automatic&&mobileDraft?.hasUnsaved?.()){
+    // If the user edited during the document/IDB awaits, preserve their
+    // input and keep old stock write-disabled until another verified read.
+    localInventoryBaselineReady=false;
+    showSync('刷新期间发现未保存内容，已暂缓自动同步；保存后可刷新。','partial');
+    return 'AUTO_SYNC_DRAFT_DEFERRED';
+   }
    primaryViewBase=displayBase;
    // Do not wait for an additional getSession() call after showing UI.
    showCloudView(data,ctx);
@@ -1690,6 +1832,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     !referenceAppears?'REFERENCE_READBACK_PENDING':mode;
   }catch(_){
    const current=controller?.verifiedContext?.();
+   if((mode==='boot'||mode==='cached')&&sameCachedScope()){
+    // Network/read errors must not erase a verified read-only cache.
+    // A cached gate never changes mode to ready or unlocks any command.
+    screen('cached');return mode;
+   }
    if(mode==='ready'&&retainedActor&&retainedFamily
      &&current?.actorUid===retainedActor&&current.familyId===retainedFamily
      &&retainedContext?.actorUid===retainedActor
@@ -1789,11 +1936,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalSendOtp',sendOtp);
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
-  async function fetchCloudLatest(){
-   if(busy||refreshBusy||syncActionBusy)return;
+  async function fetchCloudLatest({automatic=false}={}){
+   if(mode!=='ready'||!actor||!family||busy||refreshBusy||syncActionBusy)return;
    if(host.navigator?.onLine===false){
     const node=$('formalCloudSyncFeedback');
-    if(node)node.textContent='当前网络不可用，请联网后重试';
+    if(node)node.textContent='获取云端数据失败，请检查网络后重试';
+    showSync('获取云端数据失败，请检查网络后重试','partial');
     syncButtonState();return;
    }
    refreshBusy=true;fullReadVerified=false;syncButtonState();
@@ -1801,18 +1949,38 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(node)node.textContent='正在获取云端最新数据…';
    showSync('正在刷新…','refreshing');
    const epoch=documentEpoch,account=actor,household=family;
+   const child=primaryViewBase?.childId;
    try{
-    const next=await restore({requireComplete:true});
+    const next=await restore({requireComplete:true,automatic});
+    if(next==='AUTO_SYNC_DRAFT_DEFERRED'){
+     if(node)node.textContent='自动同步已暂缓：编辑内容未保存，请保存后手动刷新。';
+     return;
+    }
+    // An ordinary restore can return the still-visible view if its verified
+    // actor/child changed during an in-flight read. For an explicit refresh,
+    // never leave that old household visible as if it were still authorized.
+    if(epoch===documentEpoch&&actor===account&&family===household){
+     const current=controller?.verifiedContext?.();
+     const selected=primary?.selectedScope?.();
+     if(current?.actorUid!==account||current?.familyId!==household
+       ||(selected&&(selected.actorUid!==account
+        ||selected.familyId!==household||selected.childId!==child))){
+      clear();
+      screen('unverified','账号、家庭或宝宝作用域已变化，请重新检查。');
+      return;
+     }
+    }
     if(epoch!==documentEpoch||actor!==account||family!==household)return;
     if(node)node.textContent=next==='ready'&&currentFullRead()
-     ?'云端数据已更新':next==='offline'
-     ?'当前网络不可用，请联网后重试'
-     :'部分云端数据尚未获取成功，请稍后重试';
-    if(next!=='ready'&&/正在刷新/.test($('formalSyncState')?.textContent||''))
-     showSync('部分云端数据尚未获取成功，未完全同步，请稍后重试','partial');
+      &&host.navigator?.onLine!==false
+     ?'云端数据已更新'
+     :'获取云端数据失败，请检查网络后重试';
+    if((next!=='ready'||!currentFullRead())
+      &&/正在刷新/.test($('formalSyncState')?.textContent||''))
+     showSync('获取云端数据失败，请检查网络后重试','partial');
    }catch(_){
     if(epoch===documentEpoch&&actor===account&&family===household&&node)
-     node.textContent='部分云端数据尚未获取成功，请稍后重试';
+     node.textContent='获取云端数据失败，请检查网络后重试';
    }finally{
     refreshBusy=false;syncButtonState();
     await checkPending().catch(()=>{});
@@ -1820,6 +1988,200 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   }
   on('formalRefresh',fetchCloudLatest);
   on('formalGetCloudLatest',fetchCloudLatest);
+  // T05-P2-01: an Android touch entrypoint only; both existing refresh
+  // buttons and this gesture call fetchCloudLatest(), never a second sync.
+  const coarseTouch=host.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches===true;
+  // Draft tracking is shared with foreground sync on desktop and mobile.
+  // Only touch gestures remain conditional on the Android pointer capability.
+  {
+   const threshold=76;
+   let pull=null;
+   // Static inputs survive renderAll(): connectivity alone cannot release
+   // unsaved drafts. Ignore filter-only controls, but protect unknown edits.
+   const editedFields=new Map(),saving=new Map();
+   let focusValues=new WeakMap(),editSerial=0;
+   const fieldValue=field=>field?.type==='checkbox'
+    ?String(Boolean(field.checked)):String(field?.value??'');
+   const groupOf=field=>{
+    const id=String(field?.id||'');
+    if(['growthRange','refBrand','refSize','refSearch','formalEmail',
+       'formalOtp'].includes(id))return null;
+    if(['sizeMode','currentSize','goalPrice'].includes(id))return 'size';
+    if(['replenishMode','replenishDays'].includes(id)
+      ||/^(target_|daily_)/.test(id))return 'plans';
+    if(['babyName','babySex','dueDate','birthDate','birthHour',
+       'birthMinute','birthSecond','birthWeight','birthLength'].includes(id))
+     return 'profile';
+    if(['qBrand','qSeriesChoice','qSeries','qSize','qPerPack',
+       'qPacks','qPrice'].includes(id))return 'quotes';
+    if(['weightDate','weightTime','weightKg','weightNote'].includes(id))
+     return 'growth';
+    if(id==='editedReferencePrice')return 'reference';
+    if(/^inv_/.test(id))return 'stocktake';
+    return 'other'; // unknown inputs stay guarded until replaced
+   };
+   const validField=field=>/^(INPUT|TEXTAREA|SELECT)$/i.test(field?.tagName||'');
+   doc.addEventListener('focusin',event=>{
+    const field=event?.target;
+    if(mode==='ready'&&validField(field)&&groupOf(field)
+      &&!editedFields.has(field))focusValues.set(field,fieldValue(field));
+   },true);
+   const rememberEdit=event=>{
+    const field=event?.target;
+    if(mode!=='ready'||!validField(field)||!groupOf(field))return;
+    if(focusValues.has(field)&&fieldValue(field)===focusValues.get(field)){
+     editedFields.delete(field);return;
+    }
+    editedFields.set(field,++editSerial);
+   };
+   doc.addEventListener('input',rememberEdit,true);
+   doc.addEventListener('change',rememberEdit,true);
+   // Capture exactly the submitted form and input versions. A confirmed
+   // settings write must not discard a second unsaved settings form.
+   const stage=(domain,group,filter=()=>true)=>{
+    if(saving.has(domain))return;
+    saving.set(domain,{epoch:documentEpoch,scope:syncScope(),
+     fields:new Map([...editedFields].filter(([field])=>
+      groupOf(field)===group&&filter(field)))});
+   };
+   const release=domain=>{
+    const snapshot=saving.get(domain);
+    if(!snapshot)return;
+    saving.delete(domain);
+    if(snapshot.epoch!==documentEpoch||snapshot.scope!==syncScope())return;
+    for(const [field,version] of snapshot.fields){
+     if(editedFields.get(field)!==version)continue;
+     editedFields.delete(field);
+     focusValues.set(field,fieldValue(field));
+    }
+   };
+   const forget=group=>{
+    for(const field of editedFields.keys())
+     if(groupOf(field)===group){
+      editedFields.delete(field);focusValues.set(field,fieldValue(field));
+     }
+   };
+   const saveTarget=event=>{
+    // A blocked click must not stage a fictitious document save.
+    if(busy||refreshBusy||syncActionBusy)return;
+    const button=event?.target?.closest?.('button,[data-action],[data-preset]');
+    if(!button)return;
+    const id=button.id,action=button.dataset?.action;
+    if(id==='saveSizePreferences')stage('settings','size');
+    else if(id==='savePlans')stage('settings','plans');
+    else if(button.dataset?.preset)stage('settings','plans',field=>
+     field.id==='target_NB'||field.id==='target_S');
+    else if(id==='saveProfile')stage('profile','profile');
+    else if(id==='saveQuote')stage('quotes','quotes');
+    else if(id==='buyNow')stage('purchase','quotes');
+    else if(id==='saveWeight')stage('growth','growth');
+    else if(id==='saveStocks')stage('stocktake','stocktake');
+    else if(id==='saveEditedReference'||id==='restoreDefaultReference'
+      ||action==='resetref')stage('reference','reference');
+   };
+   doc.addEventListener('click',saveTarget,true);
+   doc.addEventListener('submit',event=>{
+    if(!busy&&!refreshBusy&&!syncActionBusy
+      &&event?.target?.id==='priceEditForm')stage('reference','reference');
+   },true);
+   // Legacy cancel button handlers have reset their inputs before bubbling.
+   doc.addEventListener('click',event=>{
+    const id=event?.target?.closest?.('button')?.id;
+    if(id==='cancelWeight')forget('growth');
+    if(id==='closeRefEditor'||id==='cancelEditedReference')forget('reference');
+   });
+   mobileDraft={
+    settle(answer){
+     const status=String(answer?.status||'');
+     const kind=status.startsWith('SETTINGS_')?'settings'
+      :status.startsWith('PROFILE_')?'profile'
+      :status.startsWith('QUOTES_')?'quotes'
+      :status.startsWith('GROWTH_')?'growth'
+      :status.startsWith('REFERENCE_')?'reference'
+      :status.startsWith('PRIMARY_STOCKTAKE_')||status.startsWith('BATCH_')
+       ?'stocktake'
+      :status.startsWith('PRIMARY_PURCHASE_')?'purchase':null;
+     if(!kind)return;
+     const confirmed=[
+      'SETTINGS_CLOUD_ACK_APPLIED','SETTINGS_CLOUD_READBACK_VERIFIED',
+      'SETTINGS_UNCHANGED',
+      'PROFILE_CLOUD_ACK_APPLIED','PROFILE_CLOUD_READBACK_VERIFIED',
+      'QUOTES_CLOUD_ACK_APPLIED','QUOTES_CLOUD_READBACK_VERIFIED',
+      'GROWTH_CLOUD_ACK_APPLIED','GROWTH_CLOUD_READBACK_VERIFIED',
+      'REFERENCE_CLOUD_ACK_APPLIED','REFERENCE_CLOUD_READBACK_VERIFIED',
+      'PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED',
+      'PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED',
+      'BATCH_CLOUD_ACK_APPLIED','BATCH_CLOUD_READBACK_VERIFIED',
+      'PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
+      'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED'
+     ].includes(status);
+     if(confirmed)release(kind);
+     else if(!answer?.requestId)saving.delete(kind);
+     // Unknown ACK and original UUID review must never unlock a draft.
+    },
+    recover:release,
+    hasUnsaved:()=>editing(),
+    reset(){editedFields.clear();saving.clear();focusValues=new WeakMap();}
+   };
+   const atTop=()=>Math.max(0,Number(host.scrollY)||0,
+    Number(doc.documentElement?.scrollTop)||0,
+    Number(doc.body?.scrollTop)||0)<=1;
+   const editing=()=>{
+    for(const field of editedFields.keys())
+     if(field?.isConnected===false)editedFields.delete(field);
+    if(editedFields.size)return true;
+    const active=doc.activeElement;
+    if(active?.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/i.test(active?.tagName||''))
+     return true;
+    if($('priceEditor')?.hidden===false)return true;
+    return Boolean(doc.querySelector?.(
+     '[role="dialog"]:not([hidden]),[aria-modal="true"]:not([hidden])'));
+   };
+   const safe=()=>{
+    if(mode!=='ready'||busy||refreshBusy||syncActionBusy
+      ||!atTop()
+      ||hasPendingPageReview()||attached?.hasActiveBusinessAction?.()
+      ||$('formalResolveDocumentConflict')?.hidden===false
+      ||$('formalResolveBatchConflict')?.hidden===false
+      ||editing())return false;
+    const current=controller?.verifiedContext?.();
+    const selected=primary?.selectedScope?.();
+    return Boolean(actor&&family&&primaryViewBase?.childId
+     &&current?.actorUid===actor&&current?.familyId===family
+     &&(!selected||(selected.actorUid===actor&&selected.familyId===family
+       &&selected.childId===primaryViewBase.childId)));
+   };
+   const exempt=target=>Boolean(target?.closest?.(
+    'input,textarea,select,button,a,[contenteditable],'
+    +'.price-editor-backdrop,.price-editor-card,.table-wrap,.ref-list,.tabs'));
+   if(coarseTouch)doc.addEventListener('touchstart',event=>{
+    pull=null;
+    if(event.touches?.length!==1||!safe()||exempt(event.target))return;
+    const t=event.touches[0];
+    pull={x:t.clientX,y:t.clientY,armed:false};
+   },{passive:true});
+   if(coarseTouch)doc.addEventListener('touchmove',event=>{
+    if(!pull)return;
+    if(event.touches?.length!==1||!safe()){pull=null;return;}
+    const t=event.touches[0],dy=t.clientY-pull.y;
+    const dx=Math.abs(t.clientX-pull.x);
+    // Never consume ordinary upward scrolling or a horizontal swipe.
+    if(dy<=0||dx>Math.max(12,dy*.75)){pull=null;return;}
+    if(dy<10)return;
+    if(event.cancelable)event.preventDefault();
+    pull.armed=dy>=threshold;
+   },{passive:false});
+   if(coarseTouch)doc.addEventListener('touchend',event=>{
+    const gesture=pull;pull=null;
+    if(!gesture||!gesture.armed||event.changedTouches?.length!==1
+      ||!safe())return;
+    const t=event.changedTouches[0],dy=t.clientY-gesture.y;
+    if(dy>=threshold&&Math.abs(t.clientX-gesture.x)<=dy*.75)
+     void fetchCloudLatest();
+   },{passive:true});
+   if(coarseTouch)doc.addEventListener('touchcancel',()=>{pull=null;},{passive:true});
+  }
+
    // The 027 conflict must be proven uncommitted before user-confirmed archival.
    if($('formalResolveBatchConflict'))on('formalResolveBatchConflict',async()=>{
     if(mode!=='ready'||purchaseReleaseEnabled!==true
@@ -1956,6 +2318,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       });
       const releasedQuote=verified
        &&await attached?.recoverMinimalButtons?.({domain:'quotes'});
+      if(releasedQuote)mobileDraft?.recover('quotes');
       $('formalSyncState').textContent=next==='ready'
        ?releasedRef
         ?'原参考价 UUID 回执与实际页面价格均已确认，可以继续保存。'
@@ -1994,6 +2357,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      });
      const releasedQuote=verified
       &&await attached?.recoverMinimalButtons?.({domain:'quotes'});
+     if(releasedQuote)mobileDraft?.recover('quotes');
      $('formalSyncState').textContent=releasedRef
       ?'原参考价 UUID 回执与实际显示价格均已核验，可以继续保存。'
       :releasedDocs
@@ -2119,14 +2483,142 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalSubmitPending',submitPending);
   on('formalSignOut',signOut);
   on('formalGateSignOut',signOut);
-  host.addEventListener('online',restore);
+  // P3-02: a single 010 read RPC, not a second full restore protocol.
+  // Unknown queue state is not assumed empty; no locally pending UUID may
+  // be bypassed by the background stock observer.
+  function canPollInventory(){
+   if(doc.visibilityState!=='visible'||mode!=='ready'
+     ||host.navigator?.onLine===false
+     ||busy||refreshBusy||syncActionBusy
+     ||!localInventoryBaselineReady||!pendingCountsVerified||pendingCount!==0
+     ||hasPendingPageReview()||attached?.hasActiveBusinessAction?.()
+     ||$('formalResolveDocumentConflict')?.hidden===false
+     ||$('formalResolveBatchConflict')?.hidden===false
+     ||mobileDraft?.hasUnsaved?.())return false;
+   const current=controller?.verifiedContext?.();
+   const selected=primary?.selectedScope?.();
+   return Boolean(current?.app&&actor&&family&&primaryViewBase?.childId
+    &&shownStock?.inventory&&shownStock?.revisions
+    &&current.actorUid===actor&&current.familyId===family
+    &&selected?.actorUid===actor&&selected?.familyId===family
+    &&selected?.childId===primaryViewBase.childId
+    &&typeof primary?.checkInventory==='function');
+  }
+  async function pollInventory(){
+   if(inventoryPollBusy||mode!=='ready'||doc.visibilityState!=='visible')return;
+   const identity=controller?.verifiedContext?.();
+   const selectedNow=primary?.selectedScope?.();
+   if(!identity?.app||identity.actorUid!==actor||identity.familyId!==family
+     ||!selectedNow||selectedNow.actorUid!==actor
+     ||selectedNow.familyId!==family
+     ||selectedNow.childId!==primaryViewBase?.childId){
+    revision++;clear();
+    screen('unverified','账号、家庭或宝宝作用域已变化，已隐藏旧库存。');
+    return;
+   }
+   if(!canPollInventory())return;
+   const current=identity,selected=selectedNow;
+   const child=primaryViewBase.childId,epoch=documentEpoch;
+   const serial=++inventoryPollSerial;
+   inventoryPollBusy=true;
+   try{
+    const checked=await primary.checkInventory();
+    if(serial!==inventoryPollSerial||mode!=='ready'
+      ||doc.visibilityState!=='visible')return;
+    const after=controller?.verifiedContext?.();
+    const chosen=primary?.selectedScope?.();
+    if(after?.app!==current.app||after?.actorUid!==actor
+      ||after?.familyId!==family
+      ||chosen?.actorUid!==actor||chosen?.familyId!==family
+      ||chosen?.childId!==child
+      ||primaryViewBase?.childId!==child
+      ||checked?.status==='PRIMARY_INVENTORY_CHECK_SCOPE_CHANGED'){
+     revision++;clear();
+     screen('unverified','账号、家庭或宝宝作用域已变化，已隐藏旧库存。');
+     return;
+    }
+    // A manual refresh, 009/026/027 command or fresh draft can begin while
+    // the lightweight RPC is pending. Never promote that stale observation.
+    if(epoch!==documentEpoch||!canPollInventory()
+      ||checked?.status!=='PRIMARY_INVENTORY_CHECK_VERIFIED')return;
+    if(checked.familyId!==family||checked.actorUid!==actor
+      ||checked.childId!==child)return;
+    const differs=SIZES.some(size=>
+     checked.inventory?.[size]!==shownStock.inventory?.[size]
+     ||checked.revisions?.[size]!==shownStock.revisions?.[size]);
+    if(!differs)return;
+    // Only the existing complete read + IDB baseline synchronization can
+    // replace the rendered stock. Never trust this small read as an ACK.
+    void fetchCloudLatest({automatic:true});
+   }catch(_){/* leave current verified view, no false sync success */}
+   finally{
+    if(serial===inventoryPollSerial)inventoryPollBusy=false;
+   }
+  }
+  inventoryPollTick=pollInventory;
+  // The only automatic refresh entrypoint. Manual clicks and touch pull
+  // continue to use fetchCloudLatest(); automatic reads never flush UUIDs.
+  function foregroundRefresh(reason){
+   if(host.navigator?.onLine===false)return;
+   if(mode!=='ready'){
+    // A visible offline/cached gate may retry the original login + primary
+    // validation; the full-page gate is never bypassed.
+    if((mode==='offline'||mode==='cached'||mode==='unverified')
+      &&!busy)void restore();
+    return;
+   }
+   const current=controller?.verifiedContext?.();
+   const selected=primary?.selectedScope?.();
+   if(!actor||!family||!primaryViewBase?.childId
+     ||current?.actorUid!==actor||current?.familyId!==family
+     ||(selected&&(selected.actorUid!==actor
+      ||selected.familyId!==family||selected.childId!==primaryViewBase.childId))){
+    revision++;clear();
+    screen('unverified','账号、家庭或宝宝作用域已变化，请重新检查。');
+    return;
+   }
+   // Do not overwrite a dirty form, a reference modal or an ongoing command.
+   // This guard runs BEFORE fetchCloudLatest clears the full-read marker.
+   if(busy||refreshBusy||syncActionBusy||hasPendingPageReview()
+     ||attached?.hasActiveBusinessAction?.()
+     ||$('formalResolveDocumentConflict')?.hidden===false
+     ||$('formalResolveBatchConflict')?.hidden===false
+     ||pendingCount>0)return;
+   if(mobileDraft?.hasUnsaved?.()){
+    showSync('有未保存内容，已暂缓自动同步；保存或取消后可手动刷新。','partial');
+    return;
+   }
+   const timestamp=now();
+   if(timestamp-lastAutoAttemptAt<FOREGROUND_REFRESH_MS)return;
+   // Treat online+visible as a single opportunity, not two full reads.
+   lastAutoAttemptAt=timestamp;
+   onlineRecoveryNeeded=false;
+   void fetchCloudLatest({automatic:true});
+  }
+  host.addEventListener('offline',()=>{
+   updateInventoryPolling();
+   onlineRecoveryNeeded=true;
+   if(mode==='ready')showSync('当前网络已断开，页面保留上次数据；未同步。','partial');
+  });
+  host.addEventListener('online',()=>{
+   updateInventoryPolling();
+   onlineRecoveryNeeded=true;
+   if(doc.visibilityState==='visible')foregroundRefresh('online');
+  });
   host.addEventListener('storage',event=>{
    if(event?.key!==OTP_STORAGE_KEY)return;
    restoreOtpCooldown();startOtpTicker();
   });
   doc.addEventListener('visibilitychange',()=>{
-   if(doc.visibilityState==='visible'&&host.navigator?.onLine!==false)
-    restore();
+   if(doc.visibilityState==='hidden'){
+    updateInventoryPolling();lastBackgroundAt=now();return;
+   }
+   if(doc.visibilityState!=='visible')return;
+   updateInventoryPolling();
+   const away=lastBackgroundAt===null?0:now()-lastBackgroundAt;
+   lastBackgroundAt=null;
+   if(away>=FOREGROUND_REFRESH_MS||onlineRecoveryNeeded)
+    foregroundRefresh('visible');
   });
   await restore();
   return mode;

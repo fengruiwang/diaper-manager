@@ -9,7 +9,7 @@
 <link rel="icon" href="./icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
 <title>小宝管家 V1.2.0 · 家庭云端管理</title>
-<meta name="xiaobao-pages-candidate-source" content="16a6a15d0d158b288e331c4b9d1d6abea72d42c3" />
+<meta name="xiaobao-pages-candidate-source" content="1e575db0918fb14ed4839e7fa85798b9e42fdabf" />
 
 
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -97,12 +97,19 @@
 <style>
 #formalGate{min-height:100vh;display:flex;justify-content:center;align-items:center;
 padding:20px;background:linear-gradient(155deg,#f0f9f6,#edf2fb)}
-.formal-gate-card{width:min(450px,100%);background:#fff;border-radius:20px;
+.formal-gate-card{width:min(640px,100%);background:#fff;border-radius:20px;
 padding:30px 26px;box-shadow:0 12px 60px #263b5222}
 .formal-logo{font-size:48px;text-align:center}
 .formal-gate-card h1{text-align:center;font-size:24px;margin:8px 0 16px}
 .formal-gate-card p{font-size:14px;line-height:1.7}
 .formal-gate-card .field{display:block;margin:12px 0}
+#formalCachedInventory{margin:14px 0 6px}
+#formalCachedInventory .sizes{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+#formalCachedInventory .sizecard{padding:11px 12px}
+#formalCachedInventory .stock-number{margin:7px 0 0}
+#formalCachedInventory .stock-number b{font-size:24px}
+#formalCachedInventory .fine{margin:12px 0 0}
+@media(max-width:450px){#formalCachedInventory .sizes{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .formal-spinner{height:28px;width:28px;border:3px solid #dce9e3;
 border-top-color:#428a72;border-radius:50%;margin:22px auto;animation:formalspin 1s linear infinite}
 @keyframes formalspin{to{transform:rotate(360deg)}}
@@ -111,6 +118,21 @@ border-top-color:#428a72;border-radius:50%;margin:22px auto;animation:formalspin
 #formalNotice .btn{font-size:12px;padding:4px 8px}
 body:not([data-formal-state="ready"]) .wrap{display:none!important}
 body[data-formal-state="ready"] #formalGate{display:none!important}
+/* Android Chrome/Edge/PWA: prefer the in-app top pull to browser reload.
+   Native desktop scrolling and editing containers are unaffected. */
+@media (pointer:coarse) and (hover:none){
+ html:has(body[data-formal-state="ready"]),body[data-formal-state="ready"]{
+  overscroll-behavior-y:contain;
+ }
+ body[data-formal-state="ready"] #formalNotice[data-sync-phase="refreshing"]::before{
+  content:"正在获取云端最新数据…";position:fixed;z-index:99;
+  top:max(10px,env(safe-area-inset-top));left:50%;
+  transform:translateX(-50%);pointer-events:none;
+  background:#f4f2ff;border:1px solid #e0defd;color:#5147bb;
+  box-shadow:0 4px 16px #26314720;border-radius:18px;
+  padding:7px 13px;font-size:12px;white-space:nowrap;
+ }
+}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -122,6 +144,10 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
   <p id="formalGateMessage" role="status" aria-live="polite">正在检查登录状态…</p>
   <div id="formalLoadingCard">
    <div class="formal-spinner" aria-hidden="true"></div>
+  </div>
+  <div id="formalCachedInventory" hidden aria-label="上次已确认库存，仅供查看">
+   <div id="formalCachedStockGrid" class="sizes"></div>
+   <p class="fine">仅展示上次核验的六尺码数量，不包含采购金额、宝宝资料或设置。云端确认前所有修改操作不可用。</p>
   </div>
   <div id="formalGateActions" hidden>
    <div class="action-row">
@@ -3903,7 +3929,7 @@ restoreActiveTab();
 })(typeof window!=='undefined'?window:null);
 
 </script>
-<script src="./m1-controller.js?v=rc6" defer></script>
+<script src="./m1-controller.js?v=rc7" defer></script>
 <script>/* M3 formal PRIMARY inventory/transaction bridge, using P2/P3 modules.
  * NOT imported by M1-02, M3 synthetic preview, V1.1.2 or live PWA.
  * No auto network calls on import/create. This is NOT an authorization.
@@ -4025,6 +4051,50 @@ restoreActiveTab();
    if(cloudWritesEnabled===true)
     throw Error('primary_operations:untrusted_view');
    return verifiedReadScope(view);
+  }
+  // P2-02A: read ONLY the pre-existing, actor/child-keyed IDB baseline.
+  // The currently active primary is verified from CloudBase; no last-used
+  // child pointer, token copy, localStorage or optimistic queue is trusted.
+  async function lastConfirmedInventory(){
+   if(!online())return null;
+   try{
+    const ctx=controller.verifiedContext();
+    if(!ctx?.app||!UUID.test(String(ctx.familyId))
+      ||typeof ctx.actorUid!=='string'||!ctx.actorUid)return null;
+    const target=await childReader.create(ctx.app,scopeGuard)
+     .inspectLegacyTarget({familyId:ctx.familyId});
+    if(!target||target.familyId!==ctx.familyId
+      ||!UUID.test(String(target.childId))
+      ||target.readyForMigration!==false)return null;
+    const current=controller.verifiedContext();
+    if(current?.app!==ctx.app||current?.familyId!==ctx.familyId
+      ||current?.actorUid!==ctx.actorUid)return null;
+    const scope={familyId:ctx.familyId,actorUid:ctx.actorUid};
+    const [snapshot,queue]=await Promise.all([
+     outbox.readInventory(scope,target.childId),outbox.stats(scope)
+    ]);
+    // An ordinary 009 enqueue can mutate the verified-server IDB snapshot
+    // speculatively. Never label that local projection a confirmed stock.
+    if(queue?.outstanding!==0||!Number.isSafeInteger(queue.total)
+      ||queue.total<0||snapshot?.source!=='verified-server'
+      ||snapshot.familyId!==scope.familyId
+      ||snapshot.actorUid!==scope.actorUid
+      ||snapshot.childId!==target.childId
+      ||!snapshot.inventory||!snapshot.serverRevisions
+      ||!SIZES.every(size=>Number.isSafeInteger(snapshot.inventory[size])
+        &&snapshot.inventory[size]>=0&&snapshot.inventory[size]<=100000
+        &&Number.isSafeInteger(snapshot.serverRevisions[size])
+        &&snapshot.serverRevisions[size]>=0))return null;
+    const after=controller.verifiedContext();
+    if(after?.app!==ctx.app||after?.familyId!==scope.familyId
+      ||after?.actorUid!==scope.actorUid||!online())return null;
+    return Object.freeze({status:'PRIMARY_LAST_CONFIRMED_INVENTORY',
+     familyId:scope.familyId,actorUid:scope.actorUid,childId:target.childId,
+     inventory:Object.freeze(Object.fromEntries(SIZES.map(size=>
+      [size,snapshot.inventory[size]]))),
+     revisions:Object.freeze(Object.fromEntries(SIZES.map(size=>
+      [size,snapshot.serverRevisions[size]])))});
+   }catch(_){return null;}
   }
   async function activate({verifiedReadModel=null}={}){
    if(busy)return result('BUSY');
@@ -4158,6 +4228,50 @@ restoreActiveTab();
     });
    }catch(_){return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');}
    finally{busy=false;}
+  }
+  // P3-02: read-only six-size check for the currently activated primary.
+  // No outbox, document, history, receipt write, or inventory projection.
+  // The existing inventory client validates the SDK session, RPC shape and
+  // six complete server rows before returning the result.
+  async function checkInventory(){
+   if(!selected)return result('PRIMARY_INVENTORY_CHECK_NOT_SELECTED');
+   if(busy)return result('PRIMARY_INVENTORY_CHECK_BUSY');
+   if(!online())return result('PRIMARY_INVENTORY_CHECK_OFFLINE');
+   const before=controller.verifiedContext();
+   const scope={...selected};
+   if(!before?.app||before.familyId!==scope.familyId
+     ||before.actorUid!==scope.actorUid)
+    return result('PRIMARY_INVENTORY_CHECK_SCOPE_CHANGED');
+   try{
+    const response=await inventoryClient.create(before.app)
+     .readReconciliation({familyId:scope.familyId,
+      childId:scope.childId,operationIds:[]});
+    // A concurrent 009/027 operation takes precedence over this observation.
+    if(busy||!online())return result('PRIMARY_INVENTORY_CHECK_BUSY');
+    const after=controller.verifiedContext();
+    if(!after?.app||after.app!==before.app
+      ||after.familyId!==scope.familyId||after.actorUid!==scope.actorUid
+      ||selected?.familyId!==scope.familyId
+      ||selected?.actorUid!==scope.actorUid
+      ||selected?.childId!==scope.childId)
+     return result('PRIMARY_INVENTORY_CHECK_SCOPE_CHANGED');
+    if(response?.complete!==true
+      ||response.familyId!==scope.familyId
+      ||response.childId!==scope.childId
+      ||response.actorUid!==scope.actorUid
+      ||!Array.isArray(response.checkedOperationIds)
+      ||response.checkedOperationIds.length!==0
+      ||!Array.isArray(response.seenOperationIds)
+      ||response.seenOperationIds.length!==0)
+     return result('PRIMARY_INVENTORY_CHECK_UNVERIFIED');
+    const {stock,revisions}=knownRows(response.rows);
+    if(!SIZES.every(size=>stock[size]<=100000))
+     return result('PRIMARY_INVENTORY_CHECK_UNVERIFIED');
+    return result('PRIMARY_INVENTORY_CHECK_VERIFIED',{
+     familyId:scope.familyId,actorUid:scope.actorUid,childId:scope.childId,
+     inventory:Object.freeze(stock),revisions:Object.freeze(revisions)
+    });
+   }catch(_){return result('PRIMARY_INVENTORY_CHECK_UNVERIFIED');}
   }
   async function read(){
    if(!selected)return result('PRIMARY_NOT_SELECTED');
@@ -4410,7 +4524,7 @@ restoreActiveTab();
     });
    }catch(_){return result('PRIMARY_QUEUE_COUNTS_UNVERIFIED');}
   }
-  return Object.freeze({activate,read,syncVerifiedReadModel,queue,flush,pending,applyBatchInventoryAck,
+  return Object.freeze({activate,read,checkInventory,lastConfirmedInventory,syncVerifiedReadModel,queue,flush,pending,applyBatchInventoryAck,
    selectedScope:()=>selected?Object.freeze({...selected}):null,
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }
@@ -4601,10 +4715,15 @@ restoreActiveTab();
  const guardedActions=new Set(['deletequote','editquote','deleteweight',
   'buyquote','consume','deletetx','resetref']);
  const result=(status)=>Object.freeze({status});
+ const DOCUMENT_OFFLINE='DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE';
+ const OFFLINE_MESSAGE='当前网络不可用，本次操作未保存，请联网后重新操作。';
+ const hasDocumentRequest=answer=>typeof answer?.requestId==='string'
+  &&answer.requestId!==''&&answer.status!==DOCUMENT_OFFLINE;
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   readPurchaseBaseline=null,readConsumeBaseline=null,
   readReverseBaseline=null,confirmReverse=()=>false,onPurchaseAck=null,
-  notify,formalModeSelected,onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
+  notify,formalModeSelected,readSyncBusy=()=>false,
+  onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
   documentOperatorApproved=operatorApproved,
@@ -4687,8 +4806,8 @@ restoreActiveTab();
   }
   function errorText(status,kind){
    const name=kind==='purchase'?'采购':kind==='quotes'?'候选价':'默认价';
-   if(status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED')
-    return '当前网络不可用，本次操作未保存，请联网后重新操作。';
+   if(status==='OFFLINE_FORMAL_QUEUE_NOT_APPROVED'
+     ||status===DOCUMENT_OFFLINE)return OFFLINE_MESSAGE;
    if(/NOT_AUTHORIZED|CONTRACT_NOT_READY|FORMAL_PURCHASE_ONLY/.test(status))
     return '当前云端操作未开放，请核对账号及家庭授权。';
    if(/FORM_INVALID|INVALID|NOT_VERIFIED|INPUT/.test(status))
@@ -4902,7 +5021,7 @@ restoreActiveTab();
     if(!success){
      const id=kind==='stocktake'&&answer?.batchId
       ?answer.batchId:['purchase','consume','reverse','stocktake'].includes(kind)
-      ?answer?.operationId:answer?.requestId;
+      ?answer?.operationId:hasDocumentRequest(answer)?answer.requestId:null;
      if(typeof id==='string'&&id&&answer?.rejected!==true
       &&answer?.status!=='BATCH_REVISION_CONFLICT_MANUAL_REVIEW')
       minimalReview[kind]=Object.freeze(
@@ -5040,6 +5159,7 @@ restoreActiveTab();
       :phase==='working'||Object.prototype.hasOwnProperty.call(PROFILE_STAGES,phase)
        ?PROFILE_STAGES[phase]
       :phase==='idle'?'原宝宝资料请求已核验，可以继续操作。'
+      :status===DOCUMENT_OFFLINE?OFFLINE_MESSAGE
       :/UNCHANGED/.test(status)?'资料没有变化，无需保存。'
       :/FORM_INVALID|INPUT/.test(status)?'资料未保存：请检查日期、出生时间和测量数据。'
       :/PERMISSION|NOT_AUTHORIZED/.test(status)?'服务器拒绝保存宝宝资料，请检查账号及家庭权限。'
@@ -5064,6 +5184,7 @@ restoreActiveTab();
         ?'云端版本已变化，请获取云端最新后重新编辑；原请求已保留。'
         :'设置保存结果待核验，原 UUID 已保留，请勿重复提交。'
       :phase==='idle'?'原设置请求已核验，可以继续操作。'
+      :status===DOCUMENT_OFFLINE?OFFLINE_MESSAGE
       :/UNCHANGED/.test(status)?'设置没有变化，无需保存'
       :/FORM_INVALID|INPUT/.test(status)?'设置未保存：请检查输入。'
       :/CONFLICT|REVISION/.test(status)
@@ -5111,6 +5232,7 @@ restoreActiveTab();
      :phase==='recovered'?'原体重记录请求已核验，可以继续操作。'
      :phase==='cancelled'||status==='GROWTH_DELETE_CANCELLED'
       ?'已取消删除，体重记录未变化。'
+     :status===DOCUMENT_OFFLINE?OFFLINE_MESSAGE
      :/FORM_INVALID|INPUT/.test(status)
       ?'体重记录未保存：请检查测量日期、体重和时间。'
      :/PERMISSION|NOT_AUTHORIZED/.test(status)
@@ -5755,6 +5877,8 @@ restoreActiveTab();
    finally{settingsBusy=false;}
   }
   async function handle(el,doc,preparedDocumentInput=null){
+   // Fail before input serialization, UUID creation or IDB queue writes.
+   if(readSyncBusy())return result('FORMAL_REFRESH_IN_PROGRESS');
    const action=el.dataset?.action;
    const referenceEvent=el.id==='saveEditedReference'
     ||el.id==='restoreDefaultReference'||action==='resetref';
@@ -5883,7 +6007,7 @@ restoreActiveTab();
     void handle(el,doc).then(answer=>{
      // A committed/ambiguous request stays locked until its own receipt
      // and the same account's rendered reference are verified together.
-     if(answer?.requestId&&!['REFERENCE_CLOUD_READBACK_VERIFIED',
+     if(hasDocumentRequest(answer)&&!['REFERENCE_CLOUD_READBACK_VERIFIED',
       'REFERENCE_CLOUD_ACK_APPLIED'].includes(answer.status))
       referenceNeedsReview=Object.freeze({
        requestId:answer.requestId,action:intent?.action,
@@ -5994,7 +6118,7 @@ restoreActiveTab();
    void Promise.resolve(promise).then(answer=>{
     const ok=['GROWTH_CLOUD_ACK_APPLIED','GROWTH_CLOUD_READBACK_VERIFIED']
      .includes(answer?.status);
-    if(answer?.requestId&&!ok){
+    if(hasDocumentRequest(answer)&&!ok){
      pendingDocumentReview.growth=Object.freeze({
       requestId:answer.requestId,action:answer.action||input.action,
       record:answer.record||input.record,
@@ -6034,7 +6158,8 @@ restoreActiveTab();
        .includes(answer?.status)
      :['SETTINGS_CLOUD_ACK_APPLIED','SETTINGS_CLOUD_READBACK_VERIFIED']
       .includes(answer?.status);
-    if(answer?.requestId&&!ok)pendingDocumentReview[kind]=answer.requestId;
+    if(hasDocumentRequest(answer)&&!ok)
+     pendingDocumentReview[kind]=answer.requestId;
     documentProgress(kind,pendingDocumentReview[kind]?'pending':
      ok?'success':'failed',answer?.timings||{},answer);
     notify(answer);
@@ -6103,6 +6228,9 @@ restoreActiveTab();
     // Any unrecognized business button is also blocked: it must not fall
     // through to the old localStorage-only V1.1.2 handler by accident.
     event.preventDefault();event.stopImmediatePropagation();
+    if(readSyncBusy()){
+     notify(result('FORMAL_REFRESH_IN_PROGRESS'));return;
+    }
     if(el.id==='saveEditedReference'||el.id==='restoreDefaultReference'
       ||action==='resetref'){
      dispatchReference(el,doc);return;
@@ -6139,6 +6267,9 @@ restoreActiveTab();
     if(!formalModeSelected())return;
     event.preventDefault();event.stopImmediatePropagation();
     if(event.target?.id!=='priceEditForm')return;
+    if(readSyncBusy()){
+     notify(result('FORMAL_REFRESH_IN_PROGRESS'));return;
+    }
     const el={id:'saveEditedReference',dataset:{}};
     dispatchReference(el,doc);
    };
@@ -6151,6 +6282,11 @@ restoreActiveTab();
     hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.growth
      ||pendingDocumentReview.profile||pendingDocumentReview.settings),
     hasPendingMinimalReview:domain=>Boolean(minimalReview[domain]),
+    // Read-only busy snapshot for the mobile pull gesture; no command flow
+    // or permission changes. In-flight form operations must not be refreshed.
+    hasActiveBusinessAction:()=>Boolean(busy||stocktakeBusy||referenceBusy
+     ||quoteBusy||growthBusy||profileBusy||settingsBusy
+     ||Object.values(minimalBusy).some(Boolean)),
     recoverMinimalButtons,recoverDocumentButtons,detach(){
     if(!attached)return;
     attached.doc.removeEventListener('click',attached.handler,true);
@@ -6912,7 +7048,7 @@ const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const clone=x=>JSON.parse(JSON.stringify(x));
 const reply=(status,extra={})=>Object.freeze({status,...extra});
 const sizeSet=new Set(['NB','S','M','L','XL','XXL']);
-function create({client,queue,uuid}={}){
+function create({client,queue,uuid,isOnline=()=>true}={}){
  if(!client?.read||!queue?.queue||!queue?.pending||typeof uuid!=='function')
   throw Error('document_commands:dependencies_required');
  let busy=false;
@@ -6990,6 +7126,10 @@ function create({client,queue,uuid}={}){
   if(queue.cloudWritesEnabled!==true||operatorApproved!==true)
    return reply('DOCUMENT_WRITES_NOT_AUTHORIZED');
   if(busy)return reply('BUSY');
+  // This formal path has no approved offline document writes.
+  // A known offline save must not allocate a UUID or alter IndexedDB.
+  if(isOnline()===false)
+   return reply('DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE');
   busy=true;
   try{
    // Do not issue a second request while a prior ACK or conflict is unsettled.
@@ -7038,9 +7178,18 @@ function create({client,queue,uuid}={}){
     action,verifiedBaseline:fastKind
      &&read.familyId===familyId&&typeof read.childId==='string'
      ?{...read,actorUid}:null});
-   return reply(saved.status,{
-    requestId:saved.requestId||requestId,cloudWriteCommitted:false
-   });
+   // The queue can refuse before IndexedDB persistence, including a late
+   // network drop. Only durable or locally uncertain requests retain an ID.
+   const noQueue=new Set(['DOCUMENT_OFFLINE_REQUIRES_VERIFIED_BASELINE',
+    'DOCUMENT_WRITES_NOT_AUTHORIZED','DOCUMENT_QUEUE_BUSY',
+    'INVALID_DOCUMENT_OPERATION','DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED']);
+   if(saved&&noQueue.has(saved.status))
+    return reply(saved.status,{cloudWriteCommitted:false});
+   // Unknown local queue results remain ambiguous: NEVER invent a new ID
+   // for recovery, but preserve the one already allocated for this attempt.
+   const status=saved?.status||'DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID';
+   return reply(status,{requestId:saved?.requestId||requestId,
+    cloudWriteCommitted:false});
   }catch(_){return reply('DOCUMENT_COMMAND_REJECTED');}
   finally{busy=false;}
  }
@@ -7270,8 +7419,8 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
-<script src="./formal-controller.js?v=rc6" defer></script>
-<script src="./pwa.js?v=rc6" defer></script>
+<script src="./formal-controller.js?v=rc7" defer></script>
+<script src="./pwa.js?v=rc7" defer></script>
 
 </body>
 </html>
