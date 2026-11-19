@@ -1,0 +1,7 @@
+{
+  "version": "1.2.0-rc.6",
+  "channel": "release-candidate",
+  "source_sha": "16a6a15d0d158b288e331c4b9d1d6abea72d42c3",
+  "released": "2026-11-19",
+  "notes": "T04-RC6-01 隔离候选：可信日用量、明确离线未入队反馈、分阶段启动提示；沿用rc.5已授权写入范围；未部署"
+}

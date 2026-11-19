@@ -1,0 +1,33 @@
+name: XiaoBao T04 V1.2.0 rc6 isolated candidate (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+    paths:
+      - 'release-candidate/pages-v1.2.0-rc6/**'
+      - 'scripts/build-pages-v120-rc6.cjs'
+      - 'tests/pages-v120-rc6.test.cjs'
+      - '.github/workflows/pages-v120-rc6.yml'
+permissions:
+  contents: read
+jobs:
+  rc6-candidate:
+    name: RC6 deterministic parity, write gates and isolated HTTP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify complete deterministic RC6 package
+        run: node scripts/build-pages-v120-rc6.cjs --check
+      - name: Verify trusted daily, offline UUID, boot messages and HTTP resources
+        run: node --test tests/pages-v120-rc6.test.cjs
+      - name: Archive RC6 standalone package only (NO DEPLOY)
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-V1.2.0-RC6-FULL-WRITE
+          path: release-candidate/pages-v1.2.0-rc6/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
