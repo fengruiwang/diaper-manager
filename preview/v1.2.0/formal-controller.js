@@ -13,6 +13,9 @@ const SIZES=['NB','S','M','L','XL','XXL'];
 const OTP_COOLDOWN_MS=60000;
 // Five parallel server-authorized document RPCs, with no full-body second pass.
 const DOCUMENT_READ_TIMEOUT_MS=60000;
+// A short App switch is not a reload. The next eligible foreground return
+// after 45 seconds may reuse the normal authenticated full-cloud refresh.
+const FOREGROUND_REFRESH_MS=45000;
 const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
 const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED','FORMAL_FAMILY_VERIFIED']);
 const notes={
@@ -123,6 +126,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let documentReadTask=null,fullyReadAt=null,fullReadVerified=false,fullReadScope='';
  let documentClientCache=null;
  let refreshBusy=false,pendingReviewSerial=0,syncActionBusy=false;
+ let lastBackgroundAt=null,lastAutoAttemptAt=0,onlineRecoveryNeeded=false;
  let mobileDraft=null;
  let pendingCount=0,pendingCountsVerified=false;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
@@ -564,7 +568,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   expectedReverseId=null,expectedOriginalId=null,expectedStocktake=null,
   expectedBatch=null,expectedQuotes=null,expectedGrowth=null,
   expectedProfile=null,expectedSettings=null,expectedReference=null,
-  requireComplete=false}={}){
+  requireComplete=false,automatic=false}={}){
   if(busy)return expectedBatch!==null?'BATCH_READBACK_PENDING':
    expectedQuotes!==null?'QUOTES_READBACK_PENDING':
    expectedGrowth!==null?'GROWTH_READBACK_PENDING':
@@ -696,8 +700,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     // Preserve the existing superseded-read behavior for ordinary refreshes.
     // Strict identity failure above is scoped to the 009/027 recovery handoff.
     if(contextChanged||selectedChanged){
-     if(cachedPreview){clear();screen('unverified',
-      '账号、家庭或宝宝作用域已变化，已隐藏上次库存。');}
+     // The old UI must not survive a verified actor or primary-child switch,
+     // including a background refresh with no startup cache on screen.
+     if(mode==='ready'||cachedPreview){
+      clear();screen('unverified',
+       '账号、家庭或宝宝作用域已变化，已隐藏旧库存。');
+     }
      return mode;
     }
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
@@ -713,6 +721,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if($('formalCachedInventory'))$('formalCachedInventory').hidden=true;
     if($('formalCachedStockGrid'))$('formalCachedStockGrid').innerHTML='';
     if(mode==='boot')screen('boot','正在核对本机库存…');
+   }
+   // Fresh, correctly scoped primary read was verified; do not overwrite
+   // a form changed after the automatic network request began.
+   if(automatic&&mobileDraft?.hasUnsaved?.()){
+    showSync('刷新期间发现未保存内容，已暂缓自动同步；保存后可刷新。','partial');
+    return 'AUTO_SYNC_DRAFT_DEFERRED';
    }
    const scopeKey=ctx.actorUid+'\x00'+ctx.familyId;
    const identityEpoch=documentEpoch;
@@ -1520,12 +1534,17 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        expectedStocktake:kind==='stocktake'?{size,count,expectedRevision}:null
       }),
       formalModeSelected:()=>mode==='ready',
+      readSyncBusy:()=>busy||refreshBusy||syncActionBusy,
       readPurchase:()=>root.XBFormalUIData.purchase(),
       readQuote:id=>root.XBFormalUIData.quote(id),
       readTransaction:id=>root.XBFormalUIData.transaction(id),
       notify:answer=>{
         mobileDraft?.settle(answer);
         const resultCode=String(answer?.status||'');
+        if(resultCode==='FORMAL_REFRESH_IN_PROGRESS'){
+         $('formalSyncState').textContent='正在核验云端数据，暂不可修改；未创建新请求。';
+         return;
+        }
         if(/UNKNOWN|PENDING|REVIEW|CONFLICT|UNVERIFIED|FAILED/.test(resultCode)
           &&(documentWritesEnabled===true||purchaseReleaseEnabled===true)){
          const button=$('formalSyncNow');
@@ -1709,6 +1728,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        ||postSyncSelected.childId!==displayBase.childId))){
     localInventoryBaselineReady=false;return mode;
    }
+   if(automatic&&mobileDraft?.hasUnsaved?.()){
+    // If the user edited during the document/IDB awaits, preserve their
+    // input and keep old stock write-disabled until another verified read.
+    localInventoryBaselineReady=false;
+    showSync('刷新期间发现未保存内容，已暂缓自动同步；保存后可刷新。','partial');
+    return 'AUTO_SYNC_DRAFT_DEFERRED';
+   }
    primaryViewBase=displayBase;
    // Do not wait for an additional getSession() call after showing UI.
    showCloudView(data,ctx);
@@ -1881,7 +1907,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalSendOtp',sendOtp);
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
-  async function fetchCloudLatest(){
+  async function fetchCloudLatest({automatic=false}={}){
    if(mode!=='ready'||!actor||!family||busy||refreshBusy||syncActionBusy)return;
    if(host.navigator?.onLine===false){
     const node=$('formalCloudSyncFeedback');
@@ -1896,7 +1922,11 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const epoch=documentEpoch,account=actor,household=family;
    const child=primaryViewBase?.childId;
    try{
-    const next=await restore({requireComplete:true});
+    const next=await restore({requireComplete:true,automatic});
+    if(next==='AUTO_SYNC_DRAFT_DEFERRED'){
+     if(node)node.textContent='自动同步已暂缓：编辑内容未保存，请保存后手动刷新。';
+     return;
+    }
     // An ordinary restore can return the still-visible view if its verified
     // actor/child changed during an in-flight read. For an explicit refresh,
     // never leave that old household visible as if it were still authorized.
@@ -1932,7 +1962,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   // T05-P2-01: an Android touch entrypoint only; both existing refresh
   // buttons and this gesture call fetchCloudLatest(), never a second sync.
   const coarseTouch=host.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches===true;
-  if(coarseTouch){
+  // Draft tracking is shared with foreground sync on desktop and mobile.
+  // Only touch gestures remain conditional on the Android pointer capability.
+  {
    const threshold=76;
    let pull=null;
    // Static inputs survive renderAll(): connectivity alone cannot release
@@ -2001,6 +2033,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      }
    };
    const saveTarget=event=>{
+    // A blocked click must not stage a fictitious document save.
+    if(busy||refreshBusy||syncActionBusy)return;
     const button=event?.target?.closest?.('button,[data-action],[data-preset]');
     if(!button)return;
     const id=button.id,action=button.dataset?.action;
@@ -2018,7 +2052,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    };
    doc.addEventListener('click',saveTarget,true);
    doc.addEventListener('submit',event=>{
-    if(event?.target?.id==='priceEditForm')stage('reference','reference');
+    if(!busy&&!refreshBusy&&!syncActionBusy
+      &&event?.target?.id==='priceEditForm')stage('reference','reference');
    },true);
    // Legacy cancel button handlers have reset their inputs before bubbling.
    doc.addEventListener('click',event=>{
@@ -2056,6 +2091,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      // Unknown ACK and original UUID review must never unlock a draft.
     },
     recover:release,
+    hasUnsaved:()=>editing(),
     reset(){editedFields.clear();saving.clear();focusValues=new WeakMap();}
    };
    const atTop=()=>Math.max(0,Number(host.scrollY)||0,
@@ -2089,13 +2125,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const exempt=target=>Boolean(target?.closest?.(
     'input,textarea,select,button,a,[contenteditable],'
     +'.price-editor-backdrop,.price-editor-card,.table-wrap,.ref-list,.tabs'));
-   doc.addEventListener('touchstart',event=>{
+   if(coarseTouch)doc.addEventListener('touchstart',event=>{
     pull=null;
     if(event.touches?.length!==1||!safe()||exempt(event.target))return;
     const t=event.touches[0];
     pull={x:t.clientX,y:t.clientY,armed:false};
    },{passive:true});
-   doc.addEventListener('touchmove',event=>{
+   if(coarseTouch)doc.addEventListener('touchmove',event=>{
     if(!pull)return;
     if(event.touches?.length!==1||!safe()){pull=null;return;}
     const t=event.touches[0],dy=t.clientY-pull.y;
@@ -2106,7 +2142,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if(event.cancelable)event.preventDefault();
     pull.armed=dy>=threshold;
    },{passive:false});
-   doc.addEventListener('touchend',event=>{
+   if(coarseTouch)doc.addEventListener('touchend',event=>{
     const gesture=pull;pull=null;
     if(!gesture||!gesture.armed||event.changedTouches?.length!==1
       ||!safe())return;
@@ -2114,7 +2150,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if(dy>=threshold&&Math.abs(t.clientX-gesture.x)<=dy*.75)
      void fetchCloudLatest();
    },{passive:true});
-   doc.addEventListener('touchcancel',()=>{pull=null;},{passive:true});
+   if(coarseTouch)doc.addEventListener('touchcancel',()=>{pull=null;},{passive:true});
   }
 
    // The 027 conflict must be proven uncommitted before user-confirmed archival.
@@ -2418,14 +2454,66 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalSubmitPending',submitPending);
   on('formalSignOut',signOut);
   on('formalGateSignOut',signOut);
-  host.addEventListener('online',restore);
+  // The only automatic refresh entrypoint. Manual clicks and touch pull
+  // continue to use fetchCloudLatest(); automatic reads never flush UUIDs.
+  function foregroundRefresh(reason){
+   if(host.navigator?.onLine===false)return;
+   if(mode!=='ready'){
+    // A visible offline/cached gate may retry the original login + primary
+    // validation; the full-page gate is never bypassed.
+    if((mode==='offline'||mode==='cached'||mode==='unverified')
+      &&!busy)void restore();
+    return;
+   }
+   const current=controller?.verifiedContext?.();
+   const selected=primary?.selectedScope?.();
+   if(!actor||!family||!primaryViewBase?.childId
+     ||current?.actorUid!==actor||current?.familyId!==family
+     ||(selected&&(selected.actorUid!==actor
+      ||selected.familyId!==family||selected.childId!==primaryViewBase.childId))){
+    revision++;clear();
+    screen('unverified','账号、家庭或宝宝作用域已变化，请重新检查。');
+    return;
+   }
+   // Do not overwrite a dirty form, a reference modal or an ongoing command.
+   // This guard runs BEFORE fetchCloudLatest clears the full-read marker.
+   if(busy||refreshBusy||syncActionBusy||hasPendingPageReview()
+     ||attached?.hasActiveBusinessAction?.()
+     ||$('formalResolveDocumentConflict')?.hidden===false
+     ||$('formalResolveBatchConflict')?.hidden===false
+     ||pendingCount>0)return;
+   if(mobileDraft?.hasUnsaved?.()){
+    showSync('有未保存内容，已暂缓自动同步；保存或取消后可手动刷新。','partial');
+    return;
+   }
+   const timestamp=now();
+   if(timestamp-lastAutoAttemptAt<FOREGROUND_REFRESH_MS)return;
+   // Treat online+visible as a single opportunity, not two full reads.
+   lastAutoAttemptAt=timestamp;
+   onlineRecoveryNeeded=false;
+   void fetchCloudLatest({automatic:true});
+  }
+  host.addEventListener('offline',()=>{
+   onlineRecoveryNeeded=true;
+   if(mode==='ready')showSync('当前网络已断开，页面保留上次数据；未同步。','partial');
+  });
+  host.addEventListener('online',()=>{
+   onlineRecoveryNeeded=true;
+   if(doc.visibilityState==='visible')foregroundRefresh('online');
+  });
   host.addEventListener('storage',event=>{
    if(event?.key!==OTP_STORAGE_KEY)return;
    restoreOtpCooldown();startOtpTicker();
   });
   doc.addEventListener('visibilitychange',()=>{
-   if(doc.visibilityState==='visible'&&host.navigator?.onLine!==false)
-    restore();
+   if(doc.visibilityState==='hidden'){
+    lastBackgroundAt=now();return;
+   }
+   if(doc.visibilityState!=='visible')return;
+   const away=lastBackgroundAt===null?0:now()-lastBackgroundAt;
+   lastBackgroundAt=null;
+   if(away>=FOREGROUND_REFRESH_MS||onlineRecoveryNeeded)
+    foregroundRefresh('visible');
   });
   await restore();
   return mode;

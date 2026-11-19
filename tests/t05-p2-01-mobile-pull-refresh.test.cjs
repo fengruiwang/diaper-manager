@@ -40,7 +40,7 @@ function harness({session=true,connectResult=null,offline=false,
   currentView=null,actions=null,submitted=0,readCount=0,activateCount=0,
   baselineCount=0,loginCount=0,clears=0,currentBaselineStatus=baselineStatus,
   cacheReads=0;
- let businessBusy=false,actionCallbacks=null;
+ let businessBusy=false,actionCallbacks=null,clockOffset=0;
  const docEvents=new Map();
  const item=id=>{
   if(!elements.has(id)){
@@ -82,7 +82,7 @@ function harness({session=true,connectResult=null,offline=false,
   matchMedia:()=>({matches:mobile}),scrollY:0,
   location:{reload(){throw Error('FORBIDDEN_PAGE_RELOAD');}},
   crypto:{randomUUID:()=> '04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2'},
-  Date,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval,
+  Date:{now:()=>Date.now()+clockOffset},Intl,console,setTimeout,clearTimeout,setInterval,clearInterval,
   addEventListener(type,fn){listeners.set('host:'+type,fn);},
   localStorage:{getItem:()=>null,setItem(){},removeItem(){}},
   confirm:()=>true
@@ -216,6 +216,16 @@ function harness({session=true,connectResult=null,offline=false,
   setReadError(value){failRead=value;},
   setOnline(value){networkOnline=value;},
   setBusinessBusy(value){businessBusy=value;},
+  advance(ms){clockOffset+=ms;},
+  visibility(state){doc.visibilityState=state;
+   listeners.get('document:visibilitychange')?.();},
+  onlineEvent(){listeners.get('host:online')?.();},
+  offlineEvent(){listeners.get('host:offline')?.();},
+  businessClick(id,dataset={}){
+   const button={id,dataset,classList:{contains:()=>false},closest:()=>button};
+   const event={target:button,preventDefault(){},stopImmediatePropagation(){}};
+   listeners.get('document:click')?.(event);
+  },
   setBaselineStatus(value){currentBaselineStatus=value;},
   switchAccount(actorUid,childId){scope.actorUid=actorUid;scope.childId=childId;}
  };
@@ -394,7 +404,7 @@ test('T05-P2-01 source keeps isolated mobile CSS and uses the existing app refre
  const module=fs.readFileSync(path.join(__dirname,
   '../sync/primary-formal-ui-actions.js'),'utf8').trim();
  assert.match(controller,/void fetchCloudLatest\(\)/);
- assert.match(controller,/restore\(\{requireComplete:true\}\)/);
+ assert.match(controller,/restore\(\{requireComplete:true,automatic\}\)/);
  assert.match(controller,/on\('formalRefresh',fetchCloudLatest\)/);
  assert.match(controller,/on\('formalGetCloudLatest',fetchCloudLatest\)/);
  assert.match(controller,/const threshold=76/);
@@ -592,4 +602,202 @@ test('T05-P2-02A cached counts cannot populate expense or profile fields',async(
  assert.ok(!h.item('formalCachedStockGrid').innerHTML.includes('合成宝宝'));
  assert.ok(!h.item('formalCachedStockGrid').innerHTML.includes('¥'));
  await h.release('read');await started;
+});
+
+test('T05-P3-01 short App switch keeps the exact view and avoids another cloud read',async()=>{
+ const h=harness();await ready(h);
+ const previous=h.currentView;
+ h.doc.body.dataset.activeTab='growth';h.host.scrollY=211;
+ h.visibility('hidden');h.advance(12000);h.visibility('visible');
+ await tick();await tick();
+ assert.equal(h.readCount,1);
+ assert.equal(h.loginCount,1);
+ assert.equal(h.currentView,previous);
+ assert.equal(h.doc.body.dataset.formalState,'ready');
+ assert.equal(h.doc.body.dataset.activeTab,'growth');
+ assert.equal(h.host.scrollY,211);
+ assert.equal(h.events.filter(x=>x==='ui.clear').length,1);
+});
+test('T05-P3-01 after 45 seconds foreground refresh reads behind retained page',async()=>{
+ const h=harness();await ready(h);
+ const previous=h.currentView;h.doc.body.dataset.activeTab='settings';
+ h.host.scrollY=180;h.hold('read');
+ h.visibility('hidden');h.advance(46000);h.visibility('visible');
+ await until(()=>h.readCount===2);
+ assert.equal(h.currentView,previous);
+ assert.equal(h.doc.body.dataset.formalState,'ready');
+ assert.equal(h.doc.body.dataset.activeTab,'settings');
+ assert.equal(h.host.scrollY,180);
+ assert.equal(h.loginCount,2,'SDK session may be rechecked invisibly; no full-screen gate');
+ await h.release('read');
+ await until(()=>h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
+ assert.equal(h.readCount,2);assert.equal(h.baselineCount,2);
+});
+test('T05-P3-01 repeated foreground events and online event coalesce into one read',async()=>{
+ const h=harness();await ready(h);
+ h.hold('read');h.visibility('hidden');h.advance(47000);
+ h.visibility('visible');h.onlineEvent();h.visibility('visible');
+ await until(()=>h.readCount===2);
+ h.visibility('hidden');h.advance(1000);h.visibility('visible');
+ assert.equal(h.readCount,2);
+ await h.release('read');await until(()=>h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
+ assert.equal(h.readCount,2);
+});
+test('T05-P3-01 automatic sync and manual Android pull cannot issue concurrent reads',async()=>{
+ const h=harness();await ready(h);
+ h.hold('read');h.visibility('hidden');h.advance(60000);h.visibility('visible');
+ await until(()=>h.readCount===2);
+ assert.equal(touch(h,{dy:120}).prevented,0);
+ h.listeners.get('formalRefresh:click')?.();
+ await tick();await tick();assert.equal(h.readCount,2);
+ await h.release('read');await until(()=>h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
+});
+test('T05-P3-01 unsaved draft on mobile blocks all automatic cloud redraw',async()=>{
+ const h=harness();await ready(h);
+ const input=h.item('babyName');input.tagName='INPUT';input.isConnected=true;input.value='旧名字';
+ h.listeners.get('document:focusin')?.({target:input});
+ input.value='未保存的新名字';h.listeners.get('document:input')?.({target:input});
+ h.visibility('hidden');h.advance(60000);h.visibility('visible');
+ await tick();await tick();
+ assert.equal(h.readCount,1);assert.equal(input.value,'未保存的新名字');
+ assert.match(h.item('formalSyncState').textContent,/未保存内容.*暂缓自动同步/);
+});
+test('T05-P3-01 unsaved desktop form is protected even with no touch listeners',async()=>{
+ const h=harness({mobile:false});await ready(h);
+ const input=h.item('goalPrice');input.tagName='INPUT';input.value='1.3';
+ h.listeners.get('document:focusin')?.({target:input});
+ input.value='1.7';h.listeners.get('document:change')?.({target:input});
+ assert.equal(h.listeners.has('document:touchstart'),false);
+ h.visibility('hidden');h.advance(90000);h.visibility('visible');
+ await tick();assert.equal(h.readCount,1);assert.equal(input.value,'1.7');
+});
+test('T05-P3-01 during automatic read all captured business save entrypoints fail closed',async()=>{
+ const h=harness();await ready(h);
+ h.hold('read');h.visibility('hidden');h.advance(46000);h.visibility('visible');
+ await until(()=>h.readCount===2);
+ const before=h.submitted;
+ for(const id of ['buyNow','saveQuote','saveProfile','saveStocks','savePlans','saveSizePreferences'])
+  h.businessClick(id);
+ assert.equal(h.submitted,before,'no new 009/026/027 operation was created');
+ assert.match(h.item('formalSyncState').textContent,/暂不可修改/);
+ await h.release('read');
+ await until(()=>h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
+});
+test('T05-P3-01 foreground switching during active command or conflict skips automatic refresh',async()=>{
+ const h=harness();await ready(h);
+ h.setBusinessBusy(true);h.visibility('hidden');h.advance(50000);h.visibility('visible');
+ await tick();assert.equal(h.readCount,1);
+ h.setBusinessBusy(false);h.item('formalResolveDocumentConflict').hidden=false;
+ h.visibility('hidden');h.advance(50000);h.visibility('visible');
+ await tick();assert.equal(h.readCount,1);
+});
+test('T05-P3-01 offline and online recovery keep existing data and never claim false success',async()=>{
+ const h=harness();await ready(h);
+ const view=h.currentView;
+ h.setOnline(false);h.offlineEvent();
+ assert.match(h.item('formalSyncState').textContent,/网络已断开/);
+ h.visibility('hidden');h.advance(47000);h.visibility('visible');
+ assert.equal(h.readCount,1);assert.equal(h.currentView,view);
+ h.setOnline(true);h.setReadError(true);h.onlineEvent();
+ await until(()=>h.readCount===2&&h.item('formalCloudSyncFeedback').textContent.includes('失败'));
+ assert.equal(h.currentView,view);
+ assert.equal(h.doc.body.dataset.formalState,'ready');
+ assert.notEqual(h.item('formalCloudSyncFeedback').textContent,'云端数据已更新');
+});
+test('T05-P3-01 online + visible without any offline event only starts one full read',async()=>{
+ const h=harness();await ready(h);
+ h.hold('read');h.visibility('hidden');h.advance(48000);
+ h.onlineEvent();assert.equal(h.readCount,1,'hidden online event cannot refresh');
+ h.visibility('visible');await until(()=>h.readCount===2);
+ h.onlineEvent();h.visibility('visible');assert.equal(h.readCount,2);
+ await h.release('read');await until(()=>h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
+});
+test('T05-P3-01 actor or child mismatch on foreground erases stale home',async()=>{
+ for(const change of [
+  {actorUid:'actor-B',childId:CHILD_B},
+  {actorUid:'actor-A',childId:CHILD_B}
+ ]){
+  const h=harness();await ready(h);
+  h.switchAccount(change.actorUid,change.childId);
+  h.visibility('hidden');h.advance(46000);h.visibility('visible');
+  await until(()=>h.currentView===null);
+  assert.equal(h.doc.body.dataset.formalState,'unverified');
+  assert.equal(h.readCount,change.actorUid==='actor-B'?1:2,
+   'changed actor is blocked locally; changed child is rejected by fresh remote read');
+ }
+});
+test('T05-P3-01 no foreground activation of startup cache or hidden guest session',async()=>{
+ const h=harness({cached:{},hold:['read']});
+ const initial=h.app.start();
+ await until(()=>h.item('formalCachedInventory').hidden===false);
+ h.visibility('hidden');h.advance(90000);h.visibility('visible');
+ await tick();
+ assert.equal(h.readCount,1,'still the one original startup read');
+ assert.equal(h.doc.body.dataset.formalState,'boot');
+ await h.release('read');await initial;
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+});
+test('T05-P3-01 no retry or automatic UUID flush when pending queue is declared',async()=>{
+ const h=harness();await ready(h);
+ h.hold('read');
+ h.visibility('hidden');h.advance(47000);
+ // The original pending indicators and conflict UI guard remain authoritative.
+ h.item('formalResolveBatchConflict').hidden=false;
+ h.visibility('visible');await tick();
+ assert.equal(h.readCount,1);
+ assert.equal(h.submitted,0);
+ assert.equal(h.events.filter(x=>x==='ui.clear').length,1);
+});
+
+test('T05-P3-01 after a meaningful absence automatically receives newer cloud stock',async()=>{
+ const h=harness({cloudInventory:{S:222}});await ready(h);
+ assert.equal(h.currentView.state.inventory.S,222);
+ h.visibility('hidden');h.advance(47000);
+ h.visibility('visible');
+ await until(()=>h.readCount===2&&h.baselineCount===2);
+ assert.equal(h.currentView.state.inventory.S,222);
+ assert.equal(h.doc.body.dataset.formalState,'ready');
+});
+test('T05-P3-01 after cancelling a draft, a later foreground return can sync',async()=>{
+ const h=harness();await ready(h);
+ const field=h.item('goalPrice');field.tagName='INPUT';field.value='1.2';
+ h.listeners.get('document:focusin')?.({target:field});
+ field.value='1.6';h.listeners.get('document:input')?.({target:field});
+ h.visibility('hidden');h.advance(46000);h.visibility('visible');
+ await tick();assert.equal(h.readCount,1);
+ field.value='1.2';h.listeners.get('document:input')?.({target:field});
+ h.visibility('hidden');h.advance(46000);h.visibility('visible');
+ await until(()=>h.readCount===2);
+ assert.equal(h.doc.body.dataset.formalState,'ready');
+});
+
+test('T05-P3-01 draft typed while automatic cloud read is in flight is not overwritten',async()=>{
+ const h=harness();await ready(h);
+ const before=h.currentView;h.hold('read');
+ h.visibility('hidden');h.advance(50000);h.visibility('visible');
+ await until(()=>h.readCount===2);
+ const field=h.item('babyName');field.tagName='INPUT';field.value='云端旧昵称';
+ h.listeners.get('document:focusin')?.({target:field});
+ field.value='这会刚刚输入的草稿';h.listeners.get('document:input')?.({target:field});
+ await h.release('read');
+ await until(()=>h.item('formalCloudSyncFeedback').textContent.includes('自动同步已暂缓'));
+ assert.equal(h.currentView,before);
+ assert.equal(field.value,'这会刚刚输入的草稿');
+ assert.equal(h.doc.body.dataset.formalState,'ready');
+ assert.equal(h.baselineCount,1,'draft interrupts before IDB baseline sync');
+ assert.notEqual(h.item('formalCloudSyncFeedback').textContent,'云端数据已更新');
+});
+test('T05-P3-01 a failed background read and unsaved input never produce UUID',async()=>{
+ const h=harness();await ready(h);
+ h.hold('read');h.visibility('hidden');h.advance(50000);h.visibility('visible');
+ await until(()=>h.readCount===2);
+ const field=h.item('qPrice');field.tagName='INPUT';field.value='120';
+ h.listeners.get('document:focusin')?.({target:field});
+ field.value='133';h.listeners.get('document:input')?.({target:field});
+ h.businessClick('saveQuote');
+ assert.equal(h.submitted,0);
+ await h.release('read');
+ await until(()=>h.item('formalCloudSyncFeedback').textContent.includes('自动同步已暂缓'));
+ assert.equal(field.value,'133');
+ assert.equal(h.submitted,0);
 });

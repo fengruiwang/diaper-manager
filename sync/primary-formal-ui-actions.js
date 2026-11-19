@@ -22,7 +22,8 @@
  function create({commands,primary,readPurchase,readQuote,readTransaction,
   readPurchaseBaseline=null,readConsumeBaseline=null,
   readReverseBaseline=null,confirmReverse=()=>false,onPurchaseAck=null,
-  notify,formalModeSelected,onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
+  notify,formalModeSelected,readSyncBusy=()=>false,
+  onReferenceProgress=()=>{},onDocumentProgress=()=>{},buildAllowsWrites=false,
   operatorApproved=()=>false,
   buildAllowsDocumentWrites=buildAllowsWrites,
   documentOperatorApproved=operatorApproved,
@@ -1176,6 +1177,8 @@
    finally{settingsBusy=false;}
   }
   async function handle(el,doc,preparedDocumentInput=null){
+   // Fail before input serialization, UUID creation or IDB queue writes.
+   if(readSyncBusy())return result('FORMAL_REFRESH_IN_PROGRESS');
    const action=el.dataset?.action;
    const referenceEvent=el.id==='saveEditedReference'
     ||el.id==='restoreDefaultReference'||action==='resetref';
@@ -1525,6 +1528,9 @@
     // Any unrecognized business button is also blocked: it must not fall
     // through to the old localStorage-only V1.1.2 handler by accident.
     event.preventDefault();event.stopImmediatePropagation();
+    if(readSyncBusy()){
+     notify(result('FORMAL_REFRESH_IN_PROGRESS'));return;
+    }
     if(el.id==='saveEditedReference'||el.id==='restoreDefaultReference'
       ||action==='resetref'){
      dispatchReference(el,doc);return;
@@ -1561,6 +1567,9 @@
     if(!formalModeSelected())return;
     event.preventDefault();event.stopImmediatePropagation();
     if(event.target?.id!=='priceEditForm')return;
+    if(readSyncBusy()){
+     notify(result('FORMAL_REFRESH_IN_PROGRESS'));return;
+    }
     const el={id:'saveEditedReference',dataset:{}};
     dispatchReference(el,doc);
    };
