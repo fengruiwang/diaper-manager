@@ -1802,8 +1802,23 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(node)node.textContent='正在获取云端最新数据…';
    showSync('正在刷新…','refreshing');
    const epoch=documentEpoch,account=actor,household=family;
+   const child=primaryViewBase?.childId;
    try{
     const next=await restore({requireComplete:true});
+    // An ordinary restore can return the still-visible view if its verified
+    // actor/child changed during an in-flight read. For an explicit refresh,
+    // never leave that old household visible as if it were still authorized.
+    if(epoch===documentEpoch&&actor===account&&family===household){
+     const current=controller?.verifiedContext?.();
+     const selected=primary?.selectedScope?.();
+     if(current?.actorUid!==account||current?.familyId!==household
+       ||(selected&&(selected.actorUid!==account
+        ||selected.familyId!==household||selected.childId!==child))){
+      clear();
+      screen('unverified','账号、家庭或宝宝作用域已变化，请重新检查。');
+      return;
+     }
+    }
     if(epoch!==documentEpoch||actor!==account||family!==household)return;
     if(node)node.textContent=next==='ready'&&currentFullRead()
       &&host.navigator?.onLine!==false
@@ -1828,10 +1843,23 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   if(coarseTouch){
    const threshold=76;
    let pull=null;
+   // Native input/change events identify unsaved drafts even after focus
+   // moves away. Conservatively block a pull until those nodes are replaced
+   // by the verified page render, rather than discarding the user's edits.
+   const editedFields=new Set();
+   const rememberEdit=event=>{
+    if(mode==='ready'&&/^(INPUT|TEXTAREA|SELECT)$/i.test(
+     event?.target?.tagName||''))editedFields.add(event.target);
+   };
+   doc.addEventListener('input',rememberEdit,true);
+   doc.addEventListener('change',rememberEdit,true);
    const atTop=()=>Math.max(0,Number(host.scrollY)||0,
     Number(doc.documentElement?.scrollTop)||0,
     Number(doc.body?.scrollTop)||0)<=1;
    const editing=()=>{
+    for(const field of editedFields)
+     if(field?.isConnected===false)editedFields.delete(field);
+    if(editedFields.size)return true;
     const active=doc.activeElement;
     if(active?.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/i.test(active?.tagName||''))
      return true;
