@@ -19,8 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Verify deterministic RC5 package
-        run: node scripts/build-pages-v120-rc5.cjs --check
+      - name: Verify pinned historical RC5 resources (14 Git blob SHAs)
+        run: |
+          node -e 'const fs=require("node:fs");const path=require("node:path");const {checkPinnedResources}=require("./tests/historical-candidate-baselines.cjs");const root="release-candidate/pages-v1.2.0-rc5";const result=checkPinnedResources(file=>fs.readFileSync(path.join(root,file)),"rc5");console.log("Pinned RC5 resources verified:",result.count);'
       - name: Verify full write routes, T03 recovery and isolated HTTP package
         run: node --test tests/pages-v120-rc5.test.cjs
       - name: Archive RC5 package only - no Tencent upload or Pages deployment
