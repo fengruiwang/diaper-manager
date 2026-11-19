@@ -22,7 +22,10 @@ test('RC5 includes T03 single and batch stocktake restore fix and isolated PWA r
  assert.doesNotMatch(sw,/localStorage\.(?:clear|removeItem)|indexedDB\.deleteDatabase/);
 });
 test('RC5 embeds current reviewed CloudBase operation modules',()=>{
- const h=text('index.html');for(const p of ['sync/primary-cloud-read-model.js','sync/primary-cloud-operations.js','sync/primary-documents-client.js','sync/primary-documents-operations.js','sync/primary-documents-business-commands.js','sync/primary-stocktake-batch-client.js','sync/inventory-outbox-runner.js','sync/inventory-sync-reader.js'])assert.ok(h.includes(read(p).toString('utf8').trim()),'inline parity '+p);
+ const h=text('index.html');for(const p of ['sync/primary-cloud-read-model.js','sync/primary-cloud-operations.js','sync/primary-documents-client.js','sync/primary-documents-operations.js','sync/primary-stocktake-batch-client.js','sync/inventory-outbox-runner.js','sync/inventory-sync-reader.js'])assert.ok(h.includes(read(p).toString('utf8').trim()),'inline parity '+p);
+ // Frozen RC5 deliberately retains its original document-command contract.
+ assert.match(h,/function create\(\{client,queue,uuid\}=\{\}\)\{/);
+ assert.match(h,/requestId:saved\.requestId\|\|requestId/);
  // rc5 stays frozen at its recorded source SHA. Later Feature fixes must not
  // retroactively change the immutable candidate's embedded action module.
  assert.match(h,/const count=day\?Math\.min\(stock,Math\.round\(Math\.max\(1,/);

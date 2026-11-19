@@ -224,8 +224,7 @@ test('T05 underlying queue refuses late offline after UUID: command discards onl
 test('T05 definite queue rejections without persistence never carry a fictitious requestId',async()=>{
  for(const status of ['DOCUMENT_QUEUE_BUSY','INVALID_DOCUMENT_OPERATION',
   'DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED','DOCUMENT_WRITES_NOT_AUTHORIZED']){
-  const f=setup({online:true}),realQueue=f.ops.queue;
-  f.ops.queue=async()=>({status}); // built command captured ops reference.
+  const f=setup({online:true});
   const id=UUID(1),forced=Cmd.create({
    client:{read:async({kind})=>({status:'PRIMARY_DOCUMENT_READ_VERIFIED',
     ...{familyId:FAMILY,actorUid:'A',childId:CHILD},kind,revision:3,body:bases.settings})},
@@ -294,7 +293,7 @@ test('T05 cloud receipt identifies commit after ACK loss without a new UUID or 0
 });
 test('T05 current Feature HTML embeds the exact repaired command and UI modules',()=>{
  const root=path.resolve(__dirname,'..');
- const html=fs.readFileSync(path.join(root,'preview/v1.2.0/form/index.html'),'utf8');
+ const html=fs.readFileSync(path.join(root,'preview/v1.2.0/formal/index.html'),'utf8');
  for(const name of ['primary-documents-business-commands.js',
   'primary-formal-ui-actions.js']){
   const source=fs.readFileSync(path.join(root,'sync',name),'utf8').trim();

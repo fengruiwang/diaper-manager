@@ -22,13 +22,13 @@ test('RC6 includes T03 single and batch stocktake restore fix and isolated PWA r
  assert.doesNotMatch(sw,/localStorage\.(?:clear|removeItem)|indexedDB\.deleteDatabase/);
 });
 test('RC6 embeds current reviewed CloudBase operation modules',()=>{
- const h=text('index.html');for(const p of ['sync/primary-cloud-read-model.js','sync/primary-cloud-operations.js','sync/primary-documents-client.js','sync/primary-documents-operations.js','sync/primary-documents-business-commands.js','sync/primary-stocktake-batch-client.js','sync/inventory-outbox-runner.js','sync/inventory-sync-reader.js'])assert.ok(h.includes(read(p).toString('utf8').trim()),'inline parity '+p);
- // RC6 captures the current audited Feature action module, allowing only
- // the pre-existing candidate-only batch-unavailable wording replacement.
- const current=read('sync/primary-formal-ui-actions.js').toString('utf8').trim()
-  .replace('多尺码批量盘点功能尚未开放，请等待下一阶段。',
-   '多尺码批量盘点暂时不可用，请刷新后重试；本次未保存任何库存修改。');
- assert.ok(h.includes(current),'T04 Feature action module parity');
+ const h=text('index.html');for(const p of ['sync/primary-cloud-read-model.js','sync/primary-cloud-operations.js','sync/primary-documents-client.js','sync/primary-documents-operations.js','sync/primary-stocktake-batch-client.js','sync/inventory-outbox-runner.js','sync/inventory-sync-reader.js'])assert.ok(h.includes(read(p).toString('utf8').trim()),'inline parity '+p);
+ // RC6 is immutable at version.json.source_sha, predating T05.
+ // Check its original command/action behavior instead of comparing it
+ // against newer Feature fixes intended only for a future candidate.
+ assert.match(h,/function create\(\{client,queue,uuid\}=\{\}\)\{/);
+ assert.match(h,/requestId:saved\.requestId\|\|requestId/);
+ assert.doesNotMatch(h,/const hasDocumentRequest=answer=>/);
  assert.ok(h.includes(read('sync/primary-business-commands.js').toString('utf8').trim()),
   'T04 Feature operation commands parity');
 });
@@ -55,15 +55,12 @@ test('RC6 T04-P1/P2 and R01-02 protections are present in the released business 
 test('RC6 all 009/026/027 inline operation modules match audited Feature inputs',()=>{
  const h=text('index.html');
  for(const source of [
-  'sync/primary-business-commands.js','sync/primary-formal-ui-actions.js',
+  'sync/primary-business-commands.js',
   'sync/primary-cloud-operations.js','sync/primary-documents-client.js',
-  'sync/primary-documents-operations.js','sync/primary-documents-business-commands.js',
+  'sync/primary-documents-operations.js',
   'sync/primary-stocktake-batch-client.js','sync/inventory-outbox-runner.js',
   'sync/inventory-sync-reader.js']){
   let raw=read(source).toString('utf8').trim();
-  if(source==='sync/primary-formal-ui-actions.js')
-   raw=raw.replace('多尺码批量盘点功能尚未开放，请等待下一阶段。',
-    '多尺码批量盘点暂时不可用，请刷新后重试；本次未保存任何库存修改。');
   assert.ok(h.includes(raw),'missing current Feature module '+source);
  }
 });
