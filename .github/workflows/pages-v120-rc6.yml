@@ -19,8 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Verify complete deterministic RC6 package
-        run: node scripts/build-pages-v120-rc6.cjs --check
+      - name: Verify pinned historical RC6 resources (14 Git blob SHAs)
+        run: |
+          node -e 'const fs=require("node:fs");const path=require("node:path");const {checkPinnedResources}=require("./tests/historical-candidate-baselines.cjs");const root="release-candidate/pages-v1.2.0-rc6";const result=checkPinnedResources(file=>fs.readFileSync(path.join(root,file)),"rc6");console.log("Pinned RC6 resources verified:",result.count);'
       - name: Verify trusted daily, offline UUID, boot messages and HTTP resources
         run: node --test tests/pages-v120-rc6.test.cjs
       - name: Archive RC6 standalone package only (NO DEPLOY)
