@@ -123,6 +123,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let documentReadTask=null,fullyReadAt=null,fullReadVerified=false,fullReadScope='';
  let documentClientCache=null;
  let refreshBusy=false,pendingReviewSerial=0,syncActionBusy=false;
+ let mobileDraft=null;
  let pendingCount=0,pendingCountsVerified=false;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
  const syncTime=()=>new Intl.DateTimeFormat('zh-CN',{
@@ -349,7 +350,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  function clear(){
   historyCache?.invalidate?.();
   conflictButton(false);batchConflictButton(false);
-  ui.clear();actor=null;family=null;primary=null;shownStock=null;
+  ui.clear();mobileDraft?.reset();actor=null;family=null;primary=null;shownStock=null;
   localInventoryBaselineReady=false;
   pendingGuard=null;documentsGuard=null;batchGuard=null;
   documentSnapshot=null;documentScope='';documentPending='';renderedReference=null;
@@ -770,6 +771,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       allowSettings:true,
       onDocumentProgress:(kind,phase,timing={})=>{
        if(mode!=='ready'||actor!==ctx.actorUid||family!==ctx.familyId)return;
+       if(phase==='idle')mobileDraft?.recover(kind);
        const what=kind==='profile'?'宝宝资料':'设置';
        const messages={
         checking:'正在检查'+what+'及云端版本，请勿重复点击…',
@@ -1057,6 +1059,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       },
       onReferenceProgress:(phase,timing={})=>{
        if(mode!=='ready'||actor!==ctx.actorUid||family!==ctx.familyId)return;
+       if(phase==='idle')mobileDraft?.recover('reference');
        const messages={
         checking:'正在检查参考价和云端版本，请勿重复点击…',
         queued:'参考价已加入本地持久队列，正在准备云端提交…',
@@ -1439,6 +1442,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       readQuote:id=>root.XBFormalUIData.quote(id),
       readTransaction:id=>root.XBFormalUIData.transaction(id),
       notify:answer=>{
+        mobileDraft?.settle(answer);
         const resultCode=String(answer?.status||'');
         if(/UNKNOWN|PENDING|REVIEW|CONFLICT|UNVERIFIED|FAILED/.test(resultCode)
           &&(documentWritesEnabled===true||purchaseReleaseEnabled===true)){
@@ -1844,21 +1848,134 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   if(coarseTouch){
    const threshold=76;
    let pull=null;
-   // Native input/change events identify unsaved drafts even after focus
-   // moves away. Conservatively block a pull until those nodes are replaced
-   // by the verified page render, rather than discarding the user's edits.
-   const editedFields=new Set();
+   // Static inputs survive renderAll(): connectivity alone cannot release
+   // unsaved drafts. Ignore filter-only controls, but protect unknown edits.
+   const editedFields=new Map(),saving=new Map();
+   let focusValues=new WeakMap(),editSerial=0;
+   const fieldValue=field=>field?.type==='checkbox'
+    ?String(Boolean(field.checked)):String(field?.value??'');
+   const groupOf=field=>{
+    const id=String(field?.id||'');
+    if(['growthRange','refBrand','refSize','refSearch','formalEmail',
+       'formalOtp'].includes(id))return null;
+    if(['sizeMode','currentSize','goalPrice'].includes(id))return 'size';
+    if(['replenishMode','replenishDays'].includes(id)
+      ||/^(target_|daily_)/.test(id))return 'plans';
+    if(['babyName','babySex','dueDate','birthDate','birthHour',
+       'birthMinute','birthSecond','birthWeight','birthLength'].includes(id))
+     return 'profile';
+    if(['qBrand','qSeriesChoice','qSeries','qSize','qPerPack',
+       'qPacks','qPrice'].includes(id))return 'quotes';
+    if(['weightDate','weightTime','weightKg','weightNote'].includes(id))
+     return 'growth';
+    if(id==='editedReferencePrice')return 'reference';
+    if(/^inv_/.test(id))return 'stocktake';
+    return 'other'; // unknown inputs stay guarded until replaced
+   };
+   const validField=field=>/^(INPUT|TEXTAREA|SELECT)$/i.test(field?.tagName||'');
+   doc.addEventListener('focusin',event=>{
+    const field=event?.target;
+    if(mode==='ready'&&validField(field)&&groupOf(field)
+      &&!editedFields.has(field))focusValues.set(field,fieldValue(field));
+   },true);
    const rememberEdit=event=>{
-    if(mode==='ready'&&/^(INPUT|TEXTAREA|SELECT)$/i.test(
-     event?.target?.tagName||''))editedFields.add(event.target);
+    const field=event?.target;
+    if(mode!=='ready'||!validField(field)||!groupOf(field))return;
+    if(focusValues.has(field)&&fieldValue(field)===focusValues.get(field)){
+     editedFields.delete(field);return;
+    }
+    editedFields.set(field,++editSerial);
    };
    doc.addEventListener('input',rememberEdit,true);
    doc.addEventListener('change',rememberEdit,true);
+   // Capture exactly the submitted form and input versions. A confirmed
+   // settings write must not discard a second unsaved settings form.
+   const stage=(domain,group,filter=()=>true)=>{
+    if(saving.has(domain))return;
+    saving.set(domain,{epoch:documentEpoch,scope:syncScope(),
+     fields:new Map([...editedFields].filter(([field])=>
+      groupOf(field)===group&&filter(field)))});
+   };
+   const release=domain=>{
+    const snapshot=saving.get(domain);
+    if(!snapshot)return;
+    saving.delete(domain);
+    if(snapshot.epoch!==documentEpoch||snapshot.scope!==syncScope())return;
+    for(const [field,version] of snapshot.fields){
+     if(editedFields.get(field)!==version)continue;
+     editedFields.delete(field);
+     focusValues.set(field,fieldValue(field));
+    }
+   };
+   const forget=group=>{
+    for(const field of editedFields.keys())
+     if(groupOf(field)===group){
+      editedFields.delete(field);focusValues.set(field,fieldValue(field));
+     }
+   };
+   const saveTarget=event=>{
+    const button=event?.target?.closest?.('button,[data-action],[data-preset]');
+    if(!button)return;
+    const id=button.id,action=button.dataset?.action;
+    if(id==='saveSizePreferences')stage('settings','size');
+    else if(id==='savePlans')stage('settings','plans');
+    else if(button.dataset?.preset)stage('settings','plans',field=>
+     field.id==='target_NB'||field.id==='target_S');
+    else if(id==='saveProfile')stage('profile','profile');
+    else if(id==='saveQuote')stage('quotes','quotes');
+    else if(id==='buyNow')stage('purchase','quotes');
+    else if(id==='saveWeight')stage('growth','growth');
+    else if(id==='saveStocks')stage('stocktake','stocktake');
+    else if(id==='saveEditedReference'||id==='restoreDefaultReference'
+      ||action==='resetref')stage('reference','reference');
+   };
+   doc.addEventListener('click',saveTarget,true);
+   doc.addEventListener('submit',event=>{
+    if(event?.target?.id==='priceEditForm')stage('reference','reference');
+   },true);
+   // Legacy cancel button handlers have reset their inputs before bubbling.
+   doc.addEventListener('click',event=>{
+    const id=event?.target?.closest?.('button')?.id;
+    if(id==='cancelWeight')forget('growth');
+    if(id==='closeRefEditor'||id==='cancelEditedReference')forget('reference');
+   });
+   mobileDraft={
+    settle(answer){
+     const status=String(answer?.status||'');
+     const kind=status.startsWith('SETTINGS_')?'settings'
+      :status.startsWith('PROFILE_')?'profile'
+      :status.startsWith('QUOTES_')?'quotes'
+      :status.startsWith('GROWTH_')?'growth'
+      :status.startsWith('REFERENCE_')?'reference'
+      :status.startsWith('PRIMARY_STOCKTAKE_')||status.startsWith('BATCH_')
+       ?'stocktake'
+      :status.startsWith('PRIMARY_PURCHASE_')?'purchase':null;
+     if(!kind)return;
+     const confirmed=[
+      'SETTINGS_CLOUD_ACK_APPLIED','SETTINGS_CLOUD_READBACK_VERIFIED',
+      'SETTINGS_UNCHANGED',
+      'PROFILE_CLOUD_ACK_APPLIED','PROFILE_CLOUD_READBACK_VERIFIED',
+      'QUOTES_CLOUD_ACK_APPLIED','QUOTES_CLOUD_READBACK_VERIFIED',
+      'GROWTH_CLOUD_ACK_APPLIED','GROWTH_CLOUD_READBACK_VERIFIED',
+      'REFERENCE_CLOUD_ACK_APPLIED','REFERENCE_CLOUD_READBACK_VERIFIED',
+      'PRIMARY_STOCKTAKE_CLOUD_ACK_APPLIED',
+      'PRIMARY_STOCKTAKE_CLOUD_READBACK_VERIFIED',
+      'BATCH_CLOUD_ACK_APPLIED','BATCH_CLOUD_READBACK_VERIFIED',
+      'PRIMARY_PURCHASE_CLOUD_ACK_APPLIED',
+      'PRIMARY_PURCHASE_CLOUD_READBACK_VERIFIED'
+     ].includes(status);
+     if(confirmed)release(kind);
+     else if(!answer?.requestId)saving.delete(kind);
+     // Unknown ACK and original UUID review must never unlock a draft.
+    },
+    recover:release,
+    reset(){editedFields.clear();saving.clear();focusValues=new WeakMap();}
+   };
    const atTop=()=>Math.max(0,Number(host.scrollY)||0,
     Number(doc.documentElement?.scrollTop)||0,
     Number(doc.body?.scrollTop)||0)<=1;
    const editing=()=>{
-    for(const field of editedFields)
+    for(const field of editedFields.keys())
      if(field?.isConnected===false)editedFields.delete(field);
     if(editedFields.size)return true;
     const active=doc.activeElement;
@@ -2049,6 +2166,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       });
       const releasedQuote=verified
        &&await attached?.recoverMinimalButtons?.({domain:'quotes'});
+      if(releasedQuote)mobileDraft?.recover('quotes');
       $('formalSyncState').textContent=next==='ready'
        ?releasedRef
         ?'原参考价 UUID 回执与实际页面价格均已确认，可以继续保存。'
@@ -2087,6 +2205,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      });
      const releasedQuote=verified
       &&await attached?.recoverMinimalButtons?.({domain:'quotes'});
+     if(releasedQuote)mobileDraft?.recover('quotes');
      $('formalSyncState').textContent=releasedRef
       ?'原参考价 UUID 回执与实际显示价格均已核验，可以继续保存。'
       :releasedDocs

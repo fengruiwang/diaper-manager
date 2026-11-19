@@ -38,7 +38,8 @@ function harness({session=true,connectResult=null,offline=false,
   connectStatus=connectResult,networkOnline=!offline,
   currentView=null,actions=null,submitted=0,readCount=0,activateCount=0,
   baselineCount=0,loginCount=0,clears=0,currentBaselineStatus=baselineStatus;
- let businessBusy=false;
+ let businessBusy=false,actionCallbacks=null;
+ const docEvents=new Map();
  const item=id=>{
   if(!elements.has(id)){
    const node={id,value:'',hidden:false,disabled:false,dataset:{},
@@ -60,7 +61,11 @@ function harness({session=true,connectResult=null,offline=false,
   documentElement:{scrollTop:0},activeElement:{tagName:'BODY'},
   visibilityState:'hidden',querySelector:()=>null,
   getElementById:item,
-  addEventListener(type,fn){listeners.set('document:'+type,fn);},
+  addEventListener(type,fn){
+   if(!docEvents.has(type))docEvents.set(type,[]);
+   docEvents.get(type).push(fn);
+   listeners.set('document:'+type,fn);
+  },
   removeEventListener(type,fn){
    if(listeners.get('document:'+type)===fn)
     listeners.delete('document:'+type);
@@ -153,6 +158,7 @@ function harness({session=true,connectResult=null,offline=false,
    return {status:'PRIMARY_OPERATION_DURABLY_QUEUED'};
   }})},
   actionsFactory:{create:options=>{
+   actionCallbacks=options;
    actions=Actions.create(options);
    return{attach(document){
     const actual=actions.attach(document);
@@ -171,6 +177,11 @@ function harness({session=true,connectResult=null,offline=false,
  item('formalResolveBatchConflict').hidden=true;
  return {
   app,doc,host,events,messages,item,listeners,
+  captureSave(id,dataset={}){
+   const button={id,dataset,closest:()=>button};
+   docEvents.get('click')?.[0]?.({target:button});
+  },
+  settleSave(status,extra={}){actionCallbacks?.notify({status,...extra});},
   get currentView(){return currentView;},
   get actions(){return actions;},
   get readCount(){return readCount;},
@@ -376,4 +387,85 @@ test('T05-P2-01 source keeps isolated mobile CSS and uses the existing app refre
  assert.match(html,/@media \(pointer:coarse\) and \(hover:none\)/);
  assert.match(html,/overscroll-behavior-y:contain/);
  assert.ok(html.includes(module),'inlined capture module must stay identical');
+});
+
+function syntheticEdit(h,id,value,tagName='INPUT'){
+ const field=h.item(id);field.tagName=tagName;field.isConnected=true;
+ h.listeners.get('document:focusin')?.({target:field});
+ field.value=value;
+ h.listeners.get('document:input')?.({target:field});
+ return field;
+}
+async function expectOneMorePull(h){
+ const next=h.readCount+1;
+ touch(h,{dy:120});
+ await until(()=>h.readCount===next&&h.item('formalCloudSyncFeedback')
+  .textContent==='云端数据已更新');
+ assert.equal(h.readCount,next);
+}
+test('T05-P2-01A unsaved settings prevents pull; confirmed save releases static fields',async()=>{
+ const h=harness();await ready(h);
+ const input=syntheticEdit(h,'goalPrice','1.20');
+ assert.equal(touch(h,{dy:120}).prevented,0);
+ h.captureSave('saveSizePreferences');
+ h.settleSave('SETTINGS_CLOUD_ACK_APPLIED');
+ assert.equal(input.isConnected,true);
+ await expectOneMorePull(h);
+});
+test('T05-P2-01A confirmed quote save releases qPrice; subsequent edit blocks again',async()=>{
+ const h=harness();await ready(h);
+ const field=syntheticEdit(h,'qPrice','128.90');
+ h.captureSave('saveQuote');
+ h.settleSave('QUOTES_CLOUD_READBACK_VERIFIED');
+ assert.equal(field.isConnected,true);
+ await expectOneMorePull(h);
+ field.value='130.00';h.listeners.get('document:input')({target:field});
+ assert.equal(touch(h,{dy:120}).prevented,0);
+ assert.equal(h.readCount,2);
+});
+test('T05-P2-01A failure and unknown original UUID never release draft',async()=>{
+ const h=harness();await ready(h);
+ syntheticEdit(h,'goalPrice','1.45');
+ h.captureSave('saveSizePreferences');
+ h.settleSave('SETTINGS_FORM_INVALID');
+ assert.equal(touch(h,{dy:120}).prevented,0);
+ h.captureSave('saveSizePreferences');
+ h.settleSave('SETTINGS_ACK_UNKNOWN_KEEP_REQUEST_ID',{requestId:'original-id'});
+ assert.equal(touch(h,{dy:120}).prevented,0);
+ h.settleSave('SETTINGS_COMMITTED_READBACK_REQUIRED',{requestId:'original-id'});
+ assert.equal(touch(h,{dy:120}).prevented,0);
+ assert.equal(h.readCount,1);
+});
+test('T05-P2-01A successful save leaves independent unsaved profile protected',async()=>{
+ const h=harness();await ready(h);
+ syntheticEdit(h,'goalPrice','1.60');
+ syntheticEdit(h,'babyName','尚未保存的昵称');
+ h.captureSave('saveSizePreferences');
+ h.settleSave('SETTINGS_CLOUD_ACK_APPLIED');
+ assert.equal(touch(h,{dy:130}).prevented,0);
+ h.captureSave('saveProfile');
+ h.settleSave('PROFILE_CLOUD_ACK_APPLIED');
+ await expectOneMorePull(h);
+});
+test('T05-P2-01A edit during ACK and distinct settings subsection stay guarded',async()=>{
+ const h=harness();await ready(h);
+ const field=syntheticEdit(h,'goalPrice','1.30');
+ syntheticEdit(h,'target_NB','150');
+ h.captureSave('saveSizePreferences');
+ field.value='1.10';h.listeners.get('document:input')({target:field});
+ h.settleSave('SETTINGS_CLOUD_ACK_APPLIED');
+ assert.equal(touch(h,{dy:110}).prevented,0);
+ h.captureSave('savePlans');
+ h.settleSave('SETTINGS_CLOUD_READBACK_VERIFIED');
+ assert.equal(touch(h,{dy:110}).prevented,0);
+ assert.equal(h.readCount,1);
+});
+test('T05-P2-01A revert to focused baseline permits refresh without save',async()=>{
+ const h=harness();await ready(h);
+ const field=h.item('goalPrice');field.tagName='INPUT';field.value='1.50';field.isConnected=true;
+ h.listeners.get('document:focusin')({target:field});
+ field.value='1.70';h.listeners.get('document:input')({target:field});
+ assert.equal(touch(h,{dy:110}).prevented,0);
+ field.value='1.50';h.listeners.get('document:input')({target:field});
+ await expectOneMorePull(h);
 });
