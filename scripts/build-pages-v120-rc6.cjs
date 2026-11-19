@@ -94,7 +94,7 @@ data.set('formal-controller.js',Buffer.from(formalCandidate(text('preview/v1.2.0
 data.set('sw.js',Buffer.from(swCandidate(text('sw.js'))));
 data.set('version.json',Buffer.from(JSON.stringify({version:VER,channel:'release-candidate',
  source_sha:SOURCE_SHA,released:'2026-11-19',
- notes:'T04-RC6-01 隔离候选：可信日用量、明确离线未入队反馈、分阶段启动提示；沿用rc.6已授权写入范围；未部署'},null,2)+'\n'));
+ notes:'T04-RC6-01 隔离候选：可信日用量、明确离线未入队反馈、分阶段启动提示；沿用rc.5已授权写入范围；未部署'},null,2)+'\n'));
 const check=process.argv.includes('--check');
 for(const [name,bytes] of data){
  const target=path.join(OUT,name);
