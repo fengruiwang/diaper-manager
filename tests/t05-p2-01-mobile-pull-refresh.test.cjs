@@ -80,6 +80,27 @@ function harness({session=true,connectResult=null,offline=false,
   confirm:()=>true
  };
  const cloud={auth:{getSession:async()=>({data:{session:{user:{id:scope.actorUid}}}})}};
+ // Use five fully verified synthetic documents: full refresh MUST NOT claim
+ // success on a stock-only read. No real network or family data is accessed.
+ const kinds=['reference','quotes','growth','profile','settings'];
+ const document=(kind)=>({
+  status:'PRIMARY_DOCUMENT_READ_VERIFIED',...scope,kind,revision:2,
+  body:kind==='reference'?{referenceOverrides:{}}:
+   kind==='profile'?{babyProfile:{name:'合成宝宝'}}:
+   kind==='settings'?{target:{S:100},daily:{S:8}}:{items:[]}
+ });
+ const documentsFactory=()=>({
+  acceptVerifiedPrimary(){},
+  async read({kind}){return document(kind);},
+  async readAll(){return {status:'PRIMARY_DOCUMENTS_FULLY_READ',
+   documents:Object.fromEntries(kinds.map(k=>[k,document(k)]))};}
+ });
+ const documentsOverlay={apply(data,snapshot){return {
+  ...data,sharedBusinessDocumentsVerified:true,
+  cloudDocumentsActorScope:{familyId:scope.familyId,childId:scope.childId},
+  documentRevisions:Object.fromEntries(kinds.map(k=>[k,2])),
+  state:{...data.state,referenceOverrides:{}}
+ };}};
  const login={
   async connect(){
    loginCount++;
@@ -132,6 +153,7 @@ function harness({session=true,connectResult=null,offline=false,
   }})},
   actionsFactory:{create:options=>{actions=Actions.create(options);return actions;}},
   projection:Projection,ui,scriptLoader:async()=>{},
+  documentsFactory,documentsOverlay,
   purchaseReleaseEnabled:true,
   purchaseOperatorApproved:()=>true,
   documentWritesEnabled:false
@@ -182,7 +204,11 @@ function touch(h,{dy=100,dx=0,target=null,finishDy=dy,
  });
  return {prevented};
 }
-async function ready(h){assert.equal(await h.app.start(),'ready');}
+async function ready(h){
+ assert.equal(await h.app.start(),'ready');
+ await until(()=>/云端数据已更新|上次完整获取/.test(
+  h.item('formalSyncState').textContent));
+}
 test('T05-P2-01 Android top pull over threshold triggers one real complete cloud refresh and keeps the home',async()=>{
  const h=harness({hold:[]});await ready(h);
  h.hold('read');

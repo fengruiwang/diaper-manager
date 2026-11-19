@@ -267,7 +267,7 @@ test('F-03 complete cloud fetch and partial failure have separate feedback',asyn
  const f=fixture();await f.app.start();await settle();
  f.setDocumentsFail(true);
  await f.click('formalGetCloudLatest');
- assert.match(f.get('formalCloudSyncFeedback').textContent,/部分云端数据尚未获取成功/);
+ assert.match(f.get('formalCloudSyncFeedback').textContent,/获取云端数据失败，请检查网络后重试/);
  assert.doesNotMatch(f.get('formalSyncState').textContent,/云端数据已更新 ·|已同步 ·/);
  f.setDocumentsFail(false);
  await f.click('formalGetCloudLatest');
