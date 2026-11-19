@@ -50,7 +50,7 @@ test('RC6 T04-P1/P2 and R01-02 protections are present in the released business 
  assert.match(c,/正在获取家庭与库存数据…/);
  assert.match(c,/正在核对本机库存…/);
  assert.match(h,/id="formalGateMessage" role="status" aria-live="polite">正在检查登录状态…/);
- assert.match(h,/欢迎使用小宝管家，请使用邮箱验证码登录。/);
+ assert.match(c,/欢迎使用小宝管家，请使用邮箱验证码登录。/);
 });
 test('RC6 all 009/026/027 inline operation modules match audited Feature inputs',()=>{
  const h=text('index.html');
