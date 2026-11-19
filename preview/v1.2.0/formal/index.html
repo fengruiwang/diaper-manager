@@ -4056,6 +4056,50 @@ restoreActiveTab();
     throw Error('primary_operations:untrusted_view');
    return verifiedReadScope(view);
   }
+  // P2-02A: read ONLY the pre-existing, actor/child-keyed IDB baseline.
+  // The currently active primary is verified from CloudBase; no last-used
+  // child pointer, token copy, localStorage or optimistic queue is trusted.
+  async function lastConfirmedInventory(){
+   if(!online())return null;
+   try{
+    const ctx=controller.verifiedContext();
+    if(!ctx?.app||!UUID.test(String(ctx.familyId))
+      ||typeof ctx.actorUid!=='string'||!ctx.actorUid)return null;
+    const target=await childReader.create(ctx.app,scopeGuard)
+     .inspectLegacyTarget({familyId:ctx.familyId});
+    if(!target||target.familyId!==ctx.familyId
+      ||!UUID.test(String(target.childId))
+      ||target.readyForMigration!==false)return null;
+    const current=controller.verifiedContext();
+    if(current?.app!==ctx.app||current?.familyId!==ctx.familyId
+      ||current?.actorUid!==ctx.actorUid)return null;
+    const scope={familyId:ctx.familyId,actorUid:ctx.actorUid};
+    const [snapshot,queue]=await Promise.all([
+     outbox.readInventory(scope,target.childId),outbox.stats(scope)
+    ]);
+    // An ordinary 009 enqueue can mutate the verified-server IDB snapshot
+    // speculatively. Never label that local projection a confirmed stock.
+    if(queue?.outstanding!==0||!Number.isSafeInteger(queue.total)
+      ||queue.total<0||snapshot?.source!=='verified-server'
+      ||snapshot.familyId!==scope.familyId
+      ||snapshot.actorUid!==scope.actorUid
+      ||snapshot.childId!==target.childId
+      ||!snapshot.inventory||!snapshot.serverRevisions
+      ||!SIZES.every(size=>Number.isSafeInteger(snapshot.inventory[size])
+        &&snapshot.inventory[size]>=0&&snapshot.inventory[size]<=100000
+        &&Number.isSafeInteger(snapshot.serverRevisions[size])
+        &&snapshot.serverRevisions[size]>=0))return null;
+    const after=controller.verifiedContext();
+    if(after?.app!==ctx.app||after?.familyId!==scope.familyId
+      ||after?.actorUid!==scope.actorUid||!online())return null;
+    return Object.freeze({status:'PRIMARY_LAST_CONFIRMED_INVENTORY',
+     familyId:scope.familyId,actorUid:scope.actorUid,childId:target.childId,
+     inventory:Object.freeze(Object.fromEntries(SIZES.map(size=>
+      [size,snapshot.inventory[size]]))),
+     revisions:Object.freeze(Object.fromEntries(SIZES.map(size=>
+      [size,snapshot.serverRevisions[size]])))});
+   }catch(_){return null;}
+  }
   async function activate({verifiedReadModel=null}={}){
    if(busy)return result('BUSY');
    if(!online())return result('OFFLINE_READ_UNVERIFIED');
@@ -4440,7 +4484,7 @@ restoreActiveTab();
     });
    }catch(_){return result('PRIMARY_QUEUE_COUNTS_UNVERIFIED');}
   }
-  return Object.freeze({activate,read,syncVerifiedReadModel,queue,flush,pending,applyBatchInventoryAck,
+  return Object.freeze({activate,read,lastConfirmedInventory,syncVerifiedReadModel,queue,flush,pending,applyBatchInventoryAck,
    selectedScope:()=>selected?Object.freeze({...selected}):null,
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }

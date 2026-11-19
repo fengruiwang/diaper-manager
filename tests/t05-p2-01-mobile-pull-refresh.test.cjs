@@ -402,6 +402,9 @@ test('T05-P2-01 source keeps isolated mobile CSS and uses the existing app refre
  assert.match(html,/@media \(pointer:coarse\) and \(hover:none\)/);
  assert.match(html,/overscroll-behavior-y:contain/);
  assert.ok(html.includes(module),'inlined capture module must stay identical');
+ const primary=fs.readFileSync(path.join(__dirname,
+  '../sync/primary-cloud-operations.js'),'utf8');
+ assert.ok(html.includes(primary),'formal HTML must inline the exact primary bridge');
 });
 
 function syntheticEdit(h,id,value,tagName='INPUT'){
