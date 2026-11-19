@@ -134,6 +134,12 @@
      ?consumeDay?'今日消耗已记录，库存已更新':'已消耗 1 片，库存已更新'
     :phase==='pending'?'消耗结果待核验，原 operation UUID 已保留，请勿重复提交。'
     :phase==='recovered'?'原消耗操作已核验，库存已更新。'
+    :status==='PRIMARY_DAILY_SETTINGS_LOADING'
+     ?'日用量加载中，请稍后。'
+    :status==='PRIMARY_DAILY_SETTINGS_UNVERIFIED'
+     ?'日用量尚未获取，请刷新重试。'
+    :status==='PRIMARY_DAILY_SETTINGS_INVALID'
+     ?'云端日用量无效，请检查设置并刷新重试。'
     :/STOCK|CONFLICT|REVISION/.test(status)
      ?'库存不足或云端库存已变化，请获取云端最新后检查。'
     :'消耗未完成，库存未修改，请检查网络及同步状态。';
@@ -1191,24 +1197,35 @@
     return quote?invoke('purchase',quote):result('QUOTE_NOT_VERIFIED');
    }
    if(action==='consume'){
+    const day=el.dataset?.useMode==='day'
+     ||/记\s*1\s*天/.test(el.textContent||'');
     const baseline=typeof readConsumeBaseline==='function'
      ?readConsumeBaseline():null;
     if(baseline?.status==='PRIMARY_LOCAL_BASELINE_PENDING')
      return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');
     const size=el.dataset?.size;
+    // Check the actual command entry, not only the rendered button state.
+    // A fallback/migrated daily value must never generate a 009 UUID.
+    if(day&&baseline?.status!=='PRIMARY_CONSUME_BASELINE_VERIFIED')
+     return result('PRIMARY_DAILY_SETTINGS_UNVERIFIED');
     if(baseline?.status==='PRIMARY_CONSUME_BASELINE_VERIFIED'){
      if(!SIZES.includes(size))return result('PRIMARY_INVALID_SIZE');
      const stock=baseline.inventory?.[size];
      if(!Number.isSafeInteger(stock)||stock<1)
       return result('PRIMARY_INSUFFICIENT_STOCK');
-     const day=el.dataset?.useMode==='day'
-      ||/记\s*1\s*天/.test(el.textContent||'');
-     const daily=Number(baseline.daily?.[size]);
-     const count=day?Math.min(stock,Math.round(Math.max(1,
-      Math.min(30,daily||8)))):1;
+     if(day){
+      if(baseline.dailySettingsStatus==='loading')
+       return result('PRIMARY_DAILY_SETTINGS_LOADING');
+      if(baseline.dailySettingsStatus!=='verified')
+       return result('PRIMARY_DAILY_SETTINGS_UNVERIFIED');
+      if(!Number.isSafeInteger(baseline.daily?.[size])
+        ||baseline.daily[size]<1||baseline.daily[size]>30)
+       return result('PRIMARY_DAILY_SETTINGS_INVALID');
+     }
+     const count=day?Math.min(stock,baseline.daily[size]):1;
      return invoke('consume',{size,count},baseline);
     }
-    // Existing verified-read/reconciliation fallback for missing baselines.
+    // One-piece use keeps the verified inventory fallback; one-day cannot.
     return invoke('consume',{size,count:Number(el.dataset?.count)});
    }
    if(el.id==='saveStocks')

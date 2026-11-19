@@ -1240,16 +1240,30 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
          ||base.familyId!==ctx.familyId||base.actorUid!==ctx.actorUid
          ||base.status!=='PRIMARY_READ_ONLY_READY'
          ||!base.state?.inventory||!shownStock.revisions)return null;
-       const settings=documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
-         &&documentScope===ctx.actorUid+'\x00'+ctx.familyId
-         &&documentSnapshot.documents?.settings?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
-         ?documentSnapshot.documents.settings.body:null;
+       const settingsScope=ctx.actorUid+'\x00'+ctx.familyId;
+       const settingsDoc=documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ'
+         &&documentScope===settingsScope
+         ?documentSnapshot.documents?.settings:null;
+       // The migrated settings inside base.state are display data only.
+       // A one-day use must use this actor's current verified cloud document.
+       const verifiedDaily=settingsDoc?.status==='PRIMARY_DOCUMENT_READ_VERIFIED'
+         &&settingsDoc.kind==='settings'
+         &&settingsDoc.familyId===ctx.familyId
+         &&settingsDoc.childId===base.childId
+         &&Number.isSafeInteger(settingsDoc.revision)
+         &&settingsDoc.revision>=0
+         &&settingsDoc.body?.daily
+         &&typeof settingsDoc.body.daily==='object'
+         &&!Array.isArray(settingsDoc.body.daily)
+         ?settingsDoc.body.daily:null;
        return Object.freeze({
         status:'PRIMARY_CONSUME_BASELINE_VERIFIED',
         familyId:ctx.familyId,actorUid:ctx.actorUid,
         childId:base.childId,inventory:{...base.state.inventory},
         revisions:{...shownStock.revisions},
-        daily:{...(settings?.daily||base.state.daily||{})}
+        daily:verifiedDaily?{...verifiedDaily}:null,
+        dailySettingsStatus:verifiedDaily?'verified':
+          documentPending===settingsScope?'loading':'unverified'
        });
       },
       readReverseBaseline:record=>{
