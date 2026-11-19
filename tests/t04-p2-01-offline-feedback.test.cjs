@@ -142,7 +142,8 @@ function harness({online=true,queueMode='normal',flushMode='ack'}={}){
  }
  async function click(kind){
   if(kind==='stocktake')element('inv_NB').value='117';
-  const button=action(kind),before=notifications.length;
+  const button=kind==='stocktake'?element('saveStocks'):action(kind),
+   before=notifications.length;
   // The capture handler needs the browser's closest() button lookup.
   button.closest=()=>button;
   button.classList={contains:()=>false};
