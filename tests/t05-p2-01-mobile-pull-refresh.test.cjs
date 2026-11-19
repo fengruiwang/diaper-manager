@@ -291,11 +291,16 @@ test('T05-P2-01 read failure after a valid same-household session keeps the old 
  assert.equal(h.currentView,view);
  assert.equal(h.item('formalLoadingCard').hidden,true);
 });
-test('T05-P2-01 offline before touch leaves existing home, reports failure, and performs zero cloud reads',async()=>{
+test('T05-P2-01 offline top pull reports failure without cloud reads, dropping home or using reload',async()=>{
  const h=harness();await ready(h);
  const view=h.currentView;
  h.setOnline(false);
- assert.equal(touch(h,{dy:130}).prevented,0);
+ assert.equal(touch(h,{dy:130}).prevented,1);
+ await until(()=>h.item('formalCloudSyncFeedback').textContent.includes('失败'));
+ assert.equal(h.item('formalCloudSyncFeedback').textContent,
+  '获取云端数据失败，请检查网络后重试');
+ assert.equal(h.item('formalSyncState').textContent,
+  '获取云端数据失败，请检查网络后重试');
  assert.equal(h.readCount,1);
  assert.equal(h.currentView,view);
  assert.equal(h.doc.body.dataset.formalState,'ready');

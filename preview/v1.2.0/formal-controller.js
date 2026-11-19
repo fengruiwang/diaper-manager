@@ -1795,6 +1795,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    if(host.navigator?.onLine===false){
     const node=$('formalCloudSyncFeedback');
     if(node)node.textContent='获取云端数据失败，请检查网络后重试';
+    showSync('获取云端数据失败，请检查网络后重试','partial');
     syncButtonState();return;
    }
    refreshBusy=true;fullReadVerified=false;syncButtonState();
@@ -1869,7 +1870,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    };
    const safe=()=>{
     if(mode!=='ready'||busy||refreshBusy||syncActionBusy
-      ||host.navigator?.onLine===false||!atTop()
+      ||!atTop()
       ||hasPendingPageReview()||attached?.hasActiveBusinessAction?.()
       ||$('formalResolveDocumentConflict')?.hidden===false
       ||$('formalResolveBatchConflict')?.hidden===false
