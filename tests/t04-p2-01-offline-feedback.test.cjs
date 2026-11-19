@@ -75,6 +75,7 @@ function harness({online=true,queueMode='normal',flushMode='ack'}={}){
    const op=[...durable.values()].at(-1);
    assert.ok(op&&durable.has(op.id),'flush only after durable enqueue');
    if(flushNow==='network-fail')throw Error('network request failed before server commit');
+   if(flushNow==='offline-no-upload')return {status:'OFFLINE_NO_UPLOAD'};
    if(!committed.has(op.id)){
     committed.add(op.id);
     if(op.type==='inventory.delta'){
@@ -142,6 +143,9 @@ function harness({online=true,queueMode='normal',flushMode='ack'}={}){
  async function click(kind){
   if(kind==='stocktake')element('inv_NB').value='117';
   const button=action(kind),before=notifications.length;
+  // The capture handler needs the browser's closest() button lookup.
+  button.closest=()=>button;
+  button.classList={contains:()=>false};
   const event={target:button,preventDefault(){},stopImmediatePropagation(){}};
   for(const listener of listeners.get('click')||[])listener(event);
   await until(()=>notifications.length>before);
@@ -221,6 +225,18 @@ test('T04-P2-01 durable 009 with network failure preserves original UUID and pen
  assert.equal(h.attached.hasPendingMinimalReview('consume'),true);
  assert.equal(result.button.disabled,true);
  assert.equal(h.calls.uuid,1);assert.equal(h.calls.queue,1);
+});
+test('T04-P2-01 offline after durable queue retains the one original UUID for later recovery',async()=>{
+ const h=harness({flushMode:'offline-no-upload'});
+ const result=await h.click('consume');
+ assert.equal(result.answer.status,'PRIMARY_USE_PENDING_REVIEW');
+ assert.equal(result.answer.operationId,UUID(1));
+ assert.equal(h.durable.size,1,'already persisted operation must remain');
+ assert.equal(h.stock.NB,116);
+ assert.match(result.message,/UUID 已保留/);
+ assert.equal(h.attached.hasPendingMinimalReview('consume'),true);
+ assert.equal(result.button.disabled,true);
+ assert.equal(h.calls.uuid,1);
 });
 test('T04-P2-01 server commit with lost ACK retains UUID; original recovery without duplicate deduction',async()=>{
  const h=harness({flushMode:'ack-lost'});
