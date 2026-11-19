@@ -1573,6 +1573,11 @@
     hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.growth
      ||pendingDocumentReview.profile||pendingDocumentReview.settings),
     hasPendingMinimalReview:domain=>Boolean(minimalReview[domain]),
+    // Read-only busy snapshot for the mobile pull gesture; no command flow
+    // or permission changes. In-flight form operations must not be refreshed.
+    hasActiveBusinessAction:()=>Boolean(busy||stocktakeBusy||referenceBusy
+     ||quoteBusy||growthBusy||profileBusy||settingsBusy
+     ||Object.values(minimalBusy).some(Boolean)),
     recoverMinimalButtons,recoverDocumentButtons,detach(){
     if(!attached)return;
     attached.doc.removeEventListener('click',attached.handler,true);

@@ -1791,10 +1791,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
   async function fetchCloudLatest(){
-   if(busy||refreshBusy||syncActionBusy)return;
+   if(mode!=='ready'||!actor||!family||busy||refreshBusy||syncActionBusy)return;
    if(host.navigator?.onLine===false){
     const node=$('formalCloudSyncFeedback');
-    if(node)node.textContent='当前网络不可用，请联网后重试';
+    if(node)node.textContent='获取云端数据失败，请检查网络后重试';
     syncButtonState();return;
    }
    refreshBusy=true;fullReadVerified=false;syncButtonState();
@@ -1806,14 +1806,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     const next=await restore({requireComplete:true});
     if(epoch!==documentEpoch||actor!==account||family!==household)return;
     if(node)node.textContent=next==='ready'&&currentFullRead()
-     ?'云端数据已更新':next==='offline'
-     ?'当前网络不可用，请联网后重试'
-     :'部分云端数据尚未获取成功，请稍后重试';
-    if(next!=='ready'&&/正在刷新/.test($('formalSyncState')?.textContent||''))
-     showSync('部分云端数据尚未获取成功，未完全同步，请稍后重试','partial');
+      &&host.navigator?.onLine!==false
+     ?'云端数据已更新'
+     :'获取云端数据失败，请检查网络后重试';
+    if((next!=='ready'||!currentFullRead())
+      &&/正在刷新/.test($('formalSyncState')?.textContent||''))
+     showSync('获取云端数据失败，请检查网络后重试','partial');
    }catch(_){
     if(epoch===documentEpoch&&actor===account&&family===household&&node)
-     node.textContent='部分云端数据尚未获取成功，请稍后重试';
+     node.textContent='获取云端数据失败，请检查网络后重试';
    }finally{
     refreshBusy=false;syncButtonState();
     await checkPending().catch(()=>{});
@@ -1821,6 +1822,68 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   }
   on('formalRefresh',fetchCloudLatest);
   on('formalGetCloudLatest',fetchCloudLatest);
+  // T05-P2-01: an Android touch entrypoint only; both existing refresh
+  // buttons and this gesture call fetchCloudLatest(), never a second sync.
+  const coarseTouch=host.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches===true;
+  if(coarseTouch){
+   const threshold=76;
+   let pull=null;
+   const atTop=()=>Math.max(0,Number(host.scrollY)||0,
+    Number(doc.documentElement?.scrollTop)||0,
+    Number(doc.body?.scrollTop)||0)<=1;
+   const editing=()=>{
+    const active=doc.activeElement;
+    if(active?.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/i.test(active?.tagName||''))
+     return true;
+    if($('priceEditor')?.hidden===false)return true;
+    return Boolean(doc.querySelector?.(
+     '[role="dialog"]:not([hidden]),[aria-modal="true"]:not([hidden])'));
+   };
+   const safe=()=>{
+    if(mode!=='ready'||busy||refreshBusy||syncActionBusy
+      ||host.navigator?.onLine===false||!atTop()
+      ||hasPendingPageReview()||attached?.hasActiveBusinessAction?.()
+      ||$('formalResolveDocumentConflict')?.hidden===false
+      ||$('formalResolveBatchConflict')?.hidden===false
+      ||editing())return false;
+    const current=controller?.verifiedContext?.();
+    const selected=primary?.selectedScope?.();
+    return Boolean(actor&&family&&primaryViewBase?.childId
+     &&current?.actorUid===actor&&current?.familyId===family
+     &&(!selected||(selected.actorUid===actor&&selected.familyId===family
+       &&selected.childId===primaryViewBase.childId)));
+   };
+   const exempt=target=>Boolean(target?.closest?.(
+    'input,textarea,select,button,a,[contenteditable],'
+    +'.price-editor-backdrop,.price-editor-card,.table-wrap,.ref-list,.tabs'));
+   doc.addEventListener('touchstart',event=>{
+    pull=null;
+    if(event.touches?.length!==1||!safe()||exempt(event.target))return;
+    const t=event.touches[0];
+    pull={x:t.clientX,y:t.clientY,armed:false};
+   },{passive:true});
+   doc.addEventListener('touchmove',event=>{
+    if(!pull)return;
+    if(event.touches?.length!==1||!safe()){pull=null;return;}
+    const t=event.touches[0],dy=t.clientY-pull.y;
+    const dx=Math.abs(t.clientX-pull.x);
+    // Never consume ordinary upward scrolling or a horizontal swipe.
+    if(dy<=0||dx>Math.max(12,dy*.75)){pull=null;return;}
+    if(dy<10)return;
+    if(event.cancelable)event.preventDefault();
+    pull.armed=dy>=threshold;
+   },{passive:false});
+   doc.addEventListener('touchend',event=>{
+    const gesture=pull;pull=null;
+    if(!gesture||!gesture.armed||event.changedTouches?.length!==1
+      ||!safe())return;
+    const t=event.changedTouches[0],dy=t.clientY-gesture.y;
+    if(dy>=threshold&&Math.abs(t.clientX-gesture.x)<=dy*.75)
+     void fetchCloudLatest();
+   },{passive:true});
+   doc.addEventListener('touchcancel',()=>{pull=null;},{passive:true});
+  }
+
    // The 027 conflict must be proven uncommitted before user-confirmed archival.
    if($('formalResolveBatchConflict'))on('formalResolveBatchConflict',async()=>{
     if(mode!=='ready'||purchaseReleaseEnabled!==true

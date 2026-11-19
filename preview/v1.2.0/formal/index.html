@@ -108,6 +108,21 @@ border-top-color:#428a72;border-radius:50%;margin:22px auto;animation:formalspin
 #formalNotice .btn{font-size:12px;padding:4px 8px}
 body:not([data-formal-state="ready"]) .wrap{display:none!important}
 body[data-formal-state="ready"] #formalGate{display:none!important}
+/* Android Chrome/Edge/PWA: prefer the in-app top pull to browser reload.
+   Native desktop scrolling and editing containers are unaffected. */
+@media (pointer:coarse) and (hover:none){
+ html:has(body[data-formal-state="ready"]),body[data-formal-state="ready"]{
+  overscroll-behavior-y:contain;
+ }
+ body[data-formal-state="ready"] #formalNotice[data-sync-phase="refreshing"]::before{
+  content:"正在获取云端最新数据…";position:fixed;z-index:99;
+  top:max(10px,env(safe-area-inset-top));left:50%;
+  transform:translateX(-50%);pointer-events:none;
+  background:#f4f2ff;border:1px solid #e0defd;color:#5147bb;
+  box-shadow:0 4px 16px #26314720;border-radius:18px;
+  padding:7px 13px;font-size:12px;white-space:nowrap;
+ }
+}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -6163,6 +6178,11 @@ restoreActiveTab();
     hasPendingDocumentReview:()=>Boolean(pendingDocumentReview.growth
      ||pendingDocumentReview.profile||pendingDocumentReview.settings),
     hasPendingMinimalReview:domain=>Boolean(minimalReview[domain]),
+    // Read-only busy snapshot for the mobile pull gesture; no command flow
+    // or permission changes. In-flight form operations must not be refreshed.
+    hasActiveBusinessAction:()=>Boolean(busy||stocktakeBusy||referenceBusy
+     ||quoteBusy||growthBusy||profileBusy||settingsBusy
+     ||Object.values(minimalBusy).some(Boolean)),
     recoverMinimalButtons,recoverDocumentButtons,detach(){
     if(!attached)return;
     attached.doc.removeEventListener('click',attached.handler,true);
