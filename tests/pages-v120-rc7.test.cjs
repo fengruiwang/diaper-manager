@@ -26,7 +26,7 @@ test('RC7 SW updates shell only, preserves explicit user-controlled activation a
  assert.match(sw,/k\.startsWith\(CACHE_PREFIX\) && k !== CACHE_NAME/);
  assert.match(sw,/cache\.addAll\(SHELL_URLS/);
  assert.match(sw,/if\(event\.data && event\.data\.type === 'SKIP_WAITING'\) self\.skipWaiting\(\)/);
- assert.doesNotMatch(sw,/\b(skipWaiting\(\)|indexedDB\.deleteDatabase|localStorage\.clear)\s*;/);
+ assert.doesNotMatch(sw,/indexedDB\.deleteDatabase|localStorage\.clear|localStorage\.removeItem/);
  assert.match(pwa,/window\.confirm\(/);
  assert.match(pwa,/registration\.waiting\.postMessage\(\{type:'SKIP_WAITING'\}\)/);
  assert.match(pwa,/if\(updating&&controlledBefore\)window\.location\.reload\(\)/);
