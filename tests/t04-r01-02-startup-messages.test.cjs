@@ -57,7 +57,11 @@ function harness({session=true,connectResult=null,offline=false,
  const doc={
   body:{dataset:{formalState:'boot'}},visibilityState:'hidden',
   getElementById:item,
-  addEventListener(type,fn){listeners.set('document:'+type,fn);}
+  addEventListener(type,fn){listeners.set('document:'+type,fn);},
+  removeEventListener(type,fn){
+   if(listeners.get('document:'+type)===fn)
+    listeners.delete('document:'+type);
+  }
  };
  const pause=async name=>{
   events.push(name+'.entered');
