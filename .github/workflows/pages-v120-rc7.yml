@@ -1,0 +1,36 @@
+name: XiaoBao T05 V1.2.0 rc7 root-PWA upgrade candidate (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+    paths:
+      - 'release-candidate/pages-v1.2.0-rc7/**'
+      - 'scripts/build-pages-v120-rc7.cjs'
+      - 'tests/pages-v120-rc7.test.cjs'
+      - '.github/workflows/pages-v120-rc7.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rc7-candidate:
+    name: RC7 source parity and PWA root-upgrade contract (NO DEPLOY)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify deterministic RC7 package against reviewed Feature source
+        run: node scripts/build-pages-v120-rc7.cjs --check
+      - name: Verify RC7 PWA compatibility and static candidate checks
+        run: node --test tests/pages-v120-rc7.test.cjs
+      - name: Run full JavaScript regression
+        run: node --test tests/*.test.cjs
+      - name: Archive frozen candidate - NO DEPLOY
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-V1.2.0-RC7-NO-DEPLOY
+          path: release-candidate/pages-v1.2.0-rc7/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
