@@ -13,6 +13,7 @@ function fixture({enabled=false,receipt=true,badScope=false,offline=false,
  let snapshot=null,queued=[],outstanding=0;
  let remoteInventory={NB:0,S:140,M:0,L:0,XL:0,XXL:0};
  let remoteRevisions={NB:1,S:2,M:1,L:1,XL:1,XXL:1};
+ let remoteExtra=null;
  const rows=()=>sizes.map(size=>({size,quantity:remoteInventory[size],
   revision:remoteRevisions[size]}));
  const outbox={
@@ -42,7 +43,8 @@ function fixture({enabled=false,receipt=true,badScope=false,offline=false,
   async readReconciliation(input){
    calls.push('remote.readReconciliation');
    return {complete:true,familyId:FAMILY,actorUid:wrongActor?'stranger':ACTOR,
-    childId:PRIMARY,rows:rows()};
+    childId:PRIMARY,rows:rows(),checkedOperationIds:[],seenOperationIds:[],
+    ...(remoteExtra||{})};
   },
   normalizeOperation(op){
    calls.push('remote.normalizeOperation');
@@ -100,6 +102,7 @@ function fixture({enabled=false,receipt=true,badScope=false,offline=false,
   setRemote:(inventory,revs)=>{remoteInventory={...remoteInventory,...inventory};
    remoteRevisions={...remoteRevisions,...revs};},
   setOutstanding:n=>{outstanding=n;},
+  setRemoteExtra:v=>{remoteExtra=v;},
   get snapshot(){return snapshot;}};
 }
 test('M3 formal primary operation bridge uses its own isolated outbox and is inert before activate',()=>{
@@ -289,4 +292,64 @@ test('T02-P1-02 invalid actor, family or child cannot update the selected baseli
    'PRIMARY_LOCAL_BASELINE_SCOPE_MISMATCH'].includes(result.status));
   assert.deepEqual(f.snapshot,before);
  }
+});
+
+test('T05-P3-02 only selected primary may use read-only six-size probe',async()=>{
+ const f=fixture();
+ assert.equal((await f.bridge.checkInventory()).status,
+  'PRIMARY_INVENTORY_CHECK_NOT_SELECTED');
+ await f.bridge.activate();
+ const before=f.calls.length;
+ const checked=await f.bridge.checkInventory();
+ assert.equal(checked.status,'PRIMARY_INVENTORY_CHECK_VERIFIED');
+ assert.equal(checked.inventory.S,140);
+ assert.equal(checked.revisions.S,2);
+ assert.deepEqual(Object.keys(checked.inventory).sort(),sizes.slice().sort());
+ assert.deepEqual(f.calls.slice(before),['remote.readReconciliation'],
+  'no history/document reads or outbox write during probe');
+});
+test('T05-P3-02 independent device stock and revisions are observed without local overwrite',async()=>{
+ const f=fixture();await f.bridge.activate();
+ const original=f.snapshot;
+ f.setRemote({S:115},{S:3});
+ const checked=await f.bridge.checkInventory();
+ assert.equal(checked.status,'PRIMARY_INVENTORY_CHECK_VERIFIED');
+ assert.equal(checked.inventory.S,115);
+ assert.equal(checked.revisions.S,3);
+ assert.equal(f.snapshot,original,'light RPC never updates local IDB snapshot');
+ assert.equal(f.snapshot.inventory.S,140);
+});
+test('T05-P3-02 wrong response actor or child cannot be treated as trusted stock',async()=>{
+ const f=fixture();await f.bridge.activate();
+ for(const bad of [{actorUid:'attacker'},
+  {childId:SMOKE},{familyId:SMOKE},{complete:false}]){
+  f.setRemoteExtra(bad);
+  assert.equal((await f.bridge.checkInventory()).status,
+   'PRIMARY_INVENTORY_CHECK_UNVERIFIED');
+ }
+ f.setRemoteExtra(null);
+ assert.equal((await f.bridge.checkInventory()).status,
+  'PRIMARY_INVENTORY_CHECK_VERIFIED');
+});
+test('T05-P3-02 malformed six-size rows and unexpected receipt IDs fail closed',async()=>{
+ const f=fixture();await f.bridge.activate();
+ const valid=sizes.map(size=>({size,quantity:1,revision:1}));
+ for(const bad of [
+  {rows:valid.slice(1)},
+  {rows:[...valid.slice(0,5),valid[0]]},
+  {rows:valid.map(x=>x.size==='S'?{...x,quantity:-1}:x)},
+  {rows:valid.map(x=>x.size==='S'?{...x,quantity:100001}:x)},
+  {rows:valid.map(x=>x.size==='S'?{...x,revision:-1}:x)},
+  {checkedOperationIds:[OID]},{seenOperationIds:[OID]}
+ ]){
+  f.setRemoteExtra(bad);
+  assert.equal((await f.bridge.checkInventory()).status,
+   'PRIMARY_INVENTORY_CHECK_UNVERIFIED');
+ }
+});
+test('T05-P3-02 no periodic poll RPC while offline',async()=>{
+ const f=fixture({offline:true});
+ assert.equal((await f.bridge.checkInventory()).status,
+  'PRIMARY_INVENTORY_CHECK_NOT_SELECTED');
+ assert.equal(f.calls.some(x=>x==='remote.readReconciliation'),false);
 });

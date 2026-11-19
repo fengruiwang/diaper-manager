@@ -16,6 +16,8 @@ const DOCUMENT_READ_TIMEOUT_MS=60000;
 // A short App switch is not a reload. The next eligible foreground return
 // after 45 seconds may reuse the normal authenticated full-cloud refresh.
 const FOREGROUND_REFRESH_MS=45000;
+// Only the six-size read RPC runs on this timer; unchanged stock is a no-op.
+const FOREGROUND_INVENTORY_POLL_MS=30000;
 const OTP_STORAGE_KEY='xiaobao_v120_formal_otp_resend_until';
 const validLogin=new Set(['CLOUD_READ_ONLY_CONNECTED','FAMILY_READY_NO_BUSINESS_CHILD','CHILD_SELECTION_REQUIRED','FORMAL_FAMILY_VERIFIED']);
 const notes={
@@ -127,6 +129,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let documentClientCache=null;
  let refreshBusy=false,pendingReviewSerial=0,syncActionBusy=false;
  let lastBackgroundAt=null,lastAutoAttemptAt=0,onlineRecoveryNeeded=false;
+ let inventoryPollTimer=null,inventoryPollBusy=false,inventoryPollSerial=0;
+ let inventoryPollTick=null;
  let mobileDraft=null;
  let pendingCount=0,pendingCountsVerified=false;
  const now=()=>typeof host.Date?.now==='function'?host.Date.now():Date.now();
@@ -138,6 +142,25 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   ?actor+'\x00'+family+'\x00'+primaryViewBase.childId:'';
  const currentFullRead=()=>Boolean(fullReadVerified&&fullyReadAt
   &&fullReadScope&&fullReadScope===syncScope());
+ // Stop the timer (and invalidate late reads) when the view is hidden,
+ // offline or no longer verified. The existing startup and full-sync paths
+ // remain the only places that apply stock and revision changes.
+ function stopInventoryPolling(){
+  if(inventoryPollTimer!==null){
+   host.clearInterval?.(inventoryPollTimer);inventoryPollTimer=null;
+  }
+  inventoryPollSerial++;
+ }
+ function updateInventoryPolling(){
+  const eligible=mode==='ready'&&doc.visibilityState==='visible'
+   &&host.navigator?.onLine!==false;
+  if(!eligible){stopInventoryPolling();return;}
+  if(inventoryPollTimer!==null||typeof host.setInterval!=='function')return;
+  inventoryPollTimer=host.setInterval(()=>{void inventoryPollTick?.();},
+   FOREGROUND_INVENTORY_POLL_MS);
+  // Node fixtures do not need a permanent background task.
+  inventoryPollTimer?.unref?.();
+ }
  function showSync(message,phase='checking'){
   const el=$('formalSyncState');
   if(el)el.textContent=message;
@@ -325,6 +348,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   $('formalAccountState').textContent=next==='ready'?'已连接'
    :next==='boot'?'检查中':next==='cached'?'未同步'
    :next==='login'?'未登录':next==='offline'?'离线':'需检查';
+  updateInventoryPolling();
  }
  function sameCachedScope(){
   const ctx=controller?.verifiedContext?.();
@@ -389,6 +413,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    &&found.items.length>0);
  }
  function clear(){
+  stopInventoryPolling();
   historyCache?.invalidate?.();
   conflictButton(false);batchConflictButton(false);
   ui.clear();mobileDraft?.reset();actor=null;family=null;primary=null;
@@ -2454,6 +2479,79 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalSubmitPending',submitPending);
   on('formalSignOut',signOut);
   on('formalGateSignOut',signOut);
+  // P3-02: a single 010 read RPC, not a second full restore protocol.
+  // Unknown queue state is not assumed empty; no locally pending UUID may
+  // be bypassed by the background stock observer.
+  function canPollInventory(){
+   if(doc.visibilityState!=='visible'||mode!=='ready'
+     ||host.navigator?.onLine===false
+     ||busy||refreshBusy||syncActionBusy
+     ||!localInventoryBaselineReady||!pendingCountsVerified||pendingCount!==0
+     ||hasPendingPageReview()||attached?.hasActiveBusinessAction?.()
+     ||$('formalResolveDocumentConflict')?.hidden===false
+     ||$('formalResolveBatchConflict')?.hidden===false
+     ||mobileDraft?.hasUnsaved?.())return false;
+   const current=controller?.verifiedContext?.();
+   const selected=primary?.selectedScope?.();
+   return Boolean(current?.app&&actor&&family&&primaryViewBase?.childId
+    &&shownStock?.inventory&&shownStock?.revisions
+    &&current.actorUid===actor&&current.familyId===family
+    &&selected?.actorUid===actor&&selected?.familyId===family
+    &&selected?.childId===primaryViewBase.childId
+    &&typeof primary?.checkInventory==='function');
+  }
+  async function pollInventory(){
+   if(inventoryPollBusy||mode!=='ready'||doc.visibilityState!=='visible')return;
+   const identity=controller?.verifiedContext?.();
+   const selectedNow=primary?.selectedScope?.();
+   if(!identity?.app||identity.actorUid!==actor||identity.familyId!==family
+     ||!selectedNow||selectedNow.actorUid!==actor
+     ||selectedNow.familyId!==family
+     ||selectedNow.childId!==primaryViewBase?.childId){
+    revision++;clear();
+    screen('unverified','账号、家庭或宝宝作用域已变化，已隐藏旧库存。');
+    return;
+   }
+   if(!canPollInventory())return;
+   const current=identity,selected=selectedNow;
+   const child=primaryViewBase.childId,epoch=documentEpoch;
+   const serial=++inventoryPollSerial;
+   inventoryPollBusy=true;
+   try{
+    const checked=await primary.checkInventory();
+    if(serial!==inventoryPollSerial||mode!=='ready'
+      ||doc.visibilityState!=='visible')return;
+    const after=controller?.verifiedContext?.();
+    const chosen=primary?.selectedScope?.();
+    if(after?.app!==current.app||after?.actorUid!==actor
+      ||after?.familyId!==family
+      ||chosen?.actorUid!==actor||chosen?.familyId!==family
+      ||chosen?.childId!==child
+      ||primaryViewBase?.childId!==child
+      ||checked?.status==='PRIMARY_INVENTORY_CHECK_SCOPE_CHANGED'){
+     revision++;clear();
+     screen('unverified','账号、家庭或宝宝作用域已变化，已隐藏旧库存。');
+     return;
+    }
+    // A manual refresh, 009/026/027 command or fresh draft can begin while
+    // the lightweight RPC is pending. Never promote that stale observation.
+    if(epoch!==documentEpoch||!canPollInventory()
+      ||checked?.status!=='PRIMARY_INVENTORY_CHECK_VERIFIED')return;
+    if(checked.familyId!==family||checked.actorUid!==actor
+      ||checked.childId!==child)return;
+    const differs=SIZES.some(size=>
+     checked.inventory?.[size]!==shownStock.inventory?.[size]
+     ||checked.revisions?.[size]!==shownStock.revisions?.[size]);
+    if(!differs)return;
+    // Only the existing complete read + IDB baseline synchronization can
+    // replace the rendered stock. Never trust this small read as an ACK.
+    void fetchCloudLatest({automatic:true});
+   }catch(_){/* leave current verified view, no false sync success */}
+   finally{
+    if(serial===inventoryPollSerial)inventoryPollBusy=false;
+   }
+  }
+  inventoryPollTick=pollInventory;
   // The only automatic refresh entrypoint. Manual clicks and touch pull
   // continue to use fetchCloudLatest(); automatic reads never flush UUIDs.
   function foregroundRefresh(reason){
@@ -2494,10 +2592,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    void fetchCloudLatest({automatic:true});
   }
   host.addEventListener('offline',()=>{
+   updateInventoryPolling();
    onlineRecoveryNeeded=true;
    if(mode==='ready')showSync('当前网络已断开，页面保留上次数据；未同步。','partial');
   });
   host.addEventListener('online',()=>{
+   updateInventoryPolling();
    onlineRecoveryNeeded=true;
    if(doc.visibilityState==='visible')foregroundRefresh('online');
   });
@@ -2507,9 +2607,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   });
   doc.addEventListener('visibilitychange',()=>{
    if(doc.visibilityState==='hidden'){
-    lastBackgroundAt=now();return;
+    updateInventoryPolling();lastBackgroundAt=now();return;
    }
    if(doc.visibilityState!=='visible')return;
+   updateInventoryPolling();
    const away=lastBackgroundAt===null?0:now()-lastBackgroundAt;
    lastBackgroundAt=null;
    if(away>=FOREGROUND_REFRESH_MS||onlineRecoveryNeeded)

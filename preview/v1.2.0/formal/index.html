@@ -4233,6 +4233,50 @@ restoreActiveTab();
    }catch(_){return result('PRIMARY_LOCAL_BASELINE_UNVERIFIED');}
    finally{busy=false;}
   }
+  // P3-02: read-only six-size check for the currently activated primary.
+  // No outbox, document, history, receipt write, or inventory projection.
+  // The existing inventory client validates the SDK session, RPC shape and
+  // six complete server rows before returning the result.
+  async function checkInventory(){
+   if(!selected)return result('PRIMARY_INVENTORY_CHECK_NOT_SELECTED');
+   if(busy)return result('PRIMARY_INVENTORY_CHECK_BUSY');
+   if(!online())return result('PRIMARY_INVENTORY_CHECK_OFFLINE');
+   const before=controller.verifiedContext();
+   const scope={...selected};
+   if(!before?.app||before.familyId!==scope.familyId
+     ||before.actorUid!==scope.actorUid)
+    return result('PRIMARY_INVENTORY_CHECK_SCOPE_CHANGED');
+   try{
+    const response=await inventoryClient.create(before.app)
+     .readReconciliation({familyId:scope.familyId,
+      childId:scope.childId,operationIds:[]});
+    // A concurrent 009/027 operation takes precedence over this observation.
+    if(busy||!online())return result('PRIMARY_INVENTORY_CHECK_BUSY');
+    const after=controller.verifiedContext();
+    if(!after?.app||after.app!==before.app
+      ||after.familyId!==scope.familyId||after.actorUid!==scope.actorUid
+      ||selected?.familyId!==scope.familyId
+      ||selected?.actorUid!==scope.actorUid
+      ||selected?.childId!==scope.childId)
+     return result('PRIMARY_INVENTORY_CHECK_SCOPE_CHANGED');
+    if(response?.complete!==true
+      ||response.familyId!==scope.familyId
+      ||response.childId!==scope.childId
+      ||response.actorUid!==scope.actorUid
+      ||!Array.isArray(response.checkedOperationIds)
+      ||response.checkedOperationIds.length!==0
+      ||!Array.isArray(response.seenOperationIds)
+      ||response.seenOperationIds.length!==0)
+     return result('PRIMARY_INVENTORY_CHECK_UNVERIFIED');
+    const {stock,revisions}=knownRows(response.rows);
+    if(!SIZES.every(size=>stock[size]<=100000))
+     return result('PRIMARY_INVENTORY_CHECK_UNVERIFIED');
+    return result('PRIMARY_INVENTORY_CHECK_VERIFIED',{
+     familyId:scope.familyId,actorUid:scope.actorUid,childId:scope.childId,
+     inventory:Object.freeze(stock),revisions:Object.freeze(revisions)
+    });
+   }catch(_){return result('PRIMARY_INVENTORY_CHECK_UNVERIFIED');}
+  }
   async function read(){
    if(!selected)return result('PRIMARY_NOT_SELECTED');
    if(busy)return result('BUSY');
@@ -4484,7 +4528,7 @@ restoreActiveTab();
     });
    }catch(_){return result('PRIMARY_QUEUE_COUNTS_UNVERIFIED');}
   }
-  return Object.freeze({activate,read,lastConfirmedInventory,syncVerifiedReadModel,queue,flush,pending,applyBatchInventoryAck,
+  return Object.freeze({activate,read,checkInventory,lastConfirmedInventory,syncVerifiedReadModel,queue,flush,pending,applyBatchInventoryAck,
    selectedScope:()=>selected?Object.freeze({...selected}):null,
    get cloudWritesEnabled(){return cloudWritesEnabled===true;}});
  }

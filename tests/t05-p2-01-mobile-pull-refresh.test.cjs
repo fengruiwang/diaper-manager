@@ -31,7 +31,7 @@ function cloudModel(scope){
 }
 function harness({session=true,connectResult=null,offline=false,
  readError=false,baselineStatus='PRIMARY_LOCAL_BASELINE_SYNCED',hold=[],mobile=true,
- cached=null,cloudInventory=null}={}){
+ cached=null,cloudInventory=null,sharedStock=null}={}){
  const scope={familyId:FAMILY,childId:CHILD_A,actorUid:'actor-A'};
  const events=[],messages=[],elements=new Map(),listeners=new Map(),pauses=new Set(hold);
  const waiters=new Map();
@@ -40,7 +40,24 @@ function harness({session=true,connectResult=null,offline=false,
   currentView=null,actions=null,submitted=0,readCount=0,activateCount=0,
   baselineCount=0,loginCount=0,clears=0,currentBaselineStatus=baselineStatus,
   cacheReads=0;
- let businessBusy=false,actionCallbacks=null,clockOffset=0;
+ let businessBusy=false,actionCallbacks=null,clockOffset=0,
+  pollCount=0,pollFail=false,pollResponse=null,pendingOut=0,
+  activatedPrimary=null;
+ const timers=new Map();let nextTimerId=0;
+ const time=()=>Date.now()+clockOffset;
+ const setTestInterval=(fn,ms)=>{
+  const id=++nextTimerId;timers.set(id,{fn,ms,next:time()+ms});
+  return id;
+ };
+ const clearTestInterval=id=>timers.delete(id);
+ const advanceClock=ms=>{
+  clockOffset+=ms;
+  // At most one callback per elapsed interval, as after an App resume.
+  for(const [id,timer] of [...timers]){
+   if(!timers.has(id)||time()<timer.next)continue;
+   timer.next=time()+timer.ms;timer.fn();
+  }
+ };
  const docEvents=new Map();
  const item=id=>{
   if(!elements.has(id)){
@@ -82,7 +99,8 @@ function harness({session=true,connectResult=null,offline=false,
   matchMedia:()=>({matches:mobile}),scrollY:0,
   location:{reload(){throw Error('FORBIDDEN_PAGE_RELOAD');}},
   crypto:{randomUUID:()=> '04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2'},
-  Date:{now:()=>Date.now()+clockOffset},Intl,console,setTimeout,clearTimeout,setInterval,clearInterval,
+  Date:{now:time},Intl,console,setTimeout,clearTimeout,
+  setInterval:setTestInterval,clearInterval:clearTestInterval,
   addEventListener(type,fn){listeners.set('host:'+type,fn);},
   localStorage:{getItem:()=>null,setItem(){},removeItem(){}},
   confirm:()=>true
@@ -137,10 +155,14 @@ function harness({session=true,connectResult=null,offline=false,
    if(failRead)throw Error('synthetic cloud read failure');
    const data=cloudModel(scope);
    if(cloudInventory)data.inventory={...data.inventory,...cloudInventory};
+   if(sharedStock){
+    data.inventory={...data.inventory,...sharedStock.inventory};
+    data.revisions={...data.revisions,...sharedStock.revisions};
+   }
    return data;
   }}),
   primaryFactory:()=>{
-   const activatedScope={...scope};
+   const activatedScope={...scope};activatedPrimary=activatedScope;
    return {
     cloudWritesEnabled:true,
     selectedScope:()=>({...activatedScope}),
@@ -162,7 +184,19 @@ function harness({session=true,connectResult=null,offline=false,
      baselineCount++;await pause('sync');
      return {status:currentBaselineStatus};
     },
-    pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',outstanding:0}),
+    async checkInventory(){
+     pollCount++;await pause('poll');
+     if(pollFail)return {status:'PRIMARY_INVENTORY_CHECK_UNVERIFIED'};
+     if(pollResponse)return pollResponse;
+     const latest=cloudModel(scope);
+     return {status:'PRIMARY_INVENTORY_CHECK_VERIFIED',
+      ...scope,
+      inventory:sharedStock?{...latest.inventory,...sharedStock.inventory}:
+       cloudInventory?{...latest.inventory,...cloudInventory}:latest.inventory,
+      revisions:sharedStock?{...latest.revisions,...sharedStock.revisions}:latest.revisions};
+    },
+    pending:async()=>({status:'PRIMARY_QUEUE_COUNTS_VERIFIED',
+     outstanding:pendingOut}),
     read:async()=>({status:'PRIMARY_CLOUD_READ_VERIFIED',
      inventory:cloudModel(scope).inventory,revisions:cloudModel(scope).revisions})
    };
@@ -182,6 +216,11 @@ function harness({session=true,connectResult=null,offline=false,
   }},
   projection:Projection,ui,scriptLoader:async()=>{},
   documentsFactory,documentsOverlay,
+  // A production build has a separate 027 queue guard. Keep the fixture
+  // fully scoped so the periodic check cannot assume an unknown queue empty.
+  batchStocktakeFactory:()=>({
+   pending:async()=>({status:'BATCH_QUEUE_VERIFIED',outstanding:0})
+  }),
   purchaseReleaseEnabled:true,
   purchaseOperatorApproved:()=>true,
   documentWritesEnabled:false
@@ -202,6 +241,9 @@ function harness({session=true,connectResult=null,offline=false,
   get activateCount(){return activateCount;},
   get baselineCount(){return baselineCount;},
   get cacheReads(){return cacheReads;},
+  get pollCount(){return pollCount;},
+  get timers(){return timers.size;},
+  consumeBaseline(){return actionCallbacks?.readConsumeBaseline?.();},
   get loginCount(){return loginCount;},
   get submitted(){return submitted;},
   get clears(){return clears;},
@@ -216,7 +258,7 @@ function harness({session=true,connectResult=null,offline=false,
   setReadError(value){failRead=value;},
   setOnline(value){networkOnline=value;},
   setBusinessBusy(value){businessBusy=value;},
-  advance(ms){clockOffset+=ms;},
+  advance:advanceClock,
   visibility(state){doc.visibilityState=state;
    listeners.get('document:visibilitychange')?.();},
   onlineEvent(){listeners.get('host:online')?.();},
@@ -227,7 +269,11 @@ function harness({session=true,connectResult=null,offline=false,
    listeners.get('document:click')?.(event);
   },
   setBaselineStatus(value){currentBaselineStatus=value;},
-  switchAccount(actorUid,childId){scope.actorUid=actorUid;scope.childId=childId;}
+  setPollFail(value){pollFail=value;},
+  setPollResponse(value){pollResponse=value;},
+  setPendingCount(value){pendingOut=value;},
+  switchAccount(actorUid,childId){scope.actorUid=actorUid;scope.childId=childId;},
+  changeSelectedChild(childId){if(activatedPrimary)activatedPrimary.childId=childId;}
  };
 }
 
@@ -800,4 +846,148 @@ test('T05-P3-01 a failed background read and unsaved input never produce UUID',a
  await until(()=>h.item('formalCloudSyncFeedback').textContent.includes('自动同步已暂缓'));
  assert.equal(field.value,'133');
  assert.equal(h.submitted,0);
+});
+
+test('T05-P3-02 unchanged stock on visible page uses one small RPC, no full read or DOM render',async()=>{
+ const h=harness();await ready(h);
+ h.visibility('visible');assert.equal(h.timers,1);
+ const view=h.currentView,before=h.events.filter(e=>e==='ui.show').length;
+ h.advance(30000);await until(()=>h.pollCount===1);await tick();await tick();
+ assert.equal(h.readCount,1);
+ assert.equal(h.events.filter(e=>e==='ui.show').length,before);
+ assert.equal(h.currentView,view);
+ assert.equal(h.baselineCount,1);
+});
+test('T05-P3-02 two phones see one another inventory change without manual refresh',async()=>{
+ const shared={inventory:{S:116},revisions:{S:2}};
+ const a=harness({sharedStock:shared}),b=harness({sharedStock:shared});
+ await ready(a);await ready(b);
+ assert.equal(b.currentView.state.inventory.S,116);
+ a.visibility('visible');b.visibility('visible');
+ // Phone A's real 009 ACK is represented by the authoritative shared server.
+ shared.inventory.S=115;shared.revisions.S=3;
+ b.advance(30000);
+ await until(()=>b.readCount===2&&b.currentView.state.inventory.S===115);
+ assert.equal(a.readCount,1);
+ assert.equal(b.currentView.state.inventory.S,115);
+ assert.equal(b.currentView.revisions.S,3);
+ assert.equal(b.baselineCount,2);
+ assert.equal(b.loginCount,2,'same prior full-read path performs existing checks');
+ const next=b.consumeBaseline();
+ assert.equal(next?.inventory?.S,115,'next consume receives refreshed stock');
+ // A second authenticated 009 result remains authoritative, not local 116.
+ shared.inventory.S=114;shared.revisions.S=4;
+ b.advance(30000);
+ await until(()=>b.readCount===3&&b.currentView.state.inventory.S===114);
+ assert.equal(b.currentView.revisions.S,4);
+ assert.equal(b.submitted,0,'poll itself never generated a UUID');
+});
+test('T05-P3-02 revision-only change runs existing full read once',async()=>{
+ const shared={inventory:{S:140},revisions:{S:2}};
+ const h=harness({sharedStock:shared});await ready(h);
+ h.visibility('visible');shared.revisions.S=3;
+ h.advance(30000);
+ await until(()=>h.readCount===2&&h.baselineCount===2
+  &&h.currentView.revisions.S===3);
+ assert.equal(h.currentView.revisions.S,3);
+ assert.equal(h.pollCount,1);
+});
+test('T05-P3-02 hidden and offline pages stop the timer and issue no RPC',async()=>{
+ const h=harness();await ready(h);
+ h.visibility('visible');assert.equal(h.timers,1);
+ h.visibility('hidden');assert.equal(h.timers,0);
+ h.advance(120000);await tick();assert.equal(h.pollCount,0);
+ h.setOnline(false);h.offlineEvent();h.visibility('visible');
+ h.advance(60000);await tick();
+ assert.equal(h.timers,0);assert.equal(h.pollCount,0);
+ assert.equal(h.readCount,1);
+});
+test('T05-P3-02 foreground restore wins over an in-flight light RPC',async()=>{
+ const h=harness();await ready(h);h.visibility('visible');h.hold('poll');
+ h.advance(30000);await until(()=>h.pollCount===1);
+ h.hold('read');
+ h.visibility('hidden');h.advance(46000);h.visibility('visible');
+ await until(()=>h.readCount===2);
+ await h.release('poll');await tick();
+ assert.equal(h.readCount,2);
+ await h.release('read');
+ await until(()=>h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
+});
+test('T05-P3-02 manual pull in flight blocks periodic RPC and no duplicate full reads',async()=>{
+ const h=harness();await ready(h);h.visibility('visible');h.hold('read');
+ touch(h,{dy:105});await until(()=>h.readCount===2);
+ h.advance(30000);await tick();await tick();
+ assert.equal(h.pollCount,0);
+ assert.equal(h.readCount,2);
+ await h.release('read');
+ await until(()=>h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
+});
+test('T05-P3-02 active business and conflict review defer light query',async()=>{
+ const h=harness();await ready(h);h.visibility('visible');
+ h.setBusinessBusy(true);h.advance(30000);await tick();
+ assert.equal(h.pollCount,0);
+ h.setBusinessBusy(false);
+ h.item('formalResolveDocumentConflict').hidden=false;
+ h.advance(30000);await tick();assert.equal(h.pollCount,0);
+ h.item('formalResolveDocumentConflict').hidden=true;
+ h.advance(30000);await until(()=>h.pollCount===1);
+});
+test('T05-P3-02 desktop unsaved form and reference modal block polling',async()=>{
+ const h=harness({mobile:false});await ready(h);h.visibility('visible');
+ const field=h.item('goalPrice');field.tagName='INPUT';field.value='1.2';
+ h.listeners.get('document:focusin')({target:field});
+ field.value='2.3';h.listeners.get('document:input')({target:field});
+ h.advance(30000);await tick();assert.equal(h.pollCount,0);
+ field.value='1.2';h.listeners.get('document:input')({target:field});
+ h.item('priceEditor').hidden=false;h.advance(30000);await tick();
+ assert.equal(h.pollCount,0);
+ h.item('priceEditor').hidden=true;h.advance(30000);
+ await until(()=>h.pollCount===1);
+ assert.equal(h.readCount,1);
+});
+test('T05-P3-02 outstanding UUID queue defers polling without replay',async()=>{
+ const h=harness();h.setPendingCount(1);await ready(h);
+ h.visibility('visible');await until(()=>h.item('formalPendingCount').textContent.includes('1'));
+ h.advance(60000);await tick();
+ assert.equal(h.pollCount,0);assert.equal(h.readCount,1);assert.equal(h.submitted,0);
+});
+test('T05-P3-02 invalid lightweight response cannot mutate old view',async()=>{
+ const h=harness();await ready(h);h.visibility('visible');
+ const prior=h.currentView;
+ h.setPollFail(true);h.advance(30000);await until(()=>h.pollCount===1);
+ await tick();assert.equal(h.currentView,prior);assert.equal(h.readCount,1);
+ assert.equal(h.doc.body.dataset.formalState,'ready');
+});
+test('T05-P3-02 actor or child scope switch clears the stale view',async()=>{
+ for(const change of [{actorUid:'actor-B',childId:CHILD_A},
+  {actorUid:'actor-A',childId:CHILD_B}]){
+  const h=harness();await ready(h);h.visibility('visible');
+  if(change.actorUid==='actor-B')h.switchAccount(change.actorUid,CHILD_A);
+  else h.changeSelectedChild(CHILD_B);
+  h.advance(30000);await until(()=>h.currentView===null);
+  assert.equal(h.doc.body.dataset.formalState,'unverified');
+  assert.equal(h.readCount,1);
+ }
+});
+test('T05-P3-02 logout and start cached gate have no background inventory polls',async()=>{
+ const h=harness({session:false});assert.equal(await h.app.start(),'login');
+ h.visibility('visible');h.advance(60000);
+ assert.equal(h.timers,0);assert.equal(h.pollCount,0);
+ const c=harness({cached:{},hold:['read']});
+ const start=c.app.start();await until(()=>c.item('formalCachedInventory').hidden===false);
+ c.visibility('visible');c.advance(60000);assert.equal(c.pollCount,0);
+ await c.release('read');await start;
+});
+test('T05-P3-02 late lightweight result during an active business action does not refresh',async()=>{
+ const shared={inventory:{S:116},revisions:{S:2}};
+ const h=harness({sharedStock:shared});await ready(h);
+ h.visibility('visible');h.hold('poll');h.advance(30000);
+ await until(()=>h.pollCount===1);
+ shared.inventory.S=115;shared.revisions.S=3;
+ h.setBusinessBusy(true);await h.release('poll');await tick();await tick();
+ assert.equal(h.readCount,1);
+ h.setBusinessBusy(false);h.advance(30000);
+ await until(()=>h.pollCount===2&&h.readCount===2&&h.baselineCount===2
+  &&h.currentView.state.inventory.S===115);
+ assert.equal(h.currentView.state.inventory.S,115);
 });
