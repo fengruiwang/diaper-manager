@@ -1,30 +1,21 @@
-# 小宝纸尿裤管家 · PWA 正式版 v1.0.0
+# 小宝纸尿裤管家 · V1.2.0-rc.6 GitHub Pages 正式入口
 
-## 简介
-独立手机桌面网页应用。保留「参考价修复版」全部业务逻辑，新增 GitHub Pages 部署、安装到桌面、离线缓存和手动确认更新。
+前端使用 GitHub Pages（main 根目录）：https://fengruiwang.github.io/diaper-manager/ 。后台使用腾讯云 CloudBase 提供账号、家庭授权、库存及共享文档服务。
 
-## 部署
-将本目录所有文件原样放到 GitHub 仓库 `main` 根目录，然后在 Settings → Pages 将 `Build and deployment` 设为 `Deploy from a branch`，分支 `main`、目录 `/ (root)`。公开仓库适用于 GitHub Pages 免费方案。
+此版按照已审核的 V1.2.0-rc.6 候选包原样发布；业务源码基线 `16a6a15d0d158b288e331c4b9d1d6abea72d42c3`。候选资源的 14 个文件与已验收的 GitHub Actions Artifact 完全一致；版本仍标记为 rc.6 以准确反映来源。
 
-发布后的预期地址：`https://fengruiwang.github.io/diaper-manager/`（只有仓库实际创建、Pages 生效后此地址才可访问）。
+## 重要：保留 V1.1.2 数据和回退能力
 
-手机：用 Chrome/Edge（Android）或 Safari（iOS）访问网址，点击页面“添加到手机桌面”或使用浏览器菜单安装。
+原 V1.1.2 最终 Commit：`a7c6a138f8aa7858b6b72b8f843625a5a4232bd9`，已独立备份到 `backup/v1.1.2-pre-v120-20261119` 分支。**不要删除该分支。**
 
-## 历史数据迁移（重要）
-1. 在旧的本地 HTML 的「个性设置 → 数据备份与恢复」导出 JSON。
-2. 用手机浏览器访问新网址，再在新网站点击「导入旧版备份」导入 JSON。
-3. 确认库存、采购流水、自定义参考价都正确；之后再添加到桌面。在 iOS 独立桌面应用中如无法看到 Safari 的数据，直接在桌面应用内重新导入该备份。
-4. 保存旧版备份以备核对；不要先清理浏览器数据。
+V1.1.2 本地数据在同源浏览器 `localStorage` 键 `xiaobao_diaper_planner_v1` 下；V1.2.0-rc.6 不读取、不覆盖该键，而是使用已授权的 CloudBase 和独立 IndexedDB 库存队列。升级前，建议先在旧版「数据备份与恢复」导出 JSON 并妥善保存，升级后不要清除站点数据。
 
-**本地文件 `file://` 与 GitHub Pages `https://` 的 localStorage 不相通，不能自动搬迁。**
+如需回退：以备份分支为来源，将 V1.1.2 的完整 Git 根目录树恢复为 main 的**新提交**（不要修改 CloudBase 真实数据，也不要强制重写 main 历史），核对 GitHub Pages 部署及旧版 PWA 更新提示。用户设备可能需接受版本更新、重新打开或刷新页面，方能切换 Service Worker 缓存。
 
-## 数据安全与升级原则
-- 数据存储键固定：`xiaobao_diaper_planner_v1`。
-- JSON 备份格式固定：`{app: "xiaobao-diapers", version: 1, data: ...}`。
-- 现有原始代码的 `defaults/load/save/import/export` 逻辑没有改变。
-- Service Worker 只缓存静态页面和图标，不缓存用户数据库，更新不触碰 `localStorage`。
-- 版本更新必须由用户点击“更新应用”确认，避免编辑表单时被强制刷新。
-- 数据不进行跨设备实时共享：如需共享，需要另外开发云同步。
+**程序回退不等于云端记录迁移**：回退后的 V1.1.2 只读其原有本地记录，不会自动导入 V1.2.0 期间新增的云端采购、消耗、成长等数据。回退时避免误删 CloudBase 数据及浏览器站点数据。
 
-## 发布新版本
-改动后同步更新 `sw.js` 的 `CACHE_NAME` 和 `version.json` 的版本。将所有静态文件提交并发布；旧版本检测到更新后会提示用户确认。不要修改 localStorage 键或直接清空历史数据。
+## 构建与回归
+
+发布资源直接复制自 `release-candidate/pages-v1.2.0-rc6/`，保留相对路径及图标。Feature 分支的 1012 项 JavaScript 测试、PostgreSQL 合约与 rc.6 隔离 HTTP 校验已通过。main 的回归运行 `node --test tests/*.test.cjs`，其中 `tests/integration.test.cjs` 现在验证正式根目录 V1.2.0-rc.6；旧版集成测试仍可在备份分支获取。
+
+此仓库的 GitHub Pages 采用 Settings → Pages → Deploy from a branch → `main` → `/ (root)`。
