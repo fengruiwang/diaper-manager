@@ -38,6 +38,7 @@ function harness({session=true,connectResult=null,offline=false,
   connectStatus=connectResult,networkOnline=!offline,
   currentView=null,actions=null,submitted=0,readCount=0,activateCount=0,
   baselineCount=0,loginCount=0,clears=0,currentBaselineStatus=baselineStatus;
+ let businessBusy=false;
  const item=id=>{
   if(!elements.has(id)){
    const node={id,value:'',hidden:false,disabled:false,dataset:{},
@@ -151,7 +152,14 @@ function harness({session=true,connectResult=null,offline=false,
    submitted++;await pause('command');
    return {status:'PRIMARY_OPERATION_DURABLY_QUEUED'};
   }})},
-  actionsFactory:{create:options=>{actions=Actions.create(options);return actions;}},
+  actionsFactory:{create:options=>{
+   actions=Actions.create(options);
+   return{attach(document){
+    const actual=actions.attach(document);
+    return Object.freeze({...actual,
+     hasActiveBusinessAction:()=>businessBusy||actual.hasActiveBusinessAction()});
+   }};
+  }},
   projection:Projection,ui,scriptLoader:async()=>{},
   documentsFactory,documentsOverlay,
   purchaseReleaseEnabled:true,
@@ -181,6 +189,7 @@ function harness({session=true,connectResult=null,offline=false,
   setConnectResult(value){connectStatus=value;},
   setReadError(value){failRead=value;},
   setOnline(value){networkOnline=value;},
+  setBusinessBusy(value){businessBusy=value;},
   setBaselineStatus(value){currentBaselineStatus=value;},
   switchAccount(actorUid,childId){scope.actorUid=actorUid;scope.childId=childId;}
  };
@@ -305,22 +314,29 @@ test('T05-P2-01 editing field, open reference dialog, form controls and horizont
  assert.equal(touch(h,{dy:140,fingers:2}).prevented,0);
  assert.equal(h.readCount,1);
 });
-test('T05-P2-01 in-flight purchase command and conflict action block pull until completion',async()=>{
- const h=harness({hold:[]});await ready(h);
- h.hold('command');
- const buy=h.item('buyNow');buy.dataset={action:'purchase'};
- h.listeners.get('document:click')?.({
-  target:buy,preventDefault(){},stopImmediatePropagation(){}
- });
- await until(()=>h.events.includes('command.entered'));
- assert.equal(h.actions.attach?true:false,true);
+test('T05-P2-01 UI-reported in-flight business work and conflict controls block pull',async()=>{
+ const h=harness();await ready(h);
+ h.setBusinessBusy(true);
  assert.equal(touch(h,{dy:120}).prevented,0);
  assert.equal(h.readCount,1);
- await h.release('command');
- await tick();await tick();
+ h.setBusinessBusy(false);
  h.item('formalResolveDocumentConflict').hidden=false;
  assert.equal(touch(h,{dy:120}).prevented,0);
  assert.equal(h.readCount,1);
+});
+test('T05-P2-01 blurred but unsaved input prevents pull until its draft node is replaced',async()=>{
+ const h=harness();await ready(h);
+ const draft={tagName:'INPUT',value:'尚未保存的采购偏好',isConnected:true};
+ h.listeners.get('document:input')({target:draft});
+ assert.equal(touch(h,{dy:130}).prevented,0);
+ assert.equal(h.readCount,1);
+ assert.equal(draft.value,'尚未保存的采购偏好');
+ draft.isConnected=false;
+ h.hold('read');touch(h,{dy:130});
+ await until(()=>h.readCount===2);
+ await h.release('read');
+ await until(()=>h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
+ assert.equal(h.readCount,2);
 });
 test('T05-P2-01 account scope changes during a pull never preserve the prior family view',async()=>{
  const h=harness();await ready(h);
