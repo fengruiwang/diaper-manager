@@ -58,7 +58,7 @@ function harness({session=true,connectResult=null,offline=false,
    timer.next=time()+timer.ms;timer.fn();
   }
  };
- const docEvents=new Map(),eventOptions=new Map();
+ const docEvents=new Map(),eventOptions=new Map(),rootClasses=new Set();
  const item=id=>{
   if(!elements.has(id)){
    const node={id,value:'',hidden:false,disabled:false,dataset:{},
@@ -77,7 +77,9 @@ function harness({session=true,connectResult=null,offline=false,
  };
  const doc={
   body:{dataset:{formalState:'boot'},scrollTop:0},
-  documentElement:{scrollTop:0},activeElement:{tagName:'BODY'},
+  documentElement:{scrollTop:0,classList:{
+   add(name){rootClasses.add(name);},contains(name){return rootClasses.has(name);}
+  }},activeElement:{tagName:'BODY'},
   visibilityState:'hidden',querySelector:()=>null,
   getElementById:item,
   addEventListener(type,fn,options){
@@ -359,6 +361,7 @@ test('T06-P2-01 partial pull gives guidance, armed pull shows release feedback',
 test('T06-P2-01 Android touch capability works when strict hover media query mismatches',async()=>{
  const h=harness({touchMedia:false});await ready(h);
  assert.equal(h.host.navigator.maxTouchPoints,5);
+ assert.equal(h.doc.documentElement.classList.contains('xiaobao-pull-touch'),true);
  assert.equal(h.eventOptions.get('touchmove')?.passive,false);
  assert.equal(h.eventOptions.get('touchmove')?.capture,true);
  assert.equal(h.eventOptions.get('touchstart')?.capture,true);
@@ -522,6 +525,7 @@ test('T05-P2-01 desktop and noncoarse devices register no mobile gesture handler
  const h=harness({mobile:false});await ready(h);
  assert.equal(h.listeners.has('document:touchstart'),false);
  assert.equal(h.listeners.has('document:touchmove'),false);
+ assert.equal(h.doc.documentElement.classList.contains('xiaobao-pull-touch'),false);
  assert.equal(h.readCount,1);
 });
 test('T05-P2-01 source keeps isolated mobile CSS and uses the existing app refresh (no reload)',()=>{
@@ -539,6 +543,9 @@ test('T05-P2-01 source keeps isolated mobile CSS and uses the existing app refre
  assert.doesNotMatch(controller,/location\.reload\(|location\.replace\(/);
  assert.match(html,/@media \(pointer:coarse\), \(any-pointer:coarse\), \(hover:none\)/);
  assert.match(html,/overscroll-behavior-y:contain/);
+ assert.ok(html.includes('html.xiaobao-pull-touch:has(body'));
+ assert.ok(html.includes('data-pull-phase="armed"'));
+ assert.ok(html.includes('content:"松开刷新"'));
  assert.ok(html.includes(module),'inlined capture module must stay identical');
  const primary=fs.readFileSync(path.join(__dirname,
   '../sync/primary-cloud-operations.js'),'utf8');
