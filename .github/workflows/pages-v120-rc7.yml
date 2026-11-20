@@ -20,8 +20,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Verify deterministic RC7 package against reviewed Feature source
-        run: node scripts/build-pages-v120-rc7.cjs --check
+      - name: Verify 14 frozen RC7 resources against original Git blobs
+        run: |
+          node -e 'const fs=require("node:fs");const path=require("node:path");const {checkPinnedResources}=require("./tests/historical-candidate-baselines.cjs");const root="release-candidate/pages-v1.2.0-rc7";const result=checkPinnedResources(file=>fs.readFileSync(path.join(root,file)),"rc7");console.log("Pinned RC7 resources verified:",result.count);'
       - name: Verify RC7 PWA compatibility and static candidate checks
         run: node --test tests/pages-v120-rc7.test.cjs
       - name: Run full JavaScript regression
