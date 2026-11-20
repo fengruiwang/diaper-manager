@@ -1833,7 +1833,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    // Only a transient read/network error may expose the still-nonwritable
    // same-scope cached gate. The server remains authoritative.
    const failure=String(error?.code||'')+' '+String(error?.message||'');
-   if(/permission[_ -]?denied|access[_ -]?denied|unauthori[sz]ed|forbidden|42501|(?:^|\\D)403(?:\\D|$)/i.test(failure)){
+   if(/permission[_ -]?denied|access[_ -]?denied|unauthori[sz]ed|forbidden|42501|403/i.test(failure)){
     clear();screen('unverified',notes.FAMILY_PERMISSION_DENIED);
     return mode;
    }
