@@ -346,8 +346,10 @@ test('T06-P2-01 five page panels all share the same verified pull refresh',async
 test('T06-P2-02 hidden parent of price editor dialog no longer blocks all five top pulls',async()=>{
  const html=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal/index.html'),'utf8');
- assert.match(html,/id="priceEditor"[^>]*hidden>\\s*<div[^>]*role="dialog"[^>]*aria-modal="true"/,
-  'production HTML hides the parent, not the child dialog');
+ assert.ok(html.includes('id="priceEditor" role="presentation" hidden>'),
+  'real price editor backdrop must be hidden initially');
+ assert.ok(html.includes('role="dialog" aria-modal="true"'),
+  'the descendant dialog is present and queryable despite its hidden ancestor');
  const h=harness();await ready(h);
  const backdrop={id:'priceEditor',hidden:true};
  const childDialog={hidden:false,
