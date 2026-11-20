@@ -1,7 +1,7 @@
 {
-  "version": "1.2.0-rc.8",
+  "version": "1.2.0-rc.9",
   "channel": "release-candidate",
-  "source_sha": "fa2db3aa27d4c5f50b8fc310b6ca1a6b321dfc3e",
+  "source_sha": "9c7bf3fa79f45889da7ee112ae294820ad226ee5",
   "released": "2026-11-20",
-  "notes": "T06-RC8-01 候选：整合冷启动与登录状态优化、五页面 Android 下拉云端刷新及既有联网业务；未发布"
+  "notes": "T06-RC9-01 候选：修复隐藏参考价弹窗导致五页面下拉完全被拦截；保持 rc.8 的冷启动、联网业务与 PWA 安装身份；待发布"
 }
