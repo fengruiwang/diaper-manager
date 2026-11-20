@@ -92,7 +92,7 @@ test('P0: logout, refresh, recheck do not retain previous identity on login scre
 test('P0: neutral loading prompt and domain-gated document writes',()=>{
  const fs=require('node:fs'),path=require('node:path');
  const html=fs.readFileSync(path.join(__dirname,'../preview/v1.2.0/formal/index.html'),'utf8');
- assert.match(html,/正在检查登录状态…/);
+ assert.match(html,/正在进入小宝管家…/);
  assert.doesNotMatch(html,/正在检查 CloudBase 会话与家庭权限…/);
  assert.equal(Formal.FORMAL_WRITE_ENABLED,false);
  assert.equal(Formal.FORMAL_DOCUMENT_WRITE_ENABLED,true);
