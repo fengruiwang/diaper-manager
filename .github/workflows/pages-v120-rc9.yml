@@ -1,0 +1,39 @@
+name: XiaoBao T06 V1.2.0 rc9 candidate validation (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+    paths:
+      - 'release-candidate/pages-v1.2.0-rc9/**'
+      - 'scripts/build-pages-v120-rc9.cjs'
+      - 'tests/pages-v120-rc9.test.cjs'
+      - 'tests/historical-candidate-baselines.cjs'
+      - '.github/workflows/pages-v120-rc9.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rc9-candidate:
+    name: RC9 immutable parity, Android dialog regression, full JS (NO DEPLOY)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify deterministic RC9 build against pinned source SHA (14 resources)
+        run: node scripts/build-pages-v120-rc9.cjs --check
+      - name: Verify RC9 package, PWA identity, hidden-dialog fix and frozen versions
+        run: node --test tests/pages-v120-rc9.test.cjs
+      - name: Run complete JavaScript regression
+        run: node --test tests/*.test.cjs
+      - name: Archive validated candidate ONLY (NO DEPLOY)
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-V1.2.0-RC9-NO-DEPLOY
+          path: release-candidate/pages-v1.2.0-rc9/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
