@@ -9,6 +9,8 @@ const DB_NAME='xiaobao-maternal-health-v130';
 const TYPE='maternal-health.upsert';
 const outcome=(status,fields={})=>Object.freeze({status,...fields});
 const sameScope=(scope,other)=>scope.familyId===other?.familyId&&scope.actorUid===other?.actorUid;
+const isConflict=op=>op?.type===TYPE&&op.status==='conflict'
+ &&op.error==='conflict'&&op.receipt===null;
 
 function create({controller,client,host=root,cloudWritesEnabled=false,
  uuid=()=>host.crypto.randomUUID()}={}){
@@ -31,6 +33,42 @@ function create({controller,client,host=root,cloudWritesEnabled=false,
   try{
    const counts=await outbox.stats(scope);
    return sameScope(scope,identity())?outcome('QUEUE_VERIFIED',counts):outcome('SCOPE_CHANGED');
+  }catch(_){return outcome('QUEUE_UNVERIFIED');}
+ }
+
+ async function conflicts(){
+  const scope=identity();
+  if(!scope)return outcome('PERMISSION_DENIED');
+  try{
+   const rows=await outbox.list(scope);
+   if(!sameScope(scope,identity()))return outcome('SCOPE_CHANGED');
+   const items=rows.filter(isConflict).map(op=>({requestId:op.id,
+    expectedRevision:op.expectedRevision,nextBody:op.payload.nextBody,createdAt:op.createdAt}));
+   return outcome('CONFLICTS_VERIFIED',{items});
+  }catch(_){return outcome('QUEUE_UNVERIFIED');}
+ }
+
+ // Confirm only after refreshing and re-editing or explicitly discarding the old edit.
+ async function abandonConflict({requestId,baseline,userConfirmed=false}={}){
+  if(userConfirmed!==true)return outcome('CONFIRMATION_REQUIRED');
+  if(!isUuid(requestId))return outcome('INVALID_INPUT');
+  const scope=identity();
+  if(!scope)return outcome('PERMISSION_DENIED');
+  requestId=requestId.toLowerCase();
+  try{
+   const op=await outbox.get(scope,requestId);
+   if(!sameScope(scope,identity()))return outcome('SCOPE_CHANGED');
+   if(!isConflict(op))return outcome('CONFLICT_NOT_FOUND');
+   if(baseline?.status!=='READ_VERIFIED'||!sameScope(scope,baseline)
+     ||!Number.isSafeInteger(baseline.revision)||baseline.revision<=op.expectedRevision)
+    return outcome('LATEST_REVISION_REQUIRED');
+   if(!online())return outcome('OFFLINE');
+   const receipt=await client.checkRequest({...scope,requestId});
+   if(!sameScope(scope,identity()))return outcome('SCOPE_CHANGED');
+   if(receipt.status!=='NO_RECEIPT'||!sameScope(scope,receipt)||receipt.requestId!==requestId)
+    return outcome('RECEIPT_UNVERIFIED');
+   await outbox.abandonDocumentConflict(scope,requestId);
+   return sameScope(scope,identity())?outcome('ABANDONED',{requestId}):outcome('SCOPE_CHANGED');
   }catch(_){return outcome('QUEUE_UNVERIFIED');}
  }
 
@@ -120,7 +158,7 @@ function create({controller,client,host=root,cloudWritesEnabled=false,
   }catch(_){return outcome('UNKNOWN',{requestId});}
   finally{busy=false;}
  }
- return Object.freeze({queue,send,pending});
+ return Object.freeze({queue,send,pending,conflicts,abandonConflict});
 }
 
 const api=Object.freeze({create,DB_NAME});

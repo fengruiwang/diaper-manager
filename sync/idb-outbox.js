@@ -20,7 +20,7 @@
  // Only confirmed, abandoned shared-document CAS conflicts may use this
  // terminal state; inventory and batch queues retain their original rules.
  const DOCUMENT_TYPES=new Set(['reference.patch','quote.upsert','quote.delete',
-  'weight.upsert','weight.delete','profile.patch','settings.patch']);
+  'weight.upsert','weight.delete','profile.patch','settings.patch','maternal-health.upsert']);
  function fail(code){throw new Error('outbox_store:'+code);}
  function id(v,name){if(typeof v!=='string'||!UUID.test(v))fail('invalid_'+name);return v;}
  function actor(v){if(typeof v!=='string'||!v||v.length>128)fail('invalid_actor');return v;}

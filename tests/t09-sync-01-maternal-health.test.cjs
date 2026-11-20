@@ -175,7 +175,7 @@ test('A and B see each other edits, with the first save advancing 0 to 1',async(
  assert.deepEqual((await f.client.read(A)).body,body(52));
 });
 
-test('CAS conflict is retained and a new edit can use the newly read revision',async()=>{
+test('CAS conflict remains after a revised save and explicit archival preserves its history',async()=>{
  const f=fixture(),a=await f.client.read(A);
  f.actAs(B);
  const b=await f.client.read(B);
@@ -192,6 +192,77 @@ test('CAS conflict is retained and a new edit can use the newly read revision',a
  assert.notEqual(edited.requestId,stale.requestId);
  assert.equal((await f.ops.send()).revision,2);
  assert.equal((await f.ops.pending()).conflict,1);
+ const original=(await f.ops.conflicts()).items[0];
+ assert.equal(original.requestId,stale.requestId);
+ assert.equal(original.expectedRevision,0);
+ assert.deepEqual(original.nextBody,body(51));
+ const archive={requestId:stale.requestId,baseline:latest,userConfirmed:true};
+ assert.equal((await f.ops.abandonConflict({...archive,userConfirmed:false})).status,
+  'CONFIRMATION_REQUIRED');
+ assert.equal((await f.ops.abandonConflict({...archive,baseline:a})).status,
+  'LATEST_REVISION_REQUIRED');
+
+ for(const other of [B,{...A,familyId:otherFamily}]){
+  f.actAs(other);
+  assert.deepEqual(await f.ops.conflicts(),{status:'CONFLICTS_VERIFIED',items:[]});
+  const rpcCount=f.calls.length;
+  assert.notEqual((await f.ops.abandonConflict(archive)).status,'ABANDONED');
+  assert.equal(f.calls.length,rpcCount);
+ }
+ f.actAs(A);
+ assert.equal((await f.ops.pending()).outstanding,1);
+ assert.deepEqual(await f.ops.abandonConflict(archive),{status:'ABANDONED',requestId:stale.requestId});
+ const counts=await f.ops.pending();
+ assert.equal(counts.outstanding,0);
+ assert.equal(counts.abandoned,1);
+ assert.equal(counts.acked,1);
+ assert.deepEqual((await f.ops.conflicts()).items,[]);
+ const storage=Durable.create({indexedDB:f.indexedDB,contract:Contract,dbName:Ops.DB_NAME});
+ const retained=await storage.get(A,stale.requestId);
+ assert.equal(retained.status,'abandoned');
+ assert.equal(retained.receipt,null);
+ assert.equal(retained.id,original.requestId);
+ assert.equal(retained.expectedRevision,original.expectedRevision);
+ assert.equal(retained.createdAt,original.createdAt);
+ assert.deepEqual(retained.payload,{nextBody:original.nextBody});
+ const puts=f.calls.filter(call=>call.name==='xb_put_maternal_health').length;
+ assert.equal((await f.make().ops.send()).status,'EMPTY');
+ assert.equal(f.calls.filter(call=>call.name==='xb_put_maternal_health').length,puts);
+});
+
+test('archival refuses pending, retry, other operation types and an unverified receipt',async()=>{
+ const f=fixture();
+ const baseline=await f.client.read(A);
+ const pending=await f.ops.queue({baseline,nextBody:body(51.75)});
+ const storage=Durable.create({indexedDB:f.indexedDB,contract:Contract,dbName:Ops.DB_NAME});
+ const archive={requestId:pending.requestId,baseline,userConfirmed:true};
+ assert.equal((await f.ops.abandonConflict(archive)).status,'CONFLICT_NOT_FOUND');
+ await storage.recordResult(A,pending.requestId,{kind:'timeout'});
+ assert.equal((await f.ops.abandonConflict(archive)).status,'CONFLICT_NOT_FOUND');
+
+ const other=Contract.createOperation({id:recordId,...A,type:'profile.patch',expectedRevision:0,
+  createdAt:'2026-11-21T00:00:00Z',payload:{kind:'profile'}});
+ await storage.enqueue(other);
+ await storage.recordResult(A,other.id,{kind:'conflict'});
+ assert.equal((await f.ops.abandonConflict({...archive,requestId:other.id})).status,'CONFLICT_NOT_FOUND');
+ assert.deepEqual((await f.ops.conflicts()).items,[]);
+
+ // Simulate a newer family document and a definite CAS rejection for the original request.
+ f.docs.set(familyId,{revision:1,body:body(52)});
+ assert.equal((await f.ops.send()).status,'REVISION_CONFLICT');
+ const latest=await f.client.read(A);
+ for(const response of ['UNKNOWN','COMMITTED']){
+  f.intercept(()=>response==='UNKNOWN'?{error:{code:'503'}}:{data:{
+   status:'COMMITTED',revision:1,family_id:familyId,request_id:pending.requestId}});
+  assert.equal((await f.ops.abandonConflict({...archive,baseline:latest})).status,'RECEIPT_UNVERIFIED');
+  assert.equal((await storage.get(A,pending.requestId)).status,'conflict');
+ }
+ f.intercept(null);
+ f.host.navigator.onLine=false;
+ assert.equal((await f.ops.abandonConflict({...archive,baseline:latest})).status,'OFFLINE');
+ f.host.navigator.onLine=true;
+ assert.equal((await f.ops.abandonConflict({...archive,baseline:latest})).status,'ABANDONED');
+ assert.equal((await storage.get(A,other.id)).status,'conflict');
 });
 
 test('lost save response recovers after reload with the original receipt and the latest document',async()=>{
