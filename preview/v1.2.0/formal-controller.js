@@ -2166,8 +2166,14 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     if(active?.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/i.test(active?.tagName||''))
      return true;
     if($('priceEditor')?.hidden===false)return true;
-    return Boolean(doc.querySelector?.(
-     '[role="dialog"]:not([hidden]),[aria-modal="true"]:not([hidden])'));
+    // querySelector() matches descendants of hidden parents. The reference
+    // dialog itself has no [hidden], but its #priceEditor backdrop does:
+    // treating it as open blocked EVERY top pull in the real five-page DOM.
+    const dialogs=doc.querySelectorAll?.('[role="dialog"],[aria-modal="true"]');
+    return Boolean(dialogs&&Array.from(dialogs).some(dialog=>
+     !dialog.closest?.('[hidden]')
+     &&(typeof dialog.getClientRects!=='function'
+       ||dialog.getClientRects().length>0)));
    };
    // Check the scroll position at touchstart only. Android may briefly
    // report a root scroll offset during a finger drag; don't abort that
