@@ -2237,7 +2237,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     }
     pullFeedback('refreshing');
     // The toolbar and the gesture share this one authenticated cloud path.
-    void Promise.resolve(fetchCloudLatest()).then(()=>{
+    void fetchCloudLatest().then(()=>{
      if(mode!=='ready'){pullFeedback('');return;}
      pullFeedback($('formalCloudSyncFeedback')?.textContent==='云端数据已更新'
       ?'success':'failure');
