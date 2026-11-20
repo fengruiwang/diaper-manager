@@ -81,7 +81,9 @@ function harness({session=true,connectResult=null,offline=false,
   documentElement:{scrollTop:0,classList:{
    add(name){rootClasses.add(name);},contains(name){return rootClasses.has(name);}
   }},activeElement:{tagName:'BODY'},
-  visibilityState:'hidden',querySelector:()=>null,
+  visibilityState:'hidden',
+  // The old querySelector returned a hidden-descendant dialog in Chromium.
+  querySelector:selector=>selector.includes('[role="dialog"]')?dialogNodes[0]||null:null,
   querySelectorAll:selector=>selector.includes('[role="dialog"]')?dialogNodes:[],
   getElementById:item,
   addEventListener(type,fn,options){
@@ -355,7 +357,7 @@ test('T06-P2-02 hidden parent of price editor dialog no longer blocks all five t
  const childDialog={hidden:false,
   // Real querySelectorAll matches this node despite the hidden ancestor.
   closest:selector=>selector==='[hidden]'?backdrop:null,
-  getClientRects:()=>[]};
+  getClientRects:()=>[{}]};
  h.setDialogs([childDialog]);
  for(const tab of ['overview','compare','history','growth','settings']){
   h.doc.body.dataset.activeTab=tab;
