@@ -448,6 +448,8 @@ SELECT public.xb_test_assert(
 GRANT EXECUTE ON FUNCTION public.xb_primary_stocktake_batch_draft(uuid,uuid,uuid,jsonb) TO authenticated;
 
 \i tests/postgres/p2_legacy_history_read_contract.sql
+\i cloudbase/sql/028_xb_maternal_health_DRAFT_DO_NOT_DEPLOY.sql
+\i tests/postgres/t09_maternal_health_contract.sql
 -- Owner-only primary lifecycle and retained smoke S140, isolated synthetic only.
 \i tests/postgres/m2_primary_child_contract.sql
 \i tests/postgres/m3_primary_documents_contract.sql

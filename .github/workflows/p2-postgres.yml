@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/cloudbase-sync-v1.2.0
+      - feature/v1.3.0
   workflow_dispatch:
 permissions:
   contents: read
@@ -42,3 +43,7 @@ jobs:
       - name: Verify P2-4E-B2 same-source promotion with two independent PostgreSQL sessions
         run: |
           bash tests/postgres/p2_legacy_promotion_concurrency.sh
+
+      - name: Verify family health CAS with two independent disposable PostgreSQL sessions
+        run: |
+          bash tests/postgres/t09_maternal_health_concurrency.sh
