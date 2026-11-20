@@ -375,11 +375,13 @@ test('T06-P2-02 truly visible dialog still protects form edits and cloud reads',
   'visible dialog must block gesture during editing');
  assert.equal(h.readCount,1);
  h.setDialogs([{hidden:false,closest:()=>null,getClientRects:()=>[]}]);
- assert.equal(touch(h,{dy:98}).prevented,0,
-  'CSS display:none dialog is not actually visible; no interception');
+ assert.equal(touch(h,{dy:98}).prevented,1,
+  'CSS display:none dialog is not actually visible; pull must work');
+ await until(()=>h.readCount===2
+  &&h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
  h.setDialogs([]);
  assert.equal(touch(h,{dy:98}).prevented,1);
- await until(()=>h.readCount===2);
+ await until(()=>h.readCount===3);
 });
 test('T06-P2-01 partial pull gives guidance, armed pull shows release feedback',async()=>{
  const h=harness();await ready(h);
