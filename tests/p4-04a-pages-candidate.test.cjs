@@ -1,5 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
+const {createHash}=require('node:crypto');
 const ROOT=path.resolve(__dirname,'..'),OUT=path.join(ROOT,'release-candidate/pages-v1.2.0');
 const load=p=>fs.readFileSync(path.join(ROOT,p));
 const c=p=>load('release-candidate/pages-v1.2.0/'+p);
@@ -30,9 +31,13 @@ test('P4-04A frozen rc2 candidate preserves verified assets and archived module 
   './formal-controller.js?v=p404c01','./pwa.js?v=p404c01'])
   assert.ok(html.includes('src="'+script+'"'),script);
  assert.ok(html.indexOf('src="./m1-controller')<html.indexOf('src="./formal-controller'));
- // Frozen rc2 is verified by pinned candidate hashes, not later Feature B3 modules.
- assert.ok(html.includes(load('sync/outbox-contract.js').toString('utf8').trim()),
-  'outbox-contract');
+ // SHA-256 of the trimmed module in the reviewed rc.2 source tree.
+ const archivedContract=html.match(
+  /\/\* Embedded for isolated deployment: sync\/outbox-contract\.js \*\/([\s\S]*?)<\/script>/
+ )?.[1].trim();
+ assert.ok(archivedContract,'outbox-contract');
+ assert.equal(createHash('sha256').update(archivedContract).digest('hex'),
+  'f124399507337be93cc03cea2457aaefd89047ff74ac6abee704a0b6c195d118');
  // rc.2 is intentionally frozen at its archived source, while newer Feature
  // adapters may advance. Its pinned hashes above, not current source, prove
  // frozen client integrity.

@@ -2,8 +2,8 @@
    Does not perform persistence or network requests. */
 (function(root){
  'use strict';
- const TYPES=Object.freeze(['inventory.delta','inventory.count','transaction.reverse','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch']);
- const NEED_REV=new Set(['inventory.count','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch']);
+ const TYPES=Object.freeze(['inventory.delta','inventory.count','transaction.reverse','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch','maternal-health.upsert']);
+ const NEED_REV=new Set(['inventory.count','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch','maternal-health.upsert']);
  const WAITING=new Set(['pending','retry','conflict']);
  const validString=x=>typeof x==='string'&&x.length>0&&x.length<=160;
  const isObject=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
