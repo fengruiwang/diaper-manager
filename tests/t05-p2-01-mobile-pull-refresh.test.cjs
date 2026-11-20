@@ -321,6 +321,85 @@ test('T05-P2-01 Android top pull over threshold triggers one real complete cloud
  assert.equal(h.baselineCount,2,'same restore path performs fresh IDB baseline check');
  assert.equal(h.doc.body.dataset.formalState,'ready');
 });
+test('T06-P2-01 five page panels all share the same verified pull refresh',async()=>{
+ const h=harness();await ready(h);
+ const names=['overview','compare','history','growth','settings'];
+ for(const tab of names){
+  h.doc.body.dataset.activeTab=tab;
+  const panel={tagName:'DIV',parentElement:null,closest:()=>null,
+   dataset:{panel:tab}};
+  const before=h.readCount;
+  assert.equal(touch(h,{dy:94,target:panel}).phase,'armed',tab+' should arm');
+  await until(()=>h.readCount===before+1
+   &&h.item('formalNotice').dataset.pullPhase==='success');
+  assert.equal(h.doc.body.dataset.activeTab,tab);
+  assert.equal(h.doc.body.dataset.formalState,'ready');
+  assert.equal(h.currentView.state.inventory.S,140);
+ }
+ assert.equal(h.readCount,6,'one initial and one per five panels');
+});
+test('T06-P2-01 partial pull gives guidance, armed pull shows release feedback',async()=>{
+ const h=harness();await ready(h);
+ const baseline=h.readCount;
+ const small=touch(h,{dy:39});
+ assert.equal(small.phase,'pulling');
+ assert.equal(h.item('formalNotice').dataset.pullPhase,undefined);
+ assert.equal(h.readCount,baseline);
+ h.hold('read');
+ const armed=touch(h,{dy:84});
+ assert.equal(armed.phase,'armed');
+ assert.equal(h.item('formalNotice').dataset.pullPhase,'refreshing');
+ await until(()=>h.readCount===baseline+1);
+ assert.equal(h.item('formalCloudSyncFeedback').textContent,
+  '正在获取云端最新数据…');
+ await h.release('read');
+ await until(()=>h.item('formalNotice').dataset.pullPhase==='success');
+ assert.equal(h.item('formalCloudSyncFeedback').textContent,'云端数据已更新');
+});
+test('T06-P2-01 Android touch capability works when strict hover media query mismatches',async()=>{
+ const h=harness({touchMedia:false});await ready(h);
+ assert.equal(h.host.navigator.maxTouchPoints,5);
+ assert.equal(h.eventOptions.get('touchmove')?.passive,false);
+ assert.equal(h.eventOptions.get('touchmove')?.capture,true);
+ assert.equal(h.eventOptions.get('touchstart')?.capture,true);
+ assert.equal(touch(h,{dy:94}).prevented,1);
+ await until(()=>h.readCount===2);
+});
+test('T06-P2-01 scrollingElement is authoritative; an actual scrolled page cannot refresh',async()=>{
+ const h=harness();await ready(h);
+ h.doc.scrollingElement={scrollTop:120};
+ assert.equal(touch(h,{dy:122}).prevented,0);
+ assert.equal(h.readCount,1);
+ h.doc.scrollingElement.scrollTop=0;
+ // Android can retain inconsistent body/documentElement/scrollY fallbacks.
+ h.host.scrollY=50;h.doc.body.scrollTop=50;h.doc.documentElement.scrollTop=50;
+ assert.equal(touch(h,{dy:94}).prevented,1);
+ await until(()=>h.readCount===2);
+});
+test('T06-P2-01 nested scroll, noncancelable touch, cancel and multitouch never refresh',async()=>{
+ const h=harness();await ready(h);
+ const scrollable={style:{overflowY:'auto'},scrollHeight:420,
+  clientHeight:120,parentElement:null,closest:()=>null};
+ assert.equal(touch(h,{dy:105,target:scrollable}).prevented,0);
+ assert.equal(touch(h,{dy:108,cancelable:false}).prevented,0);
+ assert.equal(touch(h,{dy:110,fingers:2}).prevented,0);
+ assert.equal(touch(h,{dy:108,cancel:true}).prevented,1);
+ assert.equal(h.item('formalNotice').dataset.pullPhase,undefined);
+ await tick();await tick();
+ assert.equal(h.readCount,1);
+});
+test('T06-P2-01 cloud failure and offline pull give explicit terminal feedback',async()=>{
+ const h=harness();await ready(h);
+ h.setReadError(true);
+ assert.equal(touch(h,{dy:99}).phase,'armed');
+ await until(()=>h.item('formalNotice').dataset.pullPhase==='failure');
+ assert.match(h.item('formalCloudSyncFeedback').textContent,/失败/);
+ h.setReadError(false);h.setOnline(false);
+ assert.equal(touch(h,{dy:99}).phase,'armed');
+ await until(()=>h.item('formalNotice').dataset.pullPhase==='failure');
+ assert.equal(h.readCount,2,'offline attempt must not read again');
+ assert.equal(h.doc.body.dataset.formalState,'ready');
+});
 test('T05-P2-01 small downward pull, reverse pull and horizontally dominant gesture are ignored',async()=>{
  const h=harness();await ready(h);
  const initial=h.readCount;
