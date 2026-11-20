@@ -1,4 +1,4 @@
-/* Immutable rc.5/rc.6 test-only evidence. Git blob IDs below were read from
+/* Immutable rc.5/rc.6/rc.7 test-only evidence. Git blob IDs below were read from
  * version.json.source_sha history and the frozen release-candidate Git trees.
  * Never compare old candidates against moving Feature sources. No network,
  * filesystem mutation, or runtime loading of their embedded modules.
@@ -9,7 +9,8 @@ const {createHash}=require('node:crypto');
 const vm=require('node:vm');
 const BASELINES=Object.freeze({
  rc5:Object.freeze({sourceSha:'95052656b463a33cfd74394e6acace87f67ec458'}),
- rc6:Object.freeze({sourceSha:'16a6a15d0d158b288e331c4b9d1d6abea72d42c3'})
+ rc6:Object.freeze({sourceSha:'16a6a15d0d158b288e331c4b9d1d6abea72d42c3'}),
+ rc7:Object.freeze({sourceSha:'1e575db0918fb14ed4839e7fa85798b9e42fdabf'})
 });
 const COMMON_FILES=Object.freeze({
   ".nojekyll": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
@@ -35,6 +36,12 @@ const RC_FILES=Object.freeze({
     "index.html": "5b5baf62816007437dcc3f1ee561b8e545fa09d7",
     "sw.js": "46a58276d51fa4b051ea81afe99ca24999c5b890",
     "version.json": "f834e874923e7f0f3990f31747aa1a4493e9b503"
+  },
+  "rc7": {
+    "formal-controller.js": "c959d4170b35396ddf1eb6f19898aa92a2af8382",
+    "index.html": "427562a75ed548f2bfa996cd4d00c78b691e51cf",
+    "sw.js": "606be1217f5703b53e6b574f75e80bf13424a200",
+    "version.json": "121d6fd6ea8feb42e94e252eecc069649f2ea777"
   }
 });
 const MODULE_BLOBS=Object.freeze({
