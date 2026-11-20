@@ -119,6 +119,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
  let shownStock=null,localInventoryBaselineReady=false,cachedPreview=null;
+ const BOOT_MESSAGE='正在进入小宝管家…';
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
@@ -335,19 +336,16 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  function screen(next,message=''){
   mode=next;doc.body.dataset.formalState=next;
-  // Cache is a separate, non-ready gate. The five real pages remain hidden,
-  // therefore no purchase/consume/026/027 button can act on stale stock.
-  const viewingCache=Boolean(cachedPreview)
-   &&(next==='boot'||next==='cached');
+  // Keep one stable loading gate on successful cold starts; a validated
+  // read-only cache is visible only after a cloud read fails.
+  const viewingCache=Boolean(cachedPreview)&&next==='cached';
   $('formalLoginCard').hidden=next!=='login';
-  $('formalLoadingCard').hidden=next!=='boot'||viewingCache;
+  $('formalLoadingCard').hidden=next!=='boot';
   if($('formalCachedInventory'))$('formalCachedInventory').hidden=!viewingCache;
   $('formalGateActions').hidden=next==='boot'||next==='login'||next==='ready';
   $('formalGateMessage').textContent=viewingCache
-   ?next==='cached'
-    ?'上次已确认库存 · 云端暂未同步 · 暂不可修改'
-    :'上次已确认库存 · 正在同步云端 · 暂不可修改'
-   :message;
+   ?'上次已确认库存 · 云端暂未同步 · 暂不可修改'
+   :next==='boot'?BOOT_MESSAGE:message;
   $('formalAccountState').textContent=next==='ready'?'已连接'
    :next==='boot'?'检查中':next==='cached'?'未同步'
    :next==='login'?'未登录':next==='offline'?'离线':'需检查';
@@ -376,14 +374,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     +snapshot.inventory[size]+'</b><small>片</small></div></div>').join('');
   cachedPreview={app:ctx.app,actorUid:ctx.actorUid,
    familyId:ctx.familyId,childId:snapshot.childId};
-  screen('boot');
+  // Retain verified tiles for a later read failure, never flash them mid-boot.
   return true;
  }
- // Only update the existing spinner text while this restore still owns
- // the loading gate. An in-flight read must not replace a newer page state.
+ // The cold-start label remains stable across session, cloud and IDB reads.
+ // Errors still replace the gate with an actionable state.
  function bootStage(token,message){
   if(token!==revision||mode!=='boot')return;
-  if($('formalGateMessage')?.textContent!==message)screen('boot',message);
+  if($('formalGateMessage')?.textContent!==BOOT_MESSAGE)
+   $('formalGateMessage').textContent=BOOT_MESSAGE;
  }
  function conflictButton(visible){
   const button=$('formalResolveDocumentConflict');
@@ -1919,7 +1918,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   }finally{otpConfirming=false;redrawConfirmButton();}
  }
  async function start(){
-  screen('boot','正在检查登录状态…');
+  screen('boot',BOOT_MESSAGE);
   controller=loginController.create({
    host,storage:null,view:authView(),scriptLoader,
    deferChildReadToFormal:true
