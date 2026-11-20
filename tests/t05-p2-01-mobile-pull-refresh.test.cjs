@@ -152,7 +152,7 @@ function harness({session=true,connectResult=null,offline=false,
   host,doc,loginController:{create:()=>login},
   readModelFactory:()=>({read:async()=>{
    readCount++;await pause('read');
-   if(failRead)throw Error('synthetic cloud read failure');
+   if(failRead)throw failRead instanceof Error?failRead:Error('synthetic cloud read failure');
    const data=cloudModel(scope);
    if(cloudInventory)data.inventory={...data.inventory,...cloudInventory};
    if(sharedStock){
@@ -644,6 +644,19 @@ test('T06-P1-01 account switch during cold load clears previous cached scope',as
  assert.equal(h.item('formalCachedInventory').hidden,true);
  assert.equal(h.item('formalCachedStockGrid').innerHTML,'');
  assert.notEqual(h.app.mode,'ready');
+});
+test('T06-P1-01 denied cloud read cannot reveal old cached inventory',async()=>{
+ const h=harness({cached:{},readError:Error('FAMILY_PERMISSION_DENIED'),hold:['read']});
+ const starting=h.app.start();
+ await until(()=>h.item('formalCachedStockGrid').innerHTML?.includes('90'));
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+ await h.release('read');
+ assert.equal(await starting,'unverified');
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+ assert.equal(h.item('formalCachedStockGrid').innerHTML,'');
+ assert.match(h.item('formalGateMessage').textContent,/家庭授权未通过/);
+ assert.equal(h.currentView,null);
+ assert.equal(h.submitted,0);
 });
 test('T05-P2-02A late IDB cache cannot replace already verified current cloud stock',async()=>{
  const h=harness({cached:{},hold:['cache']});
