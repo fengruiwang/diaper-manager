@@ -130,6 +130,12 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
   padding:7px 13px;font-size:12px;white-space:nowrap;
  }
 }
+/* A touch-capable installed PWA can have a mismatched hover media query.
+   Match the class set by the JS touch detector in that case. */
+html.xiaobao-pull-touch:has(body[data-formal-state="ready"]),
+html.xiaobao-pull-touch body[data-formal-state="ready"]{
+ overscroll-behavior-y:contain;
+}
 /* In-app Android gesture feedback is independent of the media-query result:
    some installed PWAs report maxTouchPoints while their hover mode differs. */
 body[data-formal-state="ready"] #formalNotice[data-pull-phase]::before{
