@@ -9,7 +9,7 @@
 <link rel="icon" href="./icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
 <title>小宝管家 V1.2.0 · 家庭云端管理</title>
-<meta name="xiaobao-pages-candidate-source" content="1e575db0918fb14ed4839e7fa85798b9e42fdabf" />
+<meta name="xiaobao-pages-candidate-source" content="fa2db3aa27d4c5f50b8fc310b6ca1a6b321dfc3e" />
 
 
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -120,7 +120,7 @@ body:not([data-formal-state="ready"]) .wrap{display:none!important}
 body[data-formal-state="ready"] #formalGate{display:none!important}
 /* Android Chrome/Edge/PWA: prefer the in-app top pull to browser reload.
    Native desktop scrolling and editing containers are unaffected. */
-@media (pointer:coarse) and (hover:none){
+@media (pointer:coarse), (any-pointer:coarse), (hover:none){
  html:has(body[data-formal-state="ready"]),body[data-formal-state="ready"]{
   overscroll-behavior-y:contain;
  }
@@ -133,6 +133,26 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
   padding:7px 13px;font-size:12px;white-space:nowrap;
  }
 }
+/* A touch-capable installed PWA can have a mismatched hover media query.
+   Match the class set by the JS touch detector in that case. */
+html.xiaobao-pull-touch:has(body[data-formal-state="ready"]),
+html.xiaobao-pull-touch body[data-formal-state="ready"]{
+ overscroll-behavior-y:contain;
+}
+/* In-app Android gesture feedback is independent of the media-query result:
+   some installed PWAs report maxTouchPoints while their hover mode differs. */
+body[data-formal-state="ready"] #formalNotice[data-pull-phase]::before{
+ content:"下拉刷新";position:fixed;z-index:99;
+ top:max(10px,env(safe-area-inset-top));left:50%;
+ transform:translateX(-50%);pointer-events:none;
+ background:#f4f2ff;border:1px solid #e0defd;color:#5147bb;
+ box-shadow:0 4px 16px #26314720;border-radius:18px;
+ padding:7px 13px;font-size:12px;white-space:nowrap;
+}
+body[data-formal-state="ready"] #formalNotice[data-pull-phase="armed"]::before{content:"松开刷新"}
+body[data-formal-state="ready"] #formalNotice[data-pull-phase="refreshing"]::before{content:"正在获取云端最新数据…"}
+body[data-formal-state="ready"] #formalNotice[data-pull-phase="success"]::before{content:"云端数据已更新"}
+body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before{content:"获取云端数据失败，请重试"}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -141,7 +161,7 @@ body[data-formal-state="ready"] #formalGate{display:none!important}
  <div class="formal-gate-card">
   <div class="formal-logo">👶</div>
   <h1>小宝管家</h1>
-  <p id="formalGateMessage" role="status" aria-live="polite">正在检查登录状态…</p>
+  <p id="formalGateMessage" role="status" aria-live="polite">正在进入小宝管家…</p>
   <div id="formalLoadingCard">
    <div class="formal-spinner" aria-hidden="true"></div>
   </div>
@@ -3929,7 +3949,7 @@ restoreActiveTab();
 })(typeof window!=='undefined'?window:null);
 
 </script>
-<script src="./m1-controller.js?v=rc7" defer></script>
+<script src="./m1-controller.js?v=rc8" defer></script>
 <script>/* M3 formal PRIMARY inventory/transaction bridge, using P2/P3 modules.
  * NOT imported by M1-02, M3 synthetic preview, V1.1.2 or live PWA.
  * No auto network calls on import/create. This is NOT an authorization.
@@ -7419,8 +7439,8 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
-<script src="./formal-controller.js?v=rc7" defer></script>
-<script src="./pwa.js?v=rc7" defer></script>
+<script src="./formal-controller.js?v=rc8" defer></script>
+<script src="./pwa.js?v=rc8" defer></script>
 
 </body>
 </html>

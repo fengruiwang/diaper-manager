@@ -4,21 +4,23 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
 const ROOT=path.resolve(__dirname,'..');
 const files=['.nojekyll','index.html','formal-controller.js','m1-controller.js','growth.js','pwa.js','sw.js','manifest.webmanifest','version.json','icons/icon-192.png','icons/icon-512.png','icons/icon-maskable-512.png','icons/apple-touch-icon.png','icons/icon.svg'];
 const text=p=>fs.readFileSync(path.join(ROOT,p),'utf8');
-test('main production contains all 14 approved rc.6 files',()=>{
+test('main production contains all 14 approved rc.8 files',()=>{
  for(const p of files)assert.ok(fs.existsSync(path.join(ROOT,p)),p);
 });
 test('provenance, version and CloudBase write gates are verified',()=>{
  const v=JSON.parse(text('version.json')), c=text('formal-controller.js');
- assert.equal(v.version,'1.2.0-rc.6');
- assert.equal(v.source_sha,'16a6a15d0d158b288e331c4b9d1d6abea72d42c3');
+ assert.equal(v.version,'1.2.0-rc.8');
+ assert.equal(v.source_sha,'fa2db3aa27d4c5f50b8fc310b6ca1a6b321dfc3e');
  for(const flag of ['const FORMAL_WRITE_ENABLED=true;','const FORMAL_DOCUMENT_WRITE_ENABLED=true;','const FORMAL_PURCHASE_ENABLED=true;'])assert.ok(c.includes(flag),flag);
 });
 test('T04 trusted daily, unqueued offline and login stages are present',()=>{
  const h=text('index.html'),c=text('formal-controller.js');
  for(const marker of ["dailySettingsStatus!=='verified'",'OFFLINE_FORMAL_QUEUE_NOT_APPROVED','PRIMARY_QUEUE_UNVERIFIED_PRESERVE_ORIGINAL_ID'])assert.ok(h.includes(marker),marker);
- for(const marker of ['正在检查登录状态…','正在获取家庭与库存数据…','正在核对本机库存…'])assert.ok(c.includes(marker),marker);
+ assert.ok(c.includes("const BOOT_MESSAGE='正在进入小宝管家…'"));
+ assert.ok(h.includes('id="formalGateMessage" role="status" aria-live="polite">正在进入小宝管家…'));
+ assert.ok(c.includes("const viewingCache=Boolean(cachedPreview)&&next==='cached'"));
 });
-test('V1.1.2 localStorage data is not loaded, overwritten or cleared by rc.6',()=>{
+test('V1.1.2 localStorage data is not loaded, overwritten or cleared by rc.8',()=>{
  const h=text('index.html'),sw=text('sw.js');
  assert.match(h,/function load\(\)\{return defaults\(\);\}/);
  assert.match(h,/function save\(\)\{return false;\}/);
@@ -27,9 +29,9 @@ test('V1.1.2 localStorage data is not loaded, overwritten or cleared by rc.6',()
 });
 test('GitHub Pages root PWA paths, versioned scripts and cache are isolated',()=>{
  const h=text('index.html'),sw=text('sw.js'),manifest=JSON.parse(text('manifest.webmanifest'));
- for(const p of ['./m1-controller.js?v=rc6','./formal-controller.js?v=rc6','./pwa.js?v=rc6'])assert.ok(h.includes(p),p);
+ for(const p of ['./m1-controller.js?v=rc8','./formal-controller.js?v=rc8','./pwa.js?v=rc8'])assert.ok(h.includes(p),p);
  assert.doesNotMatch(h,/<script[^>]*src="\.\.\//);
- assert.match(sw,/xiaobao-shell-v1\.2\.0-rc6/);
+ assert.match(sw,/xiaobao-shell-v1\.2\.0-rc8/);
  assert.equal(manifest.start_url,'./');assert.equal(manifest.scope,'./');
 });
 test('every production resource responds at a root-scoped HTTP path',async()=>{

@@ -1,4 +1,4 @@
-/* Standalone V1.2.0 rc.7 full-write upgrade candidate.
+/* Standalone V1.2.0 rc.8 full-write upgrade candidate.
  * All implemented authenticated inventory and shared-document write domains
  * are enabled. CloudBase session, family scope, child scope, server RPC/RLS,
  * revision checks and ACK/readback verification remain authoritative.
@@ -120,6 +120,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
  let shownStock=null,localInventoryBaselineReady=false,cachedPreview=null;
+ const BOOT_MESSAGE='正在进入小宝管家…';
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
      otpFailure='';
  // Optional documents never gate primary readiness; scope is account-specific.
@@ -336,19 +337,16 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  }
  function screen(next,message=''){
   mode=next;doc.body.dataset.formalState=next;
-  // Cache is a separate, non-ready gate. The five real pages remain hidden,
-  // therefore no purchase/consume/026/027 button can act on stale stock.
-  const viewingCache=Boolean(cachedPreview)
-   &&(next==='boot'||next==='cached');
+  // Keep one stable loading gate on successful cold starts; a validated
+  // read-only cache is visible only after a cloud read fails.
+  const viewingCache=Boolean(cachedPreview)&&next==='cached';
   $('formalLoginCard').hidden=next!=='login';
-  $('formalLoadingCard').hidden=next!=='boot'||viewingCache;
+  $('formalLoadingCard').hidden=next!=='boot';
   if($('formalCachedInventory'))$('formalCachedInventory').hidden=!viewingCache;
   $('formalGateActions').hidden=next==='boot'||next==='login'||next==='ready';
   $('formalGateMessage').textContent=viewingCache
-   ?next==='cached'
-    ?'上次已确认库存 · 云端暂未同步 · 暂不可修改'
-    :'上次已确认库存 · 正在同步云端 · 暂不可修改'
-   :message;
+   ?'上次已确认库存 · 云端暂未同步 · 暂不可修改'
+   :next==='boot'?BOOT_MESSAGE:message;
   $('formalAccountState').textContent=next==='ready'?'已连接'
    :next==='boot'?'检查中':next==='cached'?'未同步'
    :next==='login'?'未登录':next==='offline'?'离线':'需检查';
@@ -377,14 +375,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     +snapshot.inventory[size]+'</b><small>片</small></div></div>').join('');
   cachedPreview={app:ctx.app,actorUid:ctx.actorUid,
    familyId:ctx.familyId,childId:snapshot.childId};
-  screen('boot');
+  // Retain verified tiles for a later read failure, never flash them mid-boot.
   return true;
  }
- // Only update the existing spinner text while this restore still owns
- // the loading gate. An in-flight read must not replace a newer page state.
+ // The cold-start label remains stable across session, cloud and IDB reads.
+ // Errors still replace the gate with an actionable state.
  function bootStage(token,message){
   if(token!==revision||mode!=='boot')return;
-  if($('formalGateMessage')?.textContent!==message)screen('boot',message);
+  if($('formalGateMessage')?.textContent!==BOOT_MESSAGE)
+   $('formalGateMessage').textContent=BOOT_MESSAGE;
  }
  function conflictButton(visible){
   const button=$('formalResolveDocumentConflict');
@@ -1830,7 +1829,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     !profileAppears?'PROFILE_READBACK_PENDING':
     !settingsAppear?'SETTINGS_READBACK_PENDING':
     !referenceAppears?'REFERENCE_READBACK_PENDING':mode;
-  }catch(_){
+  }catch(error){
+   // A denied family/child scope must not fall back to an old IDB stock tile.
+   // Only a transient read/network error may expose the still-nonwritable
+   // same-scope cached gate. The server remains authoritative.
+   const failure=String(error?.code||'')+' '+String(error?.message||'');
+   if(/permission[_ -]?denied|access[_ -]?denied|unauthori[sz]ed|forbidden|42501|403/i.test(failure)){
+    clear();screen('unverified',notes.FAMILY_PERMISSION_DENIED);
+    return mode;
+   }
    const current=controller?.verifiedContext?.();
    if((mode==='boot'||mode==='cached')&&sameCachedScope()){
     // Network/read errors must not erase a verified read-only cache.
@@ -1920,7 +1927,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   }finally{otpConfirming=false;redrawConfirmButton();}
  }
  async function start(){
-  screen('boot','正在检查登录状态…');
+  screen('boot',BOOT_MESSAGE);
   controller=loginController.create({
    host,storage:null,view:authView(),scriptLoader,
    deferChildReadToFormal:true
@@ -1990,12 +1997,32 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalGetCloudLatest',fetchCloudLatest);
   // T05-P2-01: an Android touch entrypoint only; both existing refresh
   // buttons and this gesture call fetchCloudLatest(), never a second sync.
-  const coarseTouch=host.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches===true;
+  const touchInput=Number(host.navigator?.maxTouchPoints||0)>0
+   ||host.matchMedia?.('(any-pointer: coarse)')?.matches===true
+   ||host.matchMedia?.('(pointer: coarse)')?.matches===true;
+  // Ensure native overscroll is contained even when the Android PWA media
+  // query disagrees with navigator.maxTouchPoints.
+  if(touchInput)doc.documentElement?.classList?.add('xiaobao-pull-touch');
   // Draft tracking is shared with foreground sync on desktop and mobile.
   // Only touch gestures remain conditional on the Android pointer capability.
   {
-   const threshold=76;
-   let pull=null;
+   const threshold=64;
+   let pull=null,pullFeedbackTimer=null;
+   const pullFeedback=(phase)=>{
+    const bar=$('formalNotice');
+    if(!bar?.dataset)return;
+    if(pullFeedbackTimer!==null){
+     (host.clearTimeout||clearTimeout)(pullFeedbackTimer);pullFeedbackTimer=null;
+    }
+    if(phase)bar.dataset.pullPhase=phase;
+    else delete bar.dataset.pullPhase;
+    if(phase==='success'||phase==='failure'){
+     pullFeedbackTimer=(host.setTimeout||setTimeout)(()=>{
+      if(bar.dataset.pullPhase===phase)delete bar.dataset.pullPhase;
+      pullFeedbackTimer=null;
+     },1400);
+    }
+   };
    // Static inputs survive renderAll(): connectivity alone cannot release
    // unsaved drafts. Ignore filter-only controls, but protect unknown edits.
    const editedFields=new Map(),saving=new Map();
@@ -2123,9 +2150,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     hasUnsaved:()=>editing(),
     reset(){editedFields.clear();saving.clear();focusValues=new WeakMap();}
    };
-   const atTop=()=>Math.max(0,Number(host.scrollY)||0,
-    Number(doc.documentElement?.scrollTop)||0,
-    Number(doc.body?.scrollTop)||0)<=1;
+   // Use the real document scrolling element when available (Android PWA
+   // commonly scrolls the root, not body). Preserve legacy fallback in tests.
+   const atTop=()=>{
+    const scroller=doc.scrollingElement;
+    return scroller?Math.max(0,Number(scroller.scrollTop)||0)<=1
+     :Math.max(0,Number(host.scrollY)||0,
+       Number(doc.documentElement?.scrollTop)||0,
+       Number(doc.body?.scrollTop)||0)<=1;
+   };
    const editing=()=>{
     for(const field of editedFields.keys())
      if(field?.isConnected===false)editedFields.delete(field);
@@ -2137,9 +2170,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return Boolean(doc.querySelector?.(
      '[role="dialog"]:not([hidden]),[aria-modal="true"]:not([hidden])'));
    };
-   const safe=()=>{
+   // Check the scroll position at touchstart only. Android may briefly
+   // report a root scroll offset during a finger drag; don't abort that
+   // already-qualified gesture. Every other safety gate is rechecked.
+   const safe=(checkTop=true)=>{
     if(mode!=='ready'||busy||refreshBusy||syncActionBusy
-      ||!atTop()
+      ||(checkTop&&!atTop())
       ||hasPendingPageReview()||attached?.hasActiveBusinessAction?.()
       ||$('formalResolveDocumentConflict')?.hidden===false
       ||$('formalResolveBatchConflict')?.hidden===false
@@ -2153,33 +2189,64 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    };
    const exempt=target=>Boolean(target?.closest?.(
     'input,textarea,select,button,a,[contenteditable],'
-    +'.price-editor-backdrop,.price-editor-card,.table-wrap,.ref-list,.tabs'));
-   if(coarseTouch)doc.addEventListener('touchstart',event=>{
+    +'.price-editor-backdrop,.price-editor-card,.table-wrap,.ref-list'));
+   const innerScroller=target=>{
+    const root=doc.scrollingElement||doc.documentElement||doc.body;
+    for(let node=target;node&&node!==root&&node!==doc.body;
+        node=node.parentElement){
+     const overflow=host.getComputedStyle?.(node)?.overflowY
+      ||node.style?.overflowY||'';
+     if(/auto|scroll/i.test(overflow)
+       &&Number(node.scrollHeight)>Number(node.clientHeight)+2)return true;
+    }
+    return false;
+   };
+   if(touchInput)doc.addEventListener('touchstart',event=>{
     pull=null;
-    if(event.touches?.length!==1||!safe()||exempt(event.target))return;
+    if(event.touches?.length!==1||!safe()
+      ||exempt(event.target)||innerScroller(event.target))return;
+    pullFeedback('');
     const t=event.touches[0];
     pull={x:t.clientX,y:t.clientY,armed:false};
-   },{passive:true});
-   if(coarseTouch)doc.addEventListener('touchmove',event=>{
+   },{passive:true,capture:true});
+   if(touchInput)doc.addEventListener('touchmove',event=>{
     if(!pull)return;
-    if(event.touches?.length!==1||!safe()){pull=null;return;}
+    if(event.touches?.length!==1||!safe(false)){
+     pull=null;pullFeedback('');return;
+    }
     const t=event.touches[0],dy=t.clientY-pull.y;
     const dx=Math.abs(t.clientX-pull.x);
-    // Never consume ordinary upward scrolling or a horizontal swipe.
-    if(dy<=0||dx>Math.max(12,dy*.75)){pull=null;return;}
-    if(dy<10)return;
-    if(event.cancelable)event.preventDefault();
+    // Never intercept ordinary upward scrolling or horizontal gestures.
+    if(dy<=0||dx>Math.max(12,dy*.75)){
+     pull=null;pullFeedback('');return;
+    }
+    if(dy<8)return;
+    // Avoid a second navigation if the browser has already claimed the
+    // gesture. On normal Android touch events passive:false allows cancel.
+    if(!event.cancelable){pull=null;pullFeedback('');return;}
+    event.preventDefault();
     pull.armed=dy>=threshold;
-   },{passive:false});
-   if(coarseTouch)doc.addEventListener('touchend',event=>{
+    pullFeedback(pull.armed?'armed':'pulling');
+   },{passive:false,capture:true});
+   if(touchInput)doc.addEventListener('touchend',event=>{
     const gesture=pull;pull=null;
     if(!gesture||!gesture.armed||event.changedTouches?.length!==1
-      ||!safe())return;
+      ||!safe(false)){pullFeedback('');return;}
     const t=event.changedTouches[0],dy=t.clientY-gesture.y;
-    if(dy>=threshold&&Math.abs(t.clientX-gesture.x)<=dy*.75)
-     void fetchCloudLatest();
-   },{passive:true});
-   if(coarseTouch)doc.addEventListener('touchcancel',()=>{pull=null;},{passive:true});
+    if(dy<threshold||Math.abs(t.clientX-gesture.x)>dy*.75){
+     pullFeedback('');return;
+    }
+    pullFeedback('refreshing');
+    // The toolbar and the gesture share this one authenticated cloud path.
+    void fetchCloudLatest().then(()=>{
+     if(mode!=='ready'){pullFeedback('');return;}
+     pullFeedback($('formalCloudSyncFeedback')?.textContent==='云端数据已更新'
+      ?'success':'failure');
+    }).catch(()=>pullFeedback('failure'));
+   },{passive:true,capture:true});
+   if(touchInput)doc.addEventListener('touchcancel',()=>{
+    pull=null;pullFeedback('');
+   },{passive:true,capture:true});
   }
 
    // The 027 conflict must be proven uncommitted before user-confirmed archival.
