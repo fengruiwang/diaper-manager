@@ -59,6 +59,7 @@ function harness({session=true,connectResult=null,offline=false,
   }
  };
  const docEvents=new Map(),eventOptions=new Map(),rootClasses=new Set();
+ const dialogNodes=[];
  const item=id=>{
   if(!elements.has(id)){
    const node={id,value:'',hidden:false,disabled:false,dataset:{},
@@ -81,6 +82,7 @@ function harness({session=true,connectResult=null,offline=false,
    add(name){rootClasses.add(name);},contains(name){return rootClasses.has(name);}
   }},activeElement:{tagName:'BODY'},
   visibilityState:'hidden',querySelector:()=>null,
+  querySelectorAll:selector=>selector.includes('[role="dialog"]')?dialogNodes:[],
   getElementById:item,
   addEventListener(type,fn,options){
    if(!docEvents.has(type))docEvents.set(type,[]);
@@ -233,6 +235,7 @@ function harness({session=true,connectResult=null,offline=false,
  item('formalResolveBatchConflict').hidden=true;
  return {
   app,doc,host,events,messages,item,listeners,eventOptions,
+  setDialogs(nodes){dialogNodes.splice(0,dialogNodes.length,...nodes);},
   captureSave(id,dataset={}){
    const button={id,dataset,closest:()=>button};
    docEvents.get('click')?.[0]?.({target:button});
@@ -339,6 +342,44 @@ test('T06-P2-01 five page panels all share the same verified pull refresh',async
   assert.equal(h.currentView.state.inventory.S,140);
  }
  assert.equal(h.readCount,6,'one initial and one per five panels');
+});
+test('T06-P2-02 hidden parent of price editor dialog no longer blocks all five top pulls',async()=>{
+ const html=fs.readFileSync(path.join(__dirname,
+  '../preview/v1.2.0/formal/index.html'),'utf8');
+ assert.match(html,/id="priceEditor"[^>]*hidden>\\s*<div[^>]*role="dialog"[^>]*aria-modal="true"/,
+  'production HTML hides the parent, not the child dialog');
+ const h=harness();await ready(h);
+ const backdrop={id:'priceEditor',hidden:true};
+ const childDialog={hidden:false,
+  // Real querySelectorAll matches this node despite the hidden ancestor.
+  closest:selector=>selector==='[hidden]'?backdrop:null,
+  getClientRects:()=>[]};
+ h.setDialogs([childDialog]);
+ for(const tab of ['overview','compare','history','growth','settings']){
+  h.doc.body.dataset.activeTab=tab;
+  const before=h.readCount;
+  const result=touch(h,{dy:92,target:{closest:()=>null}});
+  assert.equal(result.phase,'armed',tab+' top touchstart must qualify');
+  assert.equal(result.prevented,1,tab+' touchmove must be consumed');
+  await until(()=>h.readCount===before+1
+   &&h.item('formalCloudSyncFeedback').textContent==='云端数据已更新');
+  assert.equal(h.doc.body.dataset.formalState,'ready');
+  assert.equal(h.doc.body.dataset.activeTab,tab);
+ }
+ assert.equal(h.readCount,6);
+});
+test('T06-P2-02 truly visible dialog still protects form edits and cloud reads',async()=>{
+ const h=harness();await ready(h);
+ h.setDialogs([{hidden:false,closest:()=>null,getClientRects:()=>[{}]}]);
+ assert.equal(touch(h,{dy:98}).prevented,0,
+  'visible dialog must block gesture during editing');
+ assert.equal(h.readCount,1);
+ h.setDialogs([{hidden:false,closest:()=>null,getClientRects:()=>[]}]);
+ assert.equal(touch(h,{dy:98}).prevented,0,
+  'CSS display:none dialog is not actually visible; no interception');
+ h.setDialogs([]);
+ assert.equal(touch(h,{dy:98}).prevented,1);
+ await until(()=>h.readCount===2);
 });
 test('T06-P2-01 partial pull gives guidance, armed pull shows release feedback',async()=>{
  const h=harness();await ready(h);
