@@ -1,4 +1,4 @@
-/* Standalone V1.2.0 rc.9 full-write upgrade candidate.
+/* Standalone V1.2.0 stable full-write release.
  * All implemented authenticated inventory and shared-document write domains
  * are enabled. CloudBase session, family scope, child scope, server RPC/RLS,
  * revision checks and ACK/readback verification remain authoritative.

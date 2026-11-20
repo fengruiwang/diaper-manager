@@ -1,7 +1,7 @@
 {
-  "version": "1.2.0-rc.9",
-  "channel": "release-candidate",
-  "source_sha": "9c7bf3fa79f45889da7ee112ae294820ad226ee5",
+  "version": "1.2.0",
+  "channel": "stable",
+  "source_sha": "eb2fec3a9d9e5aa5e29e273929a25bac5e02632c",
   "released": "2026-11-20",
-  "notes": "T06-RC9-01 候选：修复隐藏参考价弹窗导致五页面下拉完全被拦截；保持 rc.8 的冷启动、联网业务与 PWA 安装身份；待发布"
+  "notes": "小宝管家 V1.2.0 正式版：五页面下拉同步、冷启动优化和界面精简，保留原 PWA 与云端数据兼容性"
 }

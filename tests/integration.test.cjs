@@ -4,13 +4,13 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
 const ROOT=path.resolve(__dirname,'..');
 const files=['.nojekyll','index.html','formal-controller.js','m1-controller.js','growth.js','pwa.js','sw.js','manifest.webmanifest','version.json','icons/icon-192.png','icons/icon-512.png','icons/icon-maskable-512.png','icons/apple-touch-icon.png','icons/icon.svg'];
 const text=p=>fs.readFileSync(path.join(ROOT,p),'utf8');
-test('main production contains all 14 approved rc.9 files',()=>{
+test('main production contains all 14 approved V1.2.0 stable files',()=>{
  for(const p of files)assert.ok(fs.existsSync(path.join(ROOT,p)),p);
 });
 test('provenance, version and CloudBase write gates are verified',()=>{
  const v=JSON.parse(text('version.json')), c=text('formal-controller.js');
- assert.equal(v.version,'1.2.0-rc.9');
- assert.equal(v.source_sha,'9c7bf3fa79f45889da7ee112ae294820ad226ee5');
+ assert.equal(v.version,'1.2.0');
+ assert.equal(v.source_sha,'eb2fec3a9d9e5aa5e29e273929a25bac5e02632c');
  for(const flag of ['const FORMAL_WRITE_ENABLED=true;','const FORMAL_DOCUMENT_WRITE_ENABLED=true;','const FORMAL_PURCHASE_ENABLED=true;'])assert.ok(c.includes(flag),flag);
 });
 test('T04 trusted daily, unqueued offline and login stages are present',()=>{
@@ -20,7 +20,7 @@ test('T04 trusted daily, unqueued offline and login stages are present',()=>{
  assert.ok(h.includes('id="formalGateMessage" role="status" aria-live="polite">正在进入小宝管家…'));
  assert.ok(c.includes("const viewingCache=Boolean(cachedPreview)&&next==='cached'"));
 });
-test('V1.1.2 localStorage data is not loaded, overwritten or cleared by rc.9',()=>{
+test('V1.1.2 localStorage data is not loaded, overwritten or cleared by V1.2.0',()=>{
  const h=text('index.html'),sw=text('sw.js');
  assert.match(h,/function load\(\)\{return defaults\(\);\}/);
  assert.match(h,/function save\(\)\{return false;\}/);
@@ -29,9 +29,9 @@ test('V1.1.2 localStorage data is not loaded, overwritten or cleared by rc.9',()
 });
 test('GitHub Pages root PWA paths, versioned scripts and cache are isolated',()=>{
  const h=text('index.html'),sw=text('sw.js'),manifest=JSON.parse(text('manifest.webmanifest'));
- for(const p of ['./m1-controller.js?v=rc9','./formal-controller.js?v=rc9','./pwa.js?v=rc9'])assert.ok(h.includes(p),p);
+ for(const p of ['./m1-controller.js?v=1.2.0','./formal-controller.js?v=1.2.0','./pwa.js?v=1.2.0'])assert.ok(h.includes(p),p);
  assert.doesNotMatch(h,/<script[^>]*src="\.\.\//);
- assert.match(sw,/xiaobao-shell-v1\.2\.0-rc9/);
+ assert.match(sw,/const CACHE_NAME = 'xiaobao-shell-v1\.2\.0';/);
  assert.equal(manifest.start_url,'./');assert.equal(manifest.scope,'./');
 });
 test('every production resource responds at a root-scoped HTTP path',async()=>{
