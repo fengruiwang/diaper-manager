@@ -231,6 +231,17 @@ test('R01-02 offline and cloud authorization failure stop spinner and retain ret
  assert.equal(broken.item('formalLoadingCard').hidden,true);
  assert.match(broken.item('formalGateMessage').textContent,/核实|家庭/);
 });
+test('T06-P1-01 family access denied ends boot without old stock or a writable home',async()=>{
+ const denied=harness({connectResult:'NO_VISIBLE_FAMILY'});
+ assert.equal(await denied.app.start(),'unverified');
+ assert.equal(denied.item('formalLoadingCard').hidden,true);
+ assert.equal(denied.item('formalLoginCard').hidden,true);
+ assert.equal(denied.item('formalGateActions').hidden,false);
+ assert.match(denied.item('formalGateMessage').textContent,/家庭|授权/);
+ assert.equal(denied.currentView,null);
+ assert.equal(denied.readCount,0);
+ assert.equal(denied.submitted,0);
+});
 test('R01-02 OTP success immediately loads household without a second session check',async()=>{
  const h=harness({session:false,hold:['read']});
  assert.equal(await h.app.start(),'login');
