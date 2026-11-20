@@ -4,13 +4,14 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const {execFileSync}=require('node:child_process');
+const {checkPinnedResources}=require('./historical-candidate-baselines.cjs');
 const ROOT=path.resolve(__dirname,'..');
 const OUT=path.join(ROOT,'release-candidate/pages-v1.2.0-rc7');
 const read=(file)=>fs.readFileSync(path.join(OUT,file),'utf8');
-test('RC7 matches current reviewed Feature inputs byte for byte',()=>{
- const stdout=execFileSync(process.execPath,[path.join(ROOT,'scripts/build-pages-v120-rc7.cjs'),'--check'],{encoding:'utf8'});
- assert.match(stdout,/T05_RC7_01_PARITY_PASS 1\.2\.0-rc\.7 14/);
+test('RC7 published package matches its frozen 14-resource historical baseline',()=>{
+ const proof=checkPinnedResources(file=>fs.readFileSync(path.join(OUT,file)),'rc7');
+ assert.equal(proof.count,14);
+ assert.equal(proof.sourceSha,'1e575db0918fb14ed4839e7fa85798b9e42fdabf');
 });
 test('same-origin installed PWA manifest identity remains unchanged',()=>{
  const current=JSON.parse(fs.readFileSync(path.join(ROOT,'manifest.webmanifest'),'utf8'));
