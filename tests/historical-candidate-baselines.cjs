@@ -1,4 +1,4 @@
-/* Immutable rc.5/rc.6/rc.7/rc.8/rc.9 test-only evidence. Git blob IDs below were read from
+/* Immutable rc.5/rc.6/rc.7/rc.8/rc.9 and stable V1.2.0 evidence. Git blob IDs below were read from
  * version.json.source_sha history and the frozen release-candidate Git trees.
  * Never compare old candidates against moving Feature sources. No network,
  * filesystem mutation, or runtime loading of their embedded modules.
@@ -12,7 +12,8 @@ const BASELINES=Object.freeze({
  rc6:Object.freeze({sourceSha:'16a6a15d0d158b288e331c4b9d1d6abea72d42c3'}),
  rc7:Object.freeze({sourceSha:'1e575db0918fb14ed4839e7fa85798b9e42fdabf'}),
  rc8:Object.freeze({sourceSha:'fa2db3aa27d4c5f50b8fc310b6ca1a6b321dfc3e'}),
- rc9:Object.freeze({sourceSha:'9c7bf3fa79f45889da7ee112ae294820ad226ee5'})
+ rc9:Object.freeze({sourceSha:'9c7bf3fa79f45889da7ee112ae294820ad226ee5'}),
+ final:Object.freeze({sourceSha:'eb2fec3a9d9e5aa5e29e273929a25bac5e02632c'})
 });
 const COMMON_FILES=Object.freeze({
   ".nojekyll": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
@@ -56,6 +57,12 @@ const RC_FILES=Object.freeze({
     "index.html": "5b7d0f5316c5917e4d305d792bfa190c47723b70",
     "sw.js": "b266a10487869ea1c89c5591f9c5976a14d64425",
     "version.json": "5f0c91478c9febad61f010298a26277a37c6c828"
+  },
+  "final": {
+    "formal-controller.js": "3a1550e1fb0771201074735dd99c9235dfe8806b",
+    "index.html": "71f75d5cc81bf27e42f51271eb00ea07494d4510",
+    "sw.js": "c542492e8886f0e385da7a52db3211dff740406e",
+    "version.json": "0f3c4b5a3cc7b9a203ae6fba3b455036bd82c5e2"
   }
 });
 const MODULE_BLOBS=Object.freeze({
@@ -81,7 +88,8 @@ const BUSINESS_COMMAND_BLOBS=Object.freeze({
  rc5:'8636df11fc5ab7234d9dba571cffa78c67b25860',
  rc6:'95d9fe3c5d3b80291a7c937e75edebf5ac449da1',
  rc8:'95d9fe3c5d3b80291a7c937e75edebf5ac449da1',
- rc9:'95d9fe3c5d3b80291a7c937e75edebf5ac449da1'
+ rc9:'95d9fe3c5d3b80291a7c937e75edebf5ac449da1',
+ final:'95d9fe3c5d3b80291a7c937e75edebf5ac449da1'
 });
 // RC8 changed one embedded module since RC6. Keep RC5/RC6 historical hashes intact.
 const RC8_MODULE_BLOBS=Object.freeze({
@@ -121,7 +129,7 @@ function historicEmbeddedModule(html,version,source){
  // script tags may add extra surrounding whitespace when bundling.
  const exactSource=body+'\n';
  const sha=source==='sync/primary-business-commands.js'
-  ?BUSINESS_COMMAND_BLOBS[version]:['rc8','rc9'].includes(version)&&RC8_MODULE_BLOBS[source]
+  ?BUSINESS_COMMAND_BLOBS[version]:['rc8','rc9','final'].includes(version)&&RC8_MODULE_BLOBS[source]
    ?RC8_MODULE_BLOBS[source]:MODULE_BLOBS[source];
  assert.equal(gitBlobSha(Buffer.from(exactSource)),sha,
   version+' embedded module differs from historical Git blob: '+source);

@@ -1,0 +1,39 @@
+name: XiaoBao T07 V1.2.0 stable candidate validation (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/cloudbase-sync-v1.2.0
+    paths:
+      - 'release-candidate/pages-v1.2.0-final/**'
+      - 'scripts/build-pages-v120-final.cjs'
+      - 'tests/pages-v120-final.test.cjs'
+      - 'tests/historical-candidate-baselines.cjs'
+      - '.github/workflows/pages-v120-final.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stable-candidate:
+    name: Immutable stable build, UI contract, full JS (NO DEPLOY)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check deterministic stable 14-file package
+        run: node scripts/build-pages-v120-final.cjs --check
+      - name: Check PWA identity, UI cleanup, business gates, historic resource hashes
+        run: node --test tests/pages-v120-final.test.cjs
+      - name: Run complete JavaScript regression
+        run: node --test tests/*.test.cjs
+      - name: Archive verified stable package only (NO DEPLOY)
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-V1.2.0-STABLE-NO-DEPLOY
+          path: release-candidate/pages-v1.2.0-final/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
