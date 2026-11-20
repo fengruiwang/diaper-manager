@@ -31,7 +31,7 @@ function cloudModel(scope){
 }
 function harness({session=true,connectResult=null,offline=false,
  readError=false,baselineStatus='PRIMARY_LOCAL_BASELINE_SYNCED',hold=[],mobile=true,
- cached=null,cloudInventory=null,sharedStock=null}={}){
+ cached=null,cloudInventory=null,sharedStock=null,touchMedia=true}={}){
  const scope={familyId:FAMILY,childId:CHILD_A,actorUid:'actor-A'};
  const events=[],messages=[],elements=new Map(),listeners=new Map(),pauses=new Set(hold);
  const waiters=new Map();
@@ -58,7 +58,7 @@ function harness({session=true,connectResult=null,offline=false,
    timer.next=time()+timer.ms;timer.fn();
   }
  };
- const docEvents=new Map();
+ const docEvents=new Map(),eventOptions=new Map();
  const item=id=>{
   if(!elements.has(id)){
    const node={id,value:'',hidden:false,disabled:false,dataset:{},
@@ -80,10 +80,11 @@ function harness({session=true,connectResult=null,offline=false,
   documentElement:{scrollTop:0},activeElement:{tagName:'BODY'},
   visibilityState:'hidden',querySelector:()=>null,
   getElementById:item,
-  addEventListener(type,fn){
+  addEventListener(type,fn,options){
    if(!docEvents.has(type))docEvents.set(type,[]);
    docEvents.get(type).push(fn);
    listeners.set('document:'+type,fn);
+   eventOptions.set(type,options);
   },
   removeEventListener(type,fn){
    if(listeners.get('document:'+type)===fn)
@@ -95,8 +96,8 @@ function harness({session=true,connectResult=null,offline=false,
   if(pauses.has(name))await new Promise(resolve=>waiters.set(name,resolve));
  };
  const host={
-  navigator:{get onLine(){return networkOnline;}},
-  matchMedia:()=>({matches:mobile}),scrollY:0,
+  navigator:{get onLine(){return networkOnline;},maxTouchPoints:mobile?5:0},
+  matchMedia:()=>({matches:mobile&&touchMedia}),scrollY:0,
   location:{reload(){throw Error('FORBIDDEN_PAGE_RELOAD');}},
   crypto:{randomUUID:()=> '04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2'},
   Date:{now:time},Intl,console,setTimeout,clearTimeout,
@@ -229,7 +230,7 @@ function harness({session=true,connectResult=null,offline=false,
  item('formalResolveDocumentConflict').hidden=true;
  item('formalResolveBatchConflict').hidden=true;
  return {
-  app,doc,host,events,messages,item,listeners,
+  app,doc,host,events,messages,item,listeners,eventOptions,
   captureSave(id,dataset={}){
    const button={id,dataset,closest:()=>button};
    docEvents.get('click')?.[0]?.({target:button});
@@ -278,7 +279,7 @@ function harness({session=true,connectResult=null,offline=false,
 }
 
 function touch(h,{dy=100,dx=0,target=null,finishDy=dy,
- fingers=1,cancelable=true}={}){
+ fingers=1,cancelable=true,cancel=false}={}){
  const x=60,y=90,el=target||{closest:()=>null};
  const t=(px,py)=>({clientX:px,clientY:py});
  const touches=Array.from({length:fingers},(_,i)=>t(x+i*30,y));
@@ -290,10 +291,12 @@ function touch(h,{dy=100,dx=0,target=null,finishDy=dy,
   touches:Array.from({length:fingers},(_,i)=>t(x+dx+i*30,y+dy)),
   cancelable,preventDefault(){prevented++;}
  });
- h.listeners.get('document:touchend')?.({
+ const phase=h.item('formalNotice').dataset.pullPhase;
+ if(cancel)h.listeners.get('document:touchcancel')?.({});
+ else h.listeners.get('document:touchend')?.({
   changedTouches:[t(x+dx,y+finishDy)]
  });
- return {prevented};
+ return {prevented,phase};
 }
 async function ready(h){
  assert.equal(await h.app.start(),'ready');
@@ -453,9 +456,9 @@ test('T05-P2-01 source keeps isolated mobile CSS and uses the existing app refre
  assert.match(controller,/restore\(\{requireComplete:true,automatic\}\)/);
  assert.match(controller,/on\('formalRefresh',fetchCloudLatest\)/);
  assert.match(controller,/on\('formalGetCloudLatest',fetchCloudLatest\)/);
- assert.match(controller,/const threshold=76/);
+ assert.match(controller,/const threshold=64/);
  assert.doesNotMatch(controller,/location\.reload\(|location\.replace\(/);
- assert.match(html,/@media \(pointer:coarse\) and \(hover:none\)/);
+ assert.match(html,/@media \(pointer:coarse\), \(any-pointer:coarse\), \(hover:none\)/);
  assert.match(html,/overscroll-behavior-y:contain/);
  assert.ok(html.includes(module),'inlined capture module must stay identical');
  const primary=fs.readFileSync(path.join(__dirname,
