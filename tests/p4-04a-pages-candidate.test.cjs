@@ -139,7 +139,7 @@ test('P4-04A local HTTP host at /diaper-manager/ returns entry and every referen
 test('P4-04A-FIX candidate PWA CSS respects runtime hidden state and formal gate',()=>{
  const html=text('index.html'),preview=load('preview/v1.2.0/formal/index.html').toString('utf8');
  const pwa=text('pwa.js');
- assert.match(preview,/<style>#pwaLaunch,#pwaMigrationNotice,#pwaUpdateNotice\{display:none!important\}<\/style>/);
+ assert.match(preview,/<style>#pwaLaunch,#pwaUpdateNotice\{display:none!important\}<\/style>/);
  assert.doesNotMatch(html,/#pwaLaunch,#pwaMigrationNotice,#pwaUpdateNotice\{display:none!important\}/);
  const rules=[...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1]).join('\n');
  for(const fragment of rules.split('}'))

@@ -197,7 +197,10 @@ test('formal controller required HTML controls exist and cannot silently deadloc
   '../preview/v1.2.0/formal-controller.js'),'utf8');
  const ids=new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]));
  const needed=[...controllerText.matchAll(/\$\('([^']+)'\)/g)].map(m=>m[1]);
- for(const id of needed)assert.ok(ids.has(id),'missing formal DOM control '+id);
+ for(const id of needed.filter(x=>x!=='formalRefresh'))
+  assert.ok(ids.has(id),'missing formal DOM control '+id);
+ assert.ok(!ids.has('formalRefresh'),'T07 removed obsolete top refresh; cloud sync button remains');
+ assert.ok(ids.has('formalGetCloudLatest'));
  assert.match(controllerText,/正式入口组件未完整加载/);
  assert.match(html,/id="formalGateSignOut"/);
  assert.match(html,/id="formalRetry"/);

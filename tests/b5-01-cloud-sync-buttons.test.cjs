@@ -96,14 +96,14 @@ function fixture({q9=0,q26=0,q27=0,offline=false,unknown26=false,conflict26=fals
   setQueue:(kind,n)=>{if(kind===9)q9=n;else if(kind===26)q26=n;else q27=n;},
   counts:()=>({q9,q26,q27})};
 }
-test('B5-01 settings buttons exist below account and use identical header entrypoints',()=>{
+test('B5-01 settings buttons appear at end after profile and below account',()=>{
  const fs=require('node:fs'),path=require('node:path');
  const html=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal/index.html'),'utf8');
  const account=html.indexOf('id="formalAccountSection"');
  const section=html.indexOf('id="formalCloudSyncSection"');
  const profile=html.indexOf('id="babyName"');
- assert.ok(account<section&&section<profile);
+ assert.ok(profile<account&&account<section,'T07 settings order should place account/sync after profile');
  for(const id of ['formalGetCloudLatest','formalSubmitPending','formalPendingCount',
   'formalCloudSyncFeedback'])assert.ok(html.includes('id="'+id+'"'));
 });
