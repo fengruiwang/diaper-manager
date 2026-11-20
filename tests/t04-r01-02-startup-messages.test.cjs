@@ -165,7 +165,7 @@ test('R01-02 first-time no session: spinner checks login, then real OTP screen w
  const h=harness({session:false,hold:['connect']});
  const starting=h.app.start();
  await until(()=>h.events.includes('connect.entered'));
- stage(h,'正在检查登录状态…');
+ stage(h,'正在进入小宝管家…');
  assert.equal(h.readCount,0);
  await h.release('connect');
  assert.equal(await starting,'login');
@@ -176,23 +176,23 @@ test('R01-02 first-time no session: spinner checks login, then real OTP screen w
   '欢迎使用小宝管家，请使用邮箱验证码登录。');
  assert.equal(h.readCount,0);
 });
-test('R01-02 remembered session: real connect, cloud read, activate, IDB sync change only the existing spinner',async()=>{
+test('T06-P1-01 remembered session: connect, cloud read, activate and IDB sync keep one stable spinner',async()=>{
  const h=harness({hold:['connect','read','activate','sync']});
  const running=h.app.start();
  await until(()=>h.events.includes('connect.entered'));
- stage(h,'正在检查登录状态…');
+ stage(h,'正在进入小宝管家…');
  await h.release('connect');
  await until(()=>h.events.includes('read.entered'));
- stage(h,'正在获取家庭与库存数据…');
+ stage(h,'正在进入小宝管家…');
  assert.equal(h.item('formalRefresh').disabled,true);
  assert.equal(h.currentView,null);
  await h.release('read');
  await until(()=>h.events.includes('activate.entered'));
- stage(h,'正在核对本机库存…');
+ stage(h,'正在进入小宝管家…');
  assert.equal(h.currentView,null);
  await h.release('activate');
  await until(()=>h.events.includes('sync.entered'));
- stage(h,'正在核对本机库存…');
+ stage(h,'正在进入小宝管家…');
  assert.equal(h.currentView,null);
  await h.release('sync');
  assert.equal(await running,'ready');
@@ -200,7 +200,7 @@ test('R01-02 remembered session: real connect, cloud read, activate, IDB sync ch
  assert.equal(h.item('formalLoadingCard').hidden,true);
  assert.equal(h.currentView.state.inventory.NB,116);
  assert.deepEqual(h.messages.filter(m=>m.startsWith('正在')),[
-  '正在检查登录状态…','正在获取家庭与库存数据…','正在核对本机库存…'
+  '正在进入小宝管家…'
  ]);
  assert.equal(h.readCount,1);assert.equal(h.activateCount,1);
  assert.equal(h.baselineCount,1);
@@ -239,9 +239,9 @@ test('R01-02 OTP success immediately loads household without a second session ch
  assert.equal(typeof click,'function');
  click();
  await until(()=>h.events.includes('read.entered'));
- stage(h,'正在获取家庭与库存数据…');
+ stage(h,'正在进入小宝管家…');
  assert.equal(h.loginCount,1,'verified OTP reuses existing authenticated context');
- assert.equal(h.messages.slice(-1)[0],'正在获取家庭与库存数据…');
+ assert.equal(h.messages.slice(-1)[0],'正在进入小宝管家…');
  await h.release('read');
  await until(()=>h.app.mode==='ready');
  assert.equal(h.currentView.state.inventory.NB,116);
@@ -250,7 +250,7 @@ test('R01-02 pending local baseline never reveals an operable 009 consume action
  const h=harness({baselineStatus:'PRIMARY_LOCAL_BASELINE_PENDING_OPERATIONS',hold:['sync']});
  const start=h.app.start();
  await until(()=>h.events.includes('sync.entered'));
- stage(h,'正在核对本机库存…');
+ stage(h,'正在进入小宝管家…');
  assert.equal(h.currentView,null);
  await h.release('sync');
  assert.equal(await start,'ready','trusted stock may display as before');
@@ -270,7 +270,7 @@ test('R01-02 same-account in-page refresh retains visible home and never reopens
  assert.equal(h.doc.body.dataset.formalState,'ready');
  assert.equal(h.item('formalLoadingCard').hidden,true);
  assert.equal(h.currentView,original);
- assert.equal(h.messages.filter(m=>m==='正在检查登录状态…').length,1);
+ assert.equal(h.messages.filter(m=>m==='正在进入小宝管家…').length,1);
  await h.release('read');
  assert.equal(await refresh,'ready');
  assert.equal(h.doc.body.dataset.formalState,'ready');
@@ -283,7 +283,7 @@ test('R01-02 account switch clears old home and uses the new account loading sta
  h.hold('read');
  const switching=h.app.restore();
  await until(()=>h.events.filter(e=>e==='read.entered').length===2);
- stage(h,'正在获取家庭与库存数据…');
+ stage(h,'正在进入小宝管家…');
  assert.equal(h.currentView,null,'prior account data is hidden on identity change');
  assert.equal(h.item('formalCurrentAccount').textContent,'—');
  await h.release('read');
@@ -293,12 +293,12 @@ test('R01-02 account switch clears old home and uses the new account loading sta
  assert.equal(h.currentView.actorUid,'actor-B');
  assert.equal(h.activateCount,2);
 });
-test('R01-02 HTML keeps original spinner and paints the session-check text before scripts run',()=>{
+test('T06-P1-01 HTML paints a neutral loading label before scripts run',()=>{
  const html=fs.readFileSync(path.join(__dirname,
   '../preview/v1.2.0/formal/index.html'),'utf8');
  assert.match(html,/<body data-formal-state="boot">/);
  assert.match(html,/<div class="formal-spinner" aria-hidden="true"><\/div>/);
- assert.match(html,/<p id="formalGateMessage" role="status" aria-live="polite">正在检查登录状态…<\/p>/);
+ assert.match(html,/<p id="formalGateMessage" role="status" aria-live="polite">正在进入小宝管家…<\/p>/);
  assert.match(html,/body:not\(\[data-formal-state="ready"\]\) \.wrap\{display:none!important\}/);
  assert.match(html,/<div id="formalLoginCard" hidden>/);
 });
