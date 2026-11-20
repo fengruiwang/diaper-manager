@@ -1828,7 +1828,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     !profileAppears?'PROFILE_READBACK_PENDING':
     !settingsAppear?'SETTINGS_READBACK_PENDING':
     !referenceAppears?'REFERENCE_READBACK_PENDING':mode;
-  }catch(_){
+  }catch(error){
+   // A denied family/child scope must not fall back to an old IDB stock tile.
+   // Only a transient read/network error may expose the still-nonwritable
+   // same-scope cached gate. The server remains authoritative.
+   const failure=String(error?.code||'')+' '+String(error?.message||'');
+   if(/permission[_ -]?denied|access[_ -]?denied|unauthori[sz]ed|forbidden|42501|(?:^|\\D)403(?:\\D|$)/i.test(failure)){
+    clear();screen('unverified',notes.FAMILY_PERMISSION_DENIED);
+    return mode;
+   }
    const current=controller?.verifiedContext?.();
    if((mode==='boot'||mode==='cached')&&sameCachedScope()){
     // Network/read errors must not erase a verified read-only cache.
