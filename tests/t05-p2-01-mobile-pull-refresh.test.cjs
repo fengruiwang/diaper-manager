@@ -544,26 +544,31 @@ test('T05-P2-01A revert to focused baseline permits refresh without save',async(
  await expectOneMorePull(h);
 });
 
-test('T05-P2-02A previously confirmed stock appears while cloud read is still running',async()=>{
+
+test('T06-P1-01 cached trusted stock stays hidden during a successful cold start',async()=>{
  const h=harness({cached:{},hold:['read']});
  const started=h.app.start();
  await until(()=>h.item('formalCachedStockGrid').innerHTML?.includes('90'));
  assert.equal(h.app.mode,'boot');
  assert.equal(h.doc.body.dataset.formalState,'boot');
- assert.equal(h.item('formalCachedInventory').hidden,false);
- assert.match(h.item('formalGateMessage').textContent,/上次已确认库存.*正在同步云端.*暂不可修改/);
- assert.equal(h.item('formalLoadingCard').hidden,true);
- assert.equal(h.currentView,null,'no fake full five-page projection');
+ assert.equal(h.item('formalCachedInventory').hidden,true,'no standalone readonly flash');
+ assert.equal(h.item('formalGateMessage').textContent,'正在进入小宝管家…');
+ assert.equal(h.item('formalLoadingCard').hidden,false);
+ assert.equal(h.currentView,null,'no unverified five-page projection');
  assert.equal(h.cacheReads,1);
  await h.release('read');assert.equal(await started,'ready');
  assert.equal(h.item('formalCachedInventory').hidden,true);
- assert.equal(h.currentView.state.inventory.S,140,'server replaces cached S=90');
+ assert.equal(h.currentView.state.inventory.S,140,'cloud stock replaces cached S=90');
+ assert.deepEqual(h.messages.filter(m=>m.startsWith('正在')),['正在进入小宝管家…']);
 });
-test('T05-P2-02A cached gate never exposes business actions, even with queued UUID',async()=>{
+
+test('T06-P1-01 background cache lookup cannot unlock business actions before ready',async()=>{
  const h=harness({cached:{},hold:['read','cache']});
  const started=h.app.start();await h.release('cache');
- await until(()=>h.item('formalCachedInventory').hidden===false);
+ await until(()=>h.item('formalCachedStockGrid').innerHTML?.includes('90'));
  assert.equal(h.app.mode,'boot');
+ assert.equal(h.item('formalCachedInventory').hidden,true);
+ assert.equal(h.item('formalLoadingCard').hidden,false);
  assert.equal(h.actions,null,'formal business action handlers not installed');
  assert.equal(h.submitted,0);
  assert.equal(h.item('formalRefresh').disabled,true);
@@ -600,31 +605,40 @@ test('T05-P2-02A wrong active baby cache never renders',async()=>{
  assert.equal(h.item('formalCachedInventory').hidden,true);
  await h.release('read');await started;
 });
-test('T05-P2-02A read failure retains same-scope old stock only as unsynced gate',async()=>{
+
+test('T06-P1-01 failed read can reveal same-scope cached stock as non-operable fallback',async()=>{
  const h=harness({cached:{},readError:true,hold:['read']});
  const started=h.app.start();
- await until(()=>h.item('formalCachedInventory').hidden===false);
+ await until(()=>h.item('formalCachedStockGrid').innerHTML?.includes('90'));
+ assert.equal(h.item('formalCachedInventory').hidden,true);
  await h.release('read');
  assert.equal(await started,'cached');
  assert.equal(h.app.mode,'cached');
+ assert.equal(h.item('formalCachedInventory').hidden,false);
+ assert.equal(h.item('formalLoadingCard').hidden,true);
  assert.match(h.item('formalGateMessage').textContent,/云端暂未同步/);
  assert.equal(h.currentView,null);
  assert.equal(h.submitted,0);
 });
-test('T05-P2-02A network loss while cache is visible cannot fake sync success',async()=>{
+
+test('T06-P1-01 network loss during pending read keeps cache hidden until fallback',async()=>{
  const h=harness({cached:{},hold:['read']});
  const started=h.app.start();
- await until(()=>h.item('formalCachedInventory').hidden===false);
+ await until(()=>h.item('formalCachedStockGrid').innerHTML?.includes('90'));
+ assert.equal(h.item('formalCachedInventory').hidden,true);
  h.setOnline(false);h.setReadError(true);
  await h.release('read');
  assert.equal(await started,'cached');
  assert.match(h.item('formalGateMessage').textContent,/暂未同步/);
  assert.equal(h.item('formalCachedInventory').hidden,false);
+ assert.equal(h.submitted,0);
 });
-test('T05-P2-02A changed account while loading erases cached stock immediately',async()=>{
+
+test('T06-P1-01 account switch during cold load clears previous cached scope',async()=>{
  const h=harness({cached:{},hold:['read']});
  const started=h.app.start();
- await until(()=>h.item('formalCachedInventory').hidden===false);
+ await until(()=>h.item('formalCachedStockGrid').innerHTML?.includes('90'));
+ assert.equal(h.item('formalCachedInventory').hidden,true);
  h.switchAccount('actor-B',CHILD_B);
  await h.release('read');await started;
  assert.equal(h.item('formalCachedInventory').hidden,true);
@@ -640,16 +654,17 @@ test('T05-P2-02A late IDB cache cannot replace already verified current cloud st
  assert.equal(h.app.mode,'ready');
  assert.equal(h.currentView.state.inventory.S,140);
 });
-test('T05-P2-02A cached counts cannot populate expense or profile fields',async()=>{
+
+test('T06-P1-01 pending trusted cache cannot populate visible expense or profile fields',async()=>{
  const h=harness({cached:{},hold:['read']});
  const started=h.app.start();
- await until(()=>h.item('formalCachedInventory').hidden===false);
+ await until(()=>h.item('formalCachedStockGrid').innerHTML?.includes('90'));
+ assert.equal(h.item('formalCachedInventory').hidden,true);
  assert.equal(h.currentView,null);
  assert.ok(!h.item('formalCachedStockGrid').innerHTML.includes('合成宝宝'));
  assert.ok(!h.item('formalCachedStockGrid').innerHTML.includes('¥'));
  await h.release('read');await started;
 });
-
 test('T05-P3-01 short App switch keeps the exact view and avoids another cloud read',async()=>{
  const h=harness();await ready(h);
  const previous=h.currentView;
@@ -772,10 +787,12 @@ test('T05-P3-01 actor or child mismatch on foreground erases stale home',async()
    'changed actor is blocked locally; changed child is rejected by fresh remote read');
  }
 });
-test('T05-P3-01 no foreground activation of startup cache or hidden guest session',async()=>{
+
+test('T05-P3-01 no foreground activation during stable cold-start gate',async()=>{
  const h=harness({cached:{},hold:['read']});
  const initial=h.app.start();
- await until(()=>h.item('formalCachedInventory').hidden===false);
+ await until(()=>h.item('formalCachedStockGrid').innerHTML?.includes('90'));
+ assert.equal(h.item('formalCachedInventory').hidden,true);
  h.visibility('hidden');h.advance(90000);h.visibility('visible');
  await tick();
  assert.equal(h.readCount,1,'still the one original startup read');
@@ -969,12 +986,14 @@ test('T05-P3-02 actor or child scope switch clears the stale view',async()=>{
   assert.equal(h.readCount,1);
  }
 });
-test('T05-P3-02 logout and start cached gate have no background inventory polls',async()=>{
+
+test('T05-P3-02 login and cold-start gates have no inventory polls',async()=>{
  const h=harness({session:false});assert.equal(await h.app.start(),'login');
  h.visibility('visible');h.advance(60000);
  assert.equal(h.timers,0);assert.equal(h.pollCount,0);
  const c=harness({cached:{},hold:['read']});
- const start=c.app.start();await until(()=>c.item('formalCachedInventory').hidden===false);
+ const start=c.app.start();await until(()=>c.item('formalCachedStockGrid').innerHTML?.includes('90'));
+ assert.equal(c.item('formalCachedInventory').hidden,true);
  c.visibility('visible');c.advance(60000);assert.equal(c.pollCount,0);
  await c.release('read');await start;
 });
