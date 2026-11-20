@@ -62,7 +62,7 @@
 .baby-time{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .baby-time input{text-align:center;padding:10px 3px}
 .profile-item.wide{grid-column:span 2}
-@media(max-width:600px){.tabs{grid-template-columns:repeat(5,minmax(0,1fr))}.tab{font-size:11px;padding:9px 0}.growth-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.growth-stat{padding:11px}.growth-stat b{font-size:18px}}
+@media(max-width:600px){.tabs{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.tab{min-height:44px;font-size:13px;padding:8px 4px}.growth-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.growth-stat{padding:11px}.growth-stat b{font-size:18px}}
 
 /* v1.1.1: stage-aware replenishment settings. */
 .plan-size-group{margin-top:15px}
@@ -119,6 +119,14 @@ body[data-formal-state="ready"] #formalNotice:is([data-sync-phase="partial"],[da
 #formalNotice .btn{font-size:12px;padding:4px 8px}
 body:not([data-formal-state="ready"]) .wrap{display:none!important}
 body[data-formal-state="ready"] #formalGate{display:none!important}
+body:not([data-formal-family-ready]) [data-tab="maternal-health"],
+body:not([data-formal-family-ready]) #maternal-health,
+body[data-formal-state="ready"] #maternalHealthBack{display:none!important}
+body[data-formal-family-ready]:not([data-formal-state="ready"]):has(#maternal-health.active) .wrap{display:block!important}
+body[data-formal-family-ready]:not([data-formal-state="ready"]):has(#maternal-health.active) #formalGate,
+body:not([data-formal-state="ready"]) .wrap :is(.hero,.pwa-launch,.pwa-notice,.tab:not([data-tab="maternal-health"]),.panel:not(#maternal-health)),
+body:not([data-formal-state="ready"]) #priceEditor{display:none!important}
+body:not([data-formal-state="ready"]) [data-tab="maternal-health"]{grid-column:1/-1}
 /* Android Chrome/Edge/PWA: prefer the in-app top pull to browser reload.
    Native desktop scrolling and editing containers are unaffected. */
 @media (pointer:coarse), (any-pointer:coarse), (hover:none){
@@ -170,6 +178,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
    <div id="formalCachedStockGrid" class="sizes"></div>
    <p class="fine">仅展示上次核验的六尺码数量，不包含采购金额、宝宝资料或设置。云端确认前所有修改操作不可用。</p>
   </div>
+  <button id="formalOpenMaternalHealth" class="btn secondary" type="button" hidden>进入妈妈健康</button>
   <div id="formalGateActions" hidden>
    <div class="action-row">
     <button id="formalRetry" type="button" class="btn secondary sm">重新检查</button>
@@ -203,11 +212,12 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
   
 
   <nav class="tabs" role="tablist" aria-label="功能导航">
-    <button class="tab active" data-tab="overview">🏠 备货总览</button>
-    <button class="tab" data-tab="compare">🏷️ 好价比对</button>
-    <button class="tab" data-tab="history">📒 采购记录</button>
-    <button class="tab" data-tab="growth">📈 成长</button>
-    <button class="tab" data-tab="settings">⚙️ 个性设置</button>
+    <button class="tab active" id="tabOverview" type="button" role="tab" aria-controls="overview" aria-selected="true" data-tab="overview">🏠 备货总览</button>
+    <button class="tab" id="tabCompare" type="button" role="tab" aria-controls="compare" aria-selected="false" data-tab="compare">🏷️ 好价比对</button>
+    <button class="tab" id="tabHistory" type="button" role="tab" aria-controls="history" aria-selected="false" data-tab="history">📒 采购记录</button>
+    <button class="tab" id="tabGrowth" type="button" role="tab" aria-controls="growth" aria-selected="false" data-tab="growth">📈 成长</button>
+    <button class="tab" id="tabSettings" type="button" role="tab" aria-controls="settings" aria-selected="false" data-tab="settings">⚙️ 个性设置</button>
+    <button class="tab" id="tabMaternalHealth" type="button" role="tab" aria-controls="maternal-health" aria-selected="false" data-tab="maternal-health">🌿 妈妈健康</button>
   </nav>
   <div class="sync-line" id="formalNotice" role="status" aria-live="polite">
    <span id="formalSyncState" class="fine">正在检查…</span>
@@ -216,7 +226,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
    <button id="formalResolveBatchConflict" class="btn secondary sm" type="button" hidden disabled>处理盘点冲突</button>
   </div>
   <main>
-    <section class="panel active" id="overview">
+    <section class="panel active" id="overview" role="tabpanel" aria-labelledby="tabOverview">
       <div class="kpi-grid" id="kpiGrid"></div>
       <div id="recoAlert"></div>
       <div class="head"><h2>📦 各尺码库存</h2><span class="sub">日常消耗可一键扣减</span></div>
@@ -232,7 +242,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <div class="card" id="legacyStock"></div>
       </section>
     </section>
-    <section class="panel" id="compare">
+    <section class="panel" id="compare" role="tabpanel" aria-labelledby="tabCompare">
       <p class="fine">M3 独立页面不包含 M1-02 测试宝宝创建/采购入口，所有云端操作只读。</p>
       <div class="head"><h2>🏷️ 购买前先比一比</h2><span class="sub">实付单价 vs 对应品牌系列尺码参考价</span></div>
       <div class="card">
@@ -266,7 +276,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <p class="soft-note">价格单位：元/片。数据来自内置参考价库；空白表示该尺码尚未设置。点击“改价”即可填写自己的好价，保存后实时应用到比价提醒，并随备份导出。“恢复默认价”会还原内置基准；BBS 与碧芭分开管理。</p>
       </div>
     </section>
-    <section class="panel" id="history">
+    <section class="panel" id="history" role="tabpanel" aria-labelledby="tabHistory">
       <div class="head"><h2>📒 购买与消耗记录</h2><button class="btn secondary sm" data-action="go" data-target="compare">+ 新增购买</button></div>
       <div class="kpi-grid" id="historyKpis"></div>
       <div class="fine" id="formalReverseActionFeedback" role="status" aria-live="polite"></div>
@@ -278,7 +288,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <div class="action-row"><button class="btn" id="saveStocks">保存实际库存</button><span class="fine">盘点修改不会自动生成采购支出记录。</span></div>
       </div>
     </section>
-    <section class="panel" id="growth">
+    <section class="panel" id="growth" role="tabpanel" aria-labelledby="tabGrowth">
       <div class="head"><h2>📈 宝宝成长记录</h2></div>
       <div class="card">
         <div class="growth-summary" id="growthSummary"></div>
@@ -302,7 +312,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
       <div class="head"><h2>📋 历史体重</h2></div>
       <div class="card" id="growthHistory"></div>
     </section>
-    <section class="panel" id="settings">
+    <section class="panel" id="settings" role="tabpanel" aria-labelledby="tabSettings">
       <div class="head"><h2>👶 宝宝基本资料</h2></div>
       <div class="card">
         <div class="profile">
@@ -379,6 +389,13 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <button id="importDataBtn" disabled type="button"></button>
         <button id="resetAll" disabled type="button"></button>
         <input type="file" id="importFile" disabled />
+      </div>
+    </section>
+    <section class="panel" id="maternal-health" role="tabpanel" aria-labelledby="tabMaternalHealth">
+      <div class="head"><h2>妈妈健康</h2></div>
+      <div class="empty"><b>暂无健康记录</b></div>
+      <div class="action-row">
+        <button id="maternalHealthBack" class="btn secondary" type="button">查看宝宝业务状态</button>
       </div>
     </section>
   </main>
@@ -623,8 +640,26 @@ const currMonth=()=>localDate().slice(0,7);
 const fmtDate=d=>String(d??'').slice(0,10);
 let toastTimer;function toast(txt){const el=$('toast');el.textContent=txt;el.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('on'),2600)}
 // M3 tab navigation is memory-only.
-const VALID_TABS=new Set(['overview','compare','history','growth','settings']);
-function tab(to,{scroll=true}={}){if(!VALID_TABS.has(to))return;document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===to));document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));void 0;if(to==='history')renderHistory();if(to==='settings')renderSettings();if(to==='growth')renderGrowth();if(to==='compare'){renderQuotes();renderReferenceTable();}if(scroll)window.scrollTo({top:0,behavior:'smooth'})}
+const VALID_TABS=new Set(['overview','compare','history','growth','settings','maternal-health']);
+function selectTab(to){
+ document.querySelectorAll('.tab').forEach(el=>{
+  const selected=el.dataset.tab===to;
+  el.classList.toggle('active',selected);
+  el.setAttribute('aria-selected',String(selected));
+ });
+ document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));
+}
+function tab(to,{scroll=true}={}){
+ if(!VALID_TABS.has(to))return;
+ const {formalState,formalFamilyReady}=document.body.dataset;
+ if(to==='maternal-health'?formalFamilyReady!=='true':formalState!=='ready')return;
+ selectTab(to);
+ if(to==='history')renderHistory();
+ if(to==='settings')renderSettings();
+ if(to==='growth')renderGrowth();
+ if(to==='compare'){renderQuotes();renderReferenceTable();}
+ if(scroll)window.scrollTo({top:0,behavior:'smooth'});
+}
 function restoreActiveTab(){/* default overview, never read tab storage */}
 // Calendar-month age. Month anniversaries are capped to the last day in short months.
 function calculateBirthAge(birth,today){
@@ -1009,6 +1044,10 @@ $('qBrand').addEventListener('change',()=>{$('qSeries').value='';updateSeriesPic
 $('qSeriesChoice').addEventListener('change',chooseSeriesFromSelect);
 $('qSeries').addEventListener('input',renderSeriesChips);
 Array.from(document.querySelectorAll('.tab')).forEach(el=>el.addEventListener('click',()=>tab(el.dataset.tab)));
+$('maternalHealthBack').addEventListener('click',()=>{
+ selectTab('overview');
+ ($('formalGateActions').hidden?$('formalOpenMaternalHealth'):$('formalRetry')).focus();
+});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;if(action==='go'){tab(b.dataset.target);return}if(action==='consume'){consume(b.dataset.size,b.dataset.count);return}if(action==='editstock'){tab('history');const field=$('inv_'+b.dataset.size);const section=field?.closest('details');if(section)section.open=true;field?.focus();return}if(action==='deletequote'){state.quotes=state.quotes.filter(q=>q.id!==b.dataset.id);save();renderQuotes();toast('候选已移除');return}if(action==='buyquote'){const q=state.quotes.find(q=>q.id===b.dataset.id);if(q)addBuy(q);return}if(action==='deletetx'){undo(b.dataset.id);return}if(action==='series'){$('qSeries').value=b.dataset.series;$('qSeriesChoice').value=b.dataset.series;$('qSeries').hidden=true;renderSeriesChips();preview();return}if(action==='pickref'){$('qBrand').value=b.dataset.brand;$('qSeries').value=b.dataset.series;$('qSize').value=b.dataset.size;updateSeriesPicks();preview();document.querySelector('#compare .head')?.scrollIntoView({behavior:'smooth',block:'start'});toast('已填入品牌、系列与尺码');return}if(action==='editref'){editReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}if(action==='resetref'){restoreReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}});
 for(const x of ['qBrand','qSeries','qSize','qPerPack','qPacks','qPrice'])$(x).addEventListener('input',preview);
 $('saveQuote').addEventListener('click',()=>{const q=compareInput();if(!validateQuote(q))return;state.quotes.push({...q,id:uid(),date:localDate()});save();renderQuotes();toast('候选价已保存，可继续录入另一款比较')});
@@ -1054,6 +1093,19 @@ $('resetAll').addEventListener('click',()=>{if(window.XBM102?.isActive()){toast(
 window.XBM3UI=Object.freeze({
  defaults:()=>defaults(),
  isActive:()=>m3ReadOnly,
+ openMaternalHealth:()=>{
+  tab('maternal-health');
+  $('tabMaternalHealth').focus();
+ },
+ resetNavigation:()=>{
+  selectTab('overview');
+  closeReferenceEditor();
+  formalEditingQuoteId=null;
+  $('saveQuote').textContent='加入候选价';
+  for(const id of ['qBrand','qSize'])$(id).selectedIndex=0;
+  for(const id of ['qSeries','qPerPack','qPacks','qPrice'])$(id).value=$(id).defaultValue;
+  updateSeriesPicks();
+ },
  show:projection=>{
   if(window.XBM102?.isActive())throw Error('m3:smoke_mode_active');
   if(!projection||projection.canWrite!==false||!projection.state)
@@ -1066,6 +1118,7 @@ window.XBM3UI=Object.freeze({
   if(!m3ReadOnly)return;
   state=m3SavedSandboxState;
   m3SavedSandboxState=null;m3ReadOnly=false;
+  closeReferenceEditor();
   clearWeightForm();
   renderAll();
  }

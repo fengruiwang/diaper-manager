@@ -118,6 +118,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let controller=null,primary=null,warmPrimary=null,attached=null,pendingGuard=null,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
+ let familyContext=null;
  let shownStock=null,localInventoryBaselineReady=false,cachedPreview=null;
  const BOOT_MESSAGE='正在进入小宝管家…';
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
@@ -351,6 +352,18 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    :next==='login'?'未登录':next==='offline'?'离线':'需检查';
   updateInventoryPolling();
  }
+ function sameFamilyContext(ctx){
+  return Boolean(ctx&&familyContext&&ctx.actorUid===familyContext.actorUid
+   &&ctx.familyId===familyContext.familyId);
+ }
+ function setFamilyContext(ctx){
+  if(familyContext&&!sameFamilyContext(ctx))ui.resetNavigation?.();
+  familyContext=ctx;
+  if(ctx)doc.body.dataset.formalFamilyReady='true';
+  else delete doc.body.dataset.formalFamilyReady;
+  const entry=$('formalOpenMaternalHealth');
+  if(entry)entry.hidden=!ctx;
+ }
  function sameCachedScope(){
   const ctx=controller?.verifiedContext?.();
   return Boolean(cachedPreview&&ctx?.app===cachedPreview.app
@@ -414,8 +427,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   batchConflictButton(found?.status==='BATCH_CONFLICTS_VERIFIED'
    &&found.items.length>0);
  }
- function clear(){
+ function clear({keepFamily=false}={}){
   stopInventoryPolling();
+  if(!keepFamily)setFamilyContext(null);
   historyCache?.invalidate?.();
   conflictButton(false);batchConflictButton(false);
   ui.clear();mobileDraft?.reset();actor=null;family=null;primary=null;
@@ -640,9 +654,13 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }
    // A stale SDK context from an earlier check cannot authorize a new
    // startup preview when the current login/family check was not successful.
-   if(!validLogin.has(status)&&mode!=='ready'){
-    clear();screen('unverified',notes[status]||notes.SESSION_UNVERIFIED);
-    return mode;
+   const familyVerified=validLogin.has(status);
+   if(!familyVerified){
+    setFamilyContext(null);
+    if(mode!=='ready'||['FAMILY_PERMISSION_DENIED','NO_VISIBLE_FAMILY','FAMILY_REVIEW_REQUIRED'].includes(status)){
+     clear();screen('unverified',notes[status]||notes.SESSION_UNVERIFIED);
+     return mode;
+    }
    }
    const ctx=controller.verifiedContext();
    if(!ctx){
@@ -651,11 +669,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }
    if(actor!==ctx.actorUid||family!==ctx.familyId){
     const wasReady=mode==='ready';
-    clear();
+    if(!sameFamilyContext(ctx))clear();
     // A changed account must not show the previous account's home or
     // the old boot message while the new family's stock is being read.
     if(wasReady)screen('boot','正在获取家庭与库存数据…');
    }
+   if(familyVerified)setFamilyContext(ctx);
    bootStage(token,'正在获取家庭与库存数据…');
    // A separate read-only IDB preview races the normal complete cloud read.
    // The existing primary bridge is reused for activation after verification.
@@ -726,18 +745,28 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     }
     // Preserve the existing superseded-read behavior for ordinary refreshes.
     // Strict identity failure above is scoped to the 009/027 recovery handoff.
-    if(contextChanged||selectedChanged){
+    if(contextChanged){
+     clear();screen('unverified','账号或家庭已变化，请重新检查。');
+     return mode;
+    }
+    if(sameFamilyContext(readContext)&&verified?.canWrite===false
+      &&['PRIMARY_NOT_READY','MIGRATION_READ_NOT_READY'].includes(verified.status)){
+     clear({keepFamily:true});screen('unverified',notes[verified.status]);
+     ui.openMaternalHealth?.();
+     return mode;
+    }
+    if(selectedChanged){
      // The old UI must not survive a verified actor or primary-child switch,
      // including a background refresh with no startup cache on screen.
      if(mode==='ready'||cachedPreview){
-      clear();screen('unverified',
+      clear({keepFamily:sameFamilyContext(readContext)});screen('unverified',
        '账号、家庭或宝宝作用域已变化，已隐藏旧库存。');
      }
      return mode;
     }
    if(verified?.status!=='PRIMARY_READ_ONLY_READY'
      ||verified.canWrite!==false){
-    clear();screen('unverified',notes[verified?.status]||
+    clear({keepFamily:sameFamilyContext(readContext)});screen('unverified',notes[verified?.status]||
      '正式云端数据尚未核实；不显示演示数据。');
     return mode;
    }
@@ -791,7 +820,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
        ||(documentClientCache.childId!==verified.childId
          &&(documentClientCache.childId||verified.childId)))){
     // Never render a prior baby's view with a changed primary scope.
-    clear();screen('unverified','账号或正式宝宝作用域已变化，请重新检查。');
+    clear({keepFamily:sameFamilyContext(readContext)});
+    screen('unverified','账号或正式宝宝作用域已变化，请重新检查。');
     return mode;
    }
    let documentsClient=null;
@@ -1833,7 +1863,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    // Only a transient read/network error may expose the still-nonwritable
    // same-scope cached gate. The server remains authoritative.
    const failure=String(error?.code||'')+' '+String(error?.message||'');
-   if(/permission[_ -]?denied|access[_ -]?denied|unauthori[sz]ed|forbidden|42501|403/i.test(failure)){
+   if(/permission[_ -]?denied|access[_ -]?denied|grant_unverified|unauthori[sz]ed|forbidden|42501|403/i.test(failure)){
     clear();screen('unverified',notes.FAMILY_PERMISSION_DENIED);
     return mode;
    }
@@ -1850,9 +1880,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     showSync('部分云端数据尚未获取成功，请稍后重试','partial');
     return 'SYNC_PARTIAL';
    }
-   clear();screen('unverified','家庭权限或正式宝宝数据尚未核实，未显示家庭信息。');
+   clear({keepFamily:sameFamilyContext(current)});
+   screen('unverified','正式宝宝数据尚未核实，请重新检查。');
    return mode;
-  }finally{busy=false;syncButtonState();}
+  }finally{
+   if(familyContext&&!sameFamilyContext(controller?.verifiedContext?.())){
+    clear();screen('unverified','账号或家庭已变化，请重新检查。');
+   }
+   busy=false;syncButtonState();
+  }
  }
  async function signOut(){
   if(busy)return 'BUSY';
@@ -1911,7 +1947,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    }
    if(validLogin.has(result)&&controller.verifiedContext()){
     const next=await restore({verifiedStatus:result});
-    if(next==='ready'){
+    if(next==='ready'||sameFamilyContext(controller.verifiedContext())){
      input.value='';$('formalLoginMessage').textContent='';
     }else if(next==='unverified'){
      $('formalLoginMessage').textContent=''; // The visible gate explains unverified primary.
@@ -1942,6 +1978,10 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalSendOtp',sendOtp);
   on('formalConfirmOtp',confirmOtp);
   on('formalRetry',restore);
+  on('formalOpenMaternalHealth',()=>{
+   if(sameFamilyContext(controller.verifiedContext()))ui.openMaternalHealth?.();
+   else setFamilyContext(null);
+  });
   async function fetchCloudLatest({automatic=false}={}){
    if(mode!=='ready'||!actor||!family||busy||refreshBusy||syncActionBusy)return;
    if(host.navigator?.onLine===false){

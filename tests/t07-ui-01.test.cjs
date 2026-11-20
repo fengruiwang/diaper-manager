@@ -6,8 +6,7 @@ const root=path.resolve(__dirname,'..');
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const html=read('preview/v1.2.0/formal/index.html');
 const controller=read('preview/v1.2.0/formal-controller.js');
-const inSettings=html.slice(html.indexOf('<section class="panel" id="settings">'),
- html.indexOf('    </section>\n  </main>',html.indexOf('<section class="panel" id="settings">')));
+const inSettings=html.match(/<section\b[^>]*\bid="settings"[^>]*>([\s\S]*?)<\/section>/)?.[1]??'';
 test('T07: five tabs and normal view remain available',()=>{
  for(const tab of ['overview','compare','history','growth','settings'])
   assert.ok(html.includes('data-tab="'+tab+'"'),'tab '+tab);

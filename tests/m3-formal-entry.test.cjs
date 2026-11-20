@@ -6,7 +6,8 @@ const html=fs.readFileSync(path.join(__dirname,
 const base=()=>({inventory:{NB:0,S:140,M:0,L:0,XL:0,XXL:0},
  transactions:[],quotes:[],weightRecords:[]});
 function setup({session=false,primaryReady=false,pending=0,offline=false,
-  otpStatus='CLOUD_READ_ONLY_CONNECTED'}={}){
+  otpStatus='CLOUD_READ_ONLY_CONNECTED',primaryFailure='PRIMARY_NOT_READY',
+  waitForPrimary=null}={}){
  const trace=[],items=new Map(),handlers=new Map();
  const element=id=>{
   if(!items.has(id))items.set(id,{
@@ -22,26 +23,28 @@ function setup({session=false,primaryReady=false,pending=0,offline=false,
  };
  const host={navigator:{onLine:!offline},crypto:{randomUUID:()=> '04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2'},
   addEventListener(type,fn){handlers.set('host:'+type,fn)}};
- let authed=session,ready=primaryReady,queue=pending;
+ let authed=session,ready=primaryReady,queue=pending,connectStatus=null;
+ let actorUid='A',familyId='29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5';
+ let activeTab='overview';
  const sdk={auth:{getSession:async()=>({data:{user:{id:'A',email:'a@example.com'},
   session:{user:{id:'A'}}}})}};
  const controller={
-  connect:async()=>{trace.push('session.restore');return !authed?'LOGIN_REQUIRED':
-   host.navigator.onLine?'CLOUD_READ_ONLY_CONNECTED':'OFFLINE_LOCAL_ONLY'},
-  verifiedContext:()=>authed?{app:sdk,familyId:'29b28c1b-9acb-4dad-a1d2-b63b9c69e3a5',
-   actorUid:'A'}:null,
+  connect:async()=>{trace.push('session.restore');return connectStatus??(!authed?'LOGIN_REQUIRED':
+   host.navigator.onLine?'CLOUD_READ_ONLY_CONNECTED':'OFFLINE_LOCAL_ONLY')},
+  verifiedContext:()=>authed?{app:sdk,familyId,actorUid}:null,
   requestOtp:async()=> 'OTP_REQUESTED',
   confirmOtp:async()=>{authed=true;return otpStatus},
   signOut:async()=>{authed=false;trace.push('auth.signOut');return 'LOGIN_REQUIRED'}
  };
- const ui={defaults:base,show:()=>trace.push('ui.show'),
-  clear:()=>trace.push('ui.clear')};
+ const ui={defaults:base,show:()=>trace.push('ui.show'),clear:()=>trace.push('ui.clear'),
+  openMaternalHealth:()=>{activeTab='maternal-health'},resetNavigation:()=>{activeTab='overview'}};
  const projected={canWrite:false,state:base()};
  const app=Login.create({
   host,doc,loginController:{create:()=>controller},
   readModelFactory:()=>({read:async()=>{trace.push('primary.read');
+   if(waitForPrimary)await waitForPrimary;
    return ready?{status:'PRIMARY_READ_ONLY_READY',canWrite:false}:
-    {status:'PRIMARY_NOT_READY',canWrite:false};
+    {status:primaryFailure,canWrite:false};
   }}),
   primaryFactory:()=>({
    activate:async()=>{trace.push('primary.activate');
@@ -50,14 +53,18 @@ function setup({session=false,primaryReady=false,pending=0,offline=false,
    cloudWritesEnabled:false
   }),
   commandsFactory:{create:()=>({submit:async()=>({status:'NO_WRITE'})})},
-  actionsFactory:{create:()=>({attach:()=>({detach(){trace.push('detach')}})})},
+  actionsFactory:{create:()=>({attach:()=>{
+   trace.push('attach');return {detach(){trace.push('detach')}};
+  }})},
   projection:{project:()=>projected},ui,scriptLoader:async()=>{}
  });
  return {app,host,doc,trace,element,handlers,
   setReady:r=>{ready=r},setPending:q=>{queue=q},
-  setSession:a=>{authed=a}};
+  setSession:a=>{authed=a},setConnectStatus:value=>{connectStatus=value},
+  setScope:(nextActor,nextFamily=familyId)=>{actorUid=nextActor;familyId=nextFamily},
+  get activeTab(){return activeTab}};
 }
-test('formal page preserves original five tabs but uses separate non-flashing login gate',()=>{
+test('formal page keeps the login gate and arranges six tabs in two mobile rows',()=>{
  assert.match(html,/<body data-formal-state="boot">/);
  assert.match(html,/body:not\(\[data-formal-state="ready"\]\) \.wrap\{display:none!important\}/);
  assert.match(html,/id="formalLoginCard" hidden/);
@@ -65,8 +72,11 @@ test('formal page preserves original five tabs but uses separate non-flashing lo
  assert.match(html,/id="formalSignOut"/);
  assert.match(html,/src="\.\.\/m1-controller\.js"/);
  assert.match(html,/src="\.\.\/formal-controller\.js"/);
- for(const tab of ['overview','compare','history','growth','settings'])
-  assert.match(html,new RegExp('data-tab="'+tab+'"'));
+ assert.deepEqual(Array.from(html.matchAll(/data-tab="([\w-]+)"\s*>/g),match=>match[1]),
+  ['overview','compare','history','growth','settings','maternal-health']);
+ assert.match(html,/\.tabs\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\);gap:6px\}\.tab\{min-height:44px/);
+ assert.match(html,/id="maternal-health" role="tabpanel" aria-labelledby="tabMaternalHealth"/);
+ assert.match(html,/id="formalOpenMaternalHealth"[^>]* hidden>/);
  assert.doesNotMatch(html,/id="m3Demo"|id="m102Create"|id="m1Email"/);
  assert.doesNotMatch(html,/xiaobao_v120_m1_local_sandbox/);
  assert.equal(Login.FORMAL_WRITE_ENABLED,false);
@@ -89,11 +99,13 @@ test('first login → separate OTP screen; no authenticated family data flashed'
  assert.equal(f.app.mode,'unverified');
  assert.equal(f.trace.includes('ui.show'),false);
 });
-test('existing SDK session restores to primary five-tab UI without OTP',async()=>{
+test('existing SDK session restores to primary UI with the maternal tab available',async()=>{
  const f=setup({session:true,primaryReady:true});
  await f.app.start();
  assert.equal(f.app.mode,'ready');
  assert.equal(f.doc.body.dataset.formalState,'ready');
+ assert.equal(f.doc.body.dataset.formalFamilyReady,'true');
+ assert.equal(f.activeTab,'overview');
  assert.equal(f.trace.filter(x=>x==='ui.show').length,1);
  assert.equal(f.element('formalCurrentAccount').textContent,'A');
  // Email enrichment is deliberately optional and must not delay ready.
@@ -105,16 +117,69 @@ test('existing SDK session restores to primary five-tab UI without OTP',async()=
  assert.equal(f.app.mode,'ready');
  assert.equal(f.trace.filter(x=>x==='session.restore').length,2);
 });
-test('primary not migrated hides data even for previously valid sessions',async()=>{
+test('primary no longer ready clears the baby view and opens maternal health',async()=>{
  const f=setup({session:true,primaryReady:true});
  await f.app.start();
  f.setReady(false);
  await f.app.restore();
  assert.equal(f.app.mode,'unverified');
  assert.equal(f.doc.body.dataset.formalState,'unverified');
+ assert.equal(f.doc.body.dataset.formalFamilyReady,'true');
+ assert.equal(f.activeTab,'maternal-health');
  assert.equal(f.element('formalCurrentAccount').textContent,'—');
  assert.ok(f.trace.includes('ui.clear'));
  assert.ok(f.trace.includes('detach'));
+});
+test('verified family opens maternal health while primary read is still pending',async()=>{
+ let finishPrimary;
+ const f=setup({session:true,waitForPrimary:new Promise(resolve=>{finishPrimary=resolve})});
+ f.setScope('B');
+ const startup=f.app.start();
+ try{
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(f.trace.includes('primary.read'));
+  assert.equal(f.app.mode,'boot');
+  assert.equal(f.doc.body.dataset.formalFamilyReady,'true');
+  assert.equal(f.element('formalOpenMaternalHealth').hidden,false);
+  f.handlers.get('formalOpenMaternalHealth:click')();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.activeTab,'maternal-health');
+  assert.ok(!f.trace.includes('attach'));
+ }finally{finishPrimary();await startup;}
+ assert.equal(f.activeTab,'maternal-health');
+ assert.ok(!f.trace.includes('ui.show'));
+});
+test('missing migration receipt still opens maternal health without activating baby features',async()=>{
+ const f=setup({session:true,primaryFailure:'MIGRATION_READ_NOT_READY'});
+ await f.app.start();
+ assert.equal(f.doc.body.dataset.formalFamilyReady,'true');
+ assert.equal(f.activeTab,'maternal-health');
+ assert.ok(!f.trace.includes('primary.activate'));
+ assert.ok(!f.trace.includes('attach'));
+});
+test('account and family changes reset navigation; expired and denied sessions close maternal health',async()=>{
+ const f=setup({session:true});
+ await f.app.start();
+ assert.equal(f.activeTab,'maternal-health');
+ f.setReady(true);
+ f.setScope('B');
+ await f.app.restore();
+ assert.equal(f.activeTab,'overview');
+ f.handlers.get('formalOpenMaternalHealth:click')();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.activeTab,'maternal-health');
+ f.setScope('B','34b28c1b-9acb-4dad-a1d2-b63b9c69e3a5');
+ await f.app.restore();
+ assert.equal(f.activeTab,'overview');
+ f.setConnectStatus('FAMILY_PERMISSION_DENIED');
+ await f.app.restore();
+ // Even a stale verifiedContext from a prior call cannot reopen the tab.
+ assert.equal(f.doc.body.dataset.formalFamilyReady,undefined);
+ assert.equal(f.element('formalOpenMaternalHealth').hidden,true);
+ f.setConnectStatus('LOGIN_REQUIRED');
+ await f.app.restore();
+ assert.equal(f.app.mode,'login');
+ assert.equal(f.doc.body.dataset.formalFamilyReady,undefined);
 });
 test('network outage is not an authentication logout and never shows previous data',async()=>{
  const f=setup({session:true,primaryReady:true});
