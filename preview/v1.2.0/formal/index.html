@@ -90,7 +90,7 @@
 .stock-details{margin:12px 0}
 @media(max-width:600px){.stock-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stock-size{padding:10px}}
 </style>
-<style>#pwaLaunch,#pwaMigrationNotice,#pwaUpdateNotice{display:none!important}</style>
+<style>#pwaLaunch,#pwaUpdateNotice{display:none!important}</style>
 <style>
 #formalGate{min-height:100vh;display:flex;justify-content:center;align-items:center;
 padding:20px;background:linear-gradient(155deg,#f0f9f6,#edf2fb)}
@@ -110,7 +110,11 @@ padding:30px 26px;box-shadow:0 12px 60px #263b5222}
 .formal-spinner{height:28px;width:28px;border:3px solid #dce9e3;
 border-top-color:#428a72;border-radius:50%;margin:22px auto;animation:formalspin 1s linear infinite}
 @keyframes formalspin{to{transform:rotate(360deg)}}
-#formalNotice.sync-line{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;padding:3px 4px;margin:0 0 5px;border:0;background:transparent;box-shadow:none}
+#formalNotice.sync-line{display:none;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;padding:3px 4px;margin:0 0 5px;border:0;background:transparent;box-shadow:none}
+body[data-formal-state="ready"] #formalNotice:is([data-pull-phase],[data-sync-phase="refreshing"],[data-sync-phase="partial"],[data-sync-phase="pending"]){display:flex}
+body[data-formal-state="ready"] #formalNotice:has(>button:not([hidden])){display:flex}
+#formalNotice #formalSyncState{display:none}
+body[data-formal-state="ready"] #formalNotice:is([data-sync-phase="partial"],[data-sync-phase="pending"]) #formalSyncState{display:inline
 #formalNotice .fine{font-size:12px;color:var(--muted);line-height:1.4}
 #formalNotice .btn{font-size:12px;padding:4px 8px}
 body:not([data-formal-state="ready"]) .wrap{display:none!important}
@@ -192,14 +196,10 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
     <span id="pwaInstallTip" class="pwa-note">打开一次，日后可从桌面图标进入</span>
   </div>
   <div class="pwa-notice" id="pwaUpdateNotice" hidden>
-    <p>🆕 检测到新版本。更新仅替换网页程序，不会清空本机库存、采购记录和参考价。</p>
+    <p>🆕 发现新版本，更新只替换程序，不清除本机数据。</p>
     <button class="btn sm" type="button" id="pwaUpdateNow">更新应用</button>
   </div>
-  <div class="pwa-notice migration" id="pwaMigrationNotice" hidden>
-    <p>📦 首次从本地 HTML 切换到网页版？请先在旧版导出 JSON 备份，再到这里导入。网页不会自动读取旧文件的数据。</p>
-    <button class="btn secondary sm" type="button" id="pwaImportOld">导入旧版备份</button>
-    <button class="btn ghost sm" type="button" id="pwaMigrationDismiss">我知道了</button>
-  </div>
+
   
 
   <nav class="tabs" role="tablist" aria-label="功能导航">
@@ -211,7 +211,6 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
   </nav>
   <div class="sync-line" id="formalNotice" role="status" aria-live="polite">
    <span id="formalSyncState" class="fine">正在检查…</span>
-   <button id="formalRefresh" class="btn ghost sm" type="button">刷新</button>
    <button id="formalSyncNow" class="btn secondary sm" type="button" hidden disabled>核验待处理</button>
    <button id="formalResolveDocumentConflict" class="btn secondary sm" type="button" hidden disabled>放弃本次修改并刷新</button>
    <button id="formalResolveBatchConflict" class="btn secondary sm" type="button" hidden disabled>处理盘点冲突</button>
@@ -304,26 +303,6 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
       <div class="card" id="growthHistory"></div>
     </section>
     <section class="panel" id="settings">
- <div class="head"><h2>🔐 账号与家庭</h2></div>
- <div class="card" id="formalAccountSection">
-  <div class="form-grid">
-   <div class="field"><label>当前账号</label><strong id="formalCurrentAccount">—</strong></div>
-   <div class="field"><label>家庭 ID</label><strong id="formalCurrentFamily">—</strong></div>
-   <div class="field"><label>连接状态</label><strong id="formalAccountState">检查中</strong></div>
-  </div>
-  <div class="action-row"><button id="formalSignOut" class="btn ghost sm" type="button">退出登录 / 切换账号</button></div>
-  <p class="fine">退出前检查未同步队列，原有 operation ID 不会被清空。</p>
- </div>
-      <div class="head"><h2>☁️ 云端数据同步</h2></div>
-      <div class="card" id="formalCloudSyncSection">
-        <div class="action-row">
-          <button id="formalGetCloudLatest" class="btn secondary" type="button">获取云端最新</button>
-          <button id="formalSubmitPending" class="btn" type="button" disabled>提交待同步操作</button>
-        </div>
-        <p class="fine">获取云端最新：读取家庭云端已保存的数据。提交待同步操作：继续提交或核验本机之前未完成的操作。</p>
-        <div class="fine" id="formalPendingCount">待同步：正在核验</div>
-        <div class="fine" id="formalCloudSyncFeedback" role="status" aria-live="polite"></div>
-      </div>
       <div class="head"><h2>👶 宝宝基本资料</h2></div>
       <div class="card">
         <div class="profile">
@@ -374,14 +353,35 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <div class="action-row"><button class="btn" id="savePlans">保存目标与日均用量</button></div>
         <p class="soft-note" id="planSettingsActionFeedback" role="status" aria-live="polite"></p>
       </div>
-      <div class="head"><h2>💾 数据备份与恢复</h2></div>
-      <div class="card"><p class="sub" style="margin:0 0 13px">数据自动保存在当前浏览器。换浏览器、换设备或清除浏览器数据时，可能无法保留；建议定期导出备份。导入备份会替换当前数据。</p>
-        <div class="action-row" style="margin-top:0"><button class="btn secondary" id="exportData">↓ 导出 JSON 备份</button><button class="btn ghost" id="importDataBtn">↑ 从备份恢复</button><button class="btn danger" id="resetAll">清空所有记录</button></div>
-        <input type="file" id="importFile" accept="application/json,.json" style="display:none" />
+
+ <div class="head"><h2>🔐 账号与家庭</h2></div>
+ <div class="card" id="formalAccountSection">
+  <div class="form-grid">
+   <div class="field"><label>当前账号</label><strong id="formalCurrentAccount">—</strong></div>
+   <div class="field"><label>家庭 ID</label><strong id="formalCurrentFamily">—</strong></div>
+   <div class="field"><label>连接状态</label><strong id="formalAccountState">检查中</strong></div>
+  </div>
+  <div class="action-row"><button id="formalSignOut" class="btn ghost sm" type="button">退出登录 / 切换账号</button></div>
+  <p class="fine">退出前检查未同步队列，原有 operation ID 不会被清空。</p>
+ </div>
+      <div class="head"><h2>☁️ 云端数据同步</h2></div>
+      <div class="card" id="formalCloudSyncSection">
+        <div class="action-row">
+          <button id="formalGetCloudLatest" class="btn secondary" type="button">获取云端最新</button>
+          <button id="formalSubmitPending" class="btn" type="button" disabled>提交待同步操作</button>
+        </div>
+        <p class="fine">获取云端最新：读取家庭云端已保存的数据。提交待同步操作：继续提交或核验本机之前未完成的操作。</p>
+        <div class="fine" id="formalPendingCount">待同步：正在核验</div>
+        <div class="fine" id="formalCloudSyncFeedback" role="status" aria-live="polite"></div>
+      </div>
+      <div id="formalLegacyPlaceholders" hidden aria-hidden="true">
+        <button id="exportData" disabled type="button"></button>
+        <button id="importDataBtn" disabled type="button"></button>
+        <button id="resetAll" disabled type="button"></button>
+        <input type="file" id="importFile" disabled />
       </div>
     </section>
   </main>
-  <div class="footer-note">常见尺码与每阶段消耗量仅供采购估算，最终以宝宝实际体重、腰腿贴合和具体品牌包装标注为准。<br />本工具不提供医疗诊断；建议先试用再大量囤货。</div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="price-editor-backdrop" id="priceEditor" role="presentation" hidden>
