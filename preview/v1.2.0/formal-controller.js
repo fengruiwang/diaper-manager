@@ -1996,12 +1996,29 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   on('formalGetCloudLatest',fetchCloudLatest);
   // T05-P2-01: an Android touch entrypoint only; both existing refresh
   // buttons and this gesture call fetchCloudLatest(), never a second sync.
-  const coarseTouch=host.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches===true;
+  const touchInput=Number(host.navigator?.maxTouchPoints||0)>0
+   ||host.matchMedia?.('(any-pointer: coarse)')?.matches===true
+   ||host.matchMedia?.('(pointer: coarse)')?.matches===true;
   // Draft tracking is shared with foreground sync on desktop and mobile.
   // Only touch gestures remain conditional on the Android pointer capability.
   {
-   const threshold=76;
-   let pull=null;
+   const threshold=64;
+   let pull=null,pullFeedbackTimer=null;
+   const pullFeedback=(phase)=>{
+    const bar=$('formalNotice');
+    if(!bar?.dataset)return;
+    if(pullFeedbackTimer!==null){
+     (host.clearTimeout||clearTimeout)(pullFeedbackTimer);pullFeedbackTimer=null;
+    }
+    if(phase)bar.dataset.pullPhase=phase;
+    else delete bar.dataset.pullPhase;
+    if(phase==='success'||phase==='failure'){
+     pullFeedbackTimer=(host.setTimeout||setTimeout)(()=>{
+      if(bar.dataset.pullPhase===phase)delete bar.dataset.pullPhase;
+      pullFeedbackTimer=null;
+     },1400);
+    }
+   };
    // Static inputs survive renderAll(): connectivity alone cannot release
    // unsaved drafts. Ignore filter-only controls, but protect unknown edits.
    const editedFields=new Map(),saving=new Map();
@@ -2129,9 +2146,15 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     hasUnsaved:()=>editing(),
     reset(){editedFields.clear();saving.clear();focusValues=new WeakMap();}
    };
-   const atTop=()=>Math.max(0,Number(host.scrollY)||0,
-    Number(doc.documentElement?.scrollTop)||0,
-    Number(doc.body?.scrollTop)||0)<=1;
+   // Use the real document scrolling element when available (Android PWA
+   // commonly scrolls the root, not body). Preserve legacy fallback in tests.
+   const atTop=()=>{
+    const scroller=doc.scrollingElement;
+    return scroller?Math.max(0,Number(scroller.scrollTop)||0)<=1
+     :Math.max(0,Number(host.scrollY)||0,
+       Number(doc.documentElement?.scrollTop)||0,
+       Number(doc.body?.scrollTop)||0)<=1;
+   };
    const editing=()=>{
     for(const field of editedFields.keys())
      if(field?.isConnected===false)editedFields.delete(field);
@@ -2143,9 +2166,12 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return Boolean(doc.querySelector?.(
      '[role="dialog"]:not([hidden]),[aria-modal="true"]:not([hidden])'));
    };
-   const safe=()=>{
+   // Check the scroll position at touchstart only. Android may briefly
+   // report a root scroll offset during a finger drag; don't abort that
+   // already-qualified gesture. Every other safety gate is rechecked.
+   const safe=(checkTop=true)=>{
     if(mode!=='ready'||busy||refreshBusy||syncActionBusy
-      ||!atTop()
+      ||(checkTop&&!atTop())
       ||hasPendingPageReview()||attached?.hasActiveBusinessAction?.()
       ||$('formalResolveDocumentConflict')?.hidden===false
       ||$('formalResolveBatchConflict')?.hidden===false
@@ -2159,33 +2185,64 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    };
    const exempt=target=>Boolean(target?.closest?.(
     'input,textarea,select,button,a,[contenteditable],'
-    +'.price-editor-backdrop,.price-editor-card,.table-wrap,.ref-list,.tabs'));
-   if(coarseTouch)doc.addEventListener('touchstart',event=>{
+    +'.price-editor-backdrop,.price-editor-card,.table-wrap,.ref-list'));
+   const innerScroller=target=>{
+    const root=doc.scrollingElement||doc.documentElement||doc.body;
+    for(let node=target;node&&node!==root&&node!==doc.body;
+        node=node.parentElement){
+     const overflow=host.getComputedStyle?.(node)?.overflowY
+      ||node.style?.overflowY||'';
+     if(/auto|scroll/i.test(overflow)
+       &&Number(node.scrollHeight)>Number(node.clientHeight)+2)return true;
+    }
+    return false;
+   };
+   if(touchInput)doc.addEventListener('touchstart',event=>{
     pull=null;
-    if(event.touches?.length!==1||!safe()||exempt(event.target))return;
+    if(event.touches?.length!==1||!safe()
+      ||exempt(event.target)||innerScroller(event.target))return;
+    pullFeedback('');
     const t=event.touches[0];
     pull={x:t.clientX,y:t.clientY,armed:false};
-   },{passive:true});
-   if(coarseTouch)doc.addEventListener('touchmove',event=>{
+   },{passive:true,capture:true});
+   if(touchInput)doc.addEventListener('touchmove',event=>{
     if(!pull)return;
-    if(event.touches?.length!==1||!safe()){pull=null;return;}
+    if(event.touches?.length!==1||!safe(false)){
+     pull=null;pullFeedback('');return;
+    }
     const t=event.touches[0],dy=t.clientY-pull.y;
     const dx=Math.abs(t.clientX-pull.x);
-    // Never consume ordinary upward scrolling or a horizontal swipe.
-    if(dy<=0||dx>Math.max(12,dy*.75)){pull=null;return;}
-    if(dy<10)return;
-    if(event.cancelable)event.preventDefault();
+    // Never intercept ordinary upward scrolling or horizontal gestures.
+    if(dy<=0||dx>Math.max(12,dy*.75)){
+     pull=null;pullFeedback('');return;
+    }
+    if(dy<8)return;
+    // Avoid a second navigation if the browser has already claimed the
+    // gesture. On normal Android touch events passive:false allows cancel.
+    if(!event.cancelable){pull=null;pullFeedback('');return;}
+    event.preventDefault();
     pull.armed=dy>=threshold;
-   },{passive:false});
-   if(coarseTouch)doc.addEventListener('touchend',event=>{
+    pullFeedback(pull.armed?'armed':'pulling');
+   },{passive:false,capture:true});
+   if(touchInput)doc.addEventListener('touchend',event=>{
     const gesture=pull;pull=null;
     if(!gesture||!gesture.armed||event.changedTouches?.length!==1
-      ||!safe())return;
+      ||!safe(false)){pullFeedback('');return;}
     const t=event.changedTouches[0],dy=t.clientY-gesture.y;
-    if(dy>=threshold&&Math.abs(t.clientX-gesture.x)<=dy*.75)
-     void fetchCloudLatest();
-   },{passive:true});
-   if(coarseTouch)doc.addEventListener('touchcancel',()=>{pull=null;},{passive:true});
+    if(dy<threshold||Math.abs(t.clientX-gesture.x)>dy*.75){
+     pullFeedback('');return;
+    }
+    pullFeedback('refreshing');
+    // The toolbar and the gesture share this one authenticated cloud path.
+    void Promise.resolve(fetchCloudLatest()).then(()=>{
+     if(mode!=='ready'){pullFeedback('');return;}
+     pullFeedback($('formalCloudSyncFeedback')?.textContent==='云端数据已更新'
+      ?'success':'failure');
+    }).catch(()=>pullFeedback('failure'));
+   },{passive:true,capture:true});
+   if(touchInput)doc.addEventListener('touchcancel',()=>{
+    pull=null;pullFeedback('');
+   },{passive:true,capture:true});
   }
 
    // The 027 conflict must be proven uncommitted before user-confirmed archival.
