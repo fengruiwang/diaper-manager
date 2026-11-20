@@ -1999,6 +1999,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   const touchInput=Number(host.navigator?.maxTouchPoints||0)>0
    ||host.matchMedia?.('(any-pointer: coarse)')?.matches===true
    ||host.matchMedia?.('(pointer: coarse)')?.matches===true;
+  // Ensure native overscroll is contained even when the Android PWA media
+  // query disagrees with navigator.maxTouchPoints.
+  if(touchInput)doc.documentElement?.classList?.add('xiaobao-pull-touch');
   // Draft tracking is shared with foreground sync on desktop and mobile.
   // Only touch gestures remain conditional on the Android pointer capability.
   {
