@@ -392,6 +392,19 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
     <section class="panel" id="maternal-health" role="tabpanel" aria-labelledby="tabMaternalHealth">
       <div class="head"><h2>妈妈健康</h2></div>
       <div class="card weight-card">
+        <h3 class="section-title">妈妈健康档案</h3>
+        <p>当前阶段：<strong id="maternalProfileStage" aria-live="polite">未设置</strong></p>
+        <form id="maternalProfileForm" novalidate>
+          <div class="form-grid">
+            <label class="field">孕前体重（斤）<input id="maternalProfileJin" type="number" inputmode="decimal" step="0.01" min="0.01" disabled></label>
+            <label class="field">预产期<input id="maternalProfileDue" type="date" disabled></label>
+            <label class="field">实际分娩日期<input id="maternalProfileDelivery" type="date" disabled></label>
+          </div>
+          <div class="action-row"><button id="maternalProfileSave" class="btn" type="submit" disabled>保存档案</button></div>
+        </form>
+        <p class="fine" id="maternalProfileStatus" role="status" aria-live="polite"></p>
+      </div>
+      <div class="card weight-card">
         <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
         <form id="maternalWeightForm" novalidate>
           <div class="form-grid">

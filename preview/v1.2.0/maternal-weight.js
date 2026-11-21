@@ -17,17 +17,37 @@ const recordNote=item=>typeof item.note==='string'?item.note:'';
 
 function formatJin(kg){return String(Number((kg*2).toFixed(2)));}
 
-function weightInput(date,jin,today=localDate()){
+function validDate(date){
  const time=Date.parse(date+'T00:00:00Z');
- if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||date.startsWith('0000-')
-   ||!Number.isFinite(time)||new Date(time).toISOString().slice(0,10)!==date||date>today)
-  return {error:'请选择有效的测量日期，日期不能晚于今天。'};
+ return /^\d{4}-\d{2}-\d{2}$/.test(date)&&!date.startsWith('0000-')
+  &&Number.isFinite(time)&&new Date(time).toISOString().slice(0,10)===date;
+}
+function jinToKg(jin){
  const value=String(jin).trim();
  const cents=Math.round(Number(value)*100);
- if(!/^(?:[0-9]+(?:\.[0-9]{1,2})?|\.[0-9]{1,2})$/.test(value)
-   ||!Number.isSafeInteger(cents)||cents<=0)
+ return /^(?:[0-9]+(?:\.[0-9]{1,2})?|\.[0-9]{1,2})$/.test(value)
+  &&Number.isSafeInteger(cents)&&cents>0?cents/200:null;
+}
+function weightInput(date,jin,today=localDate()){
+ if(!validDate(date)||date>today)
+  return {error:'请选择有效的测量日期，日期不能晚于今天。'};
+ const weightKg=jinToKg(jin);
+ if(weightKg===null)
   return {error:'请输入大于 0 的体重，最多保留两位小数（斤）。'};
- return {date,weightKg:cents/200};
+ return {date,weightKg};
+}
+function profileInput({jin,dueDate,deliveryDate},today=localDate()){
+ const prePregnancyWeightKg=jinToKg(jin);
+ if(jin.trim()&&prePregnancyWeightKg===null)
+  return {error:'孕前体重必须大于 0，最多保留两位小数（斤）。'};
+ if(dueDate&&!validDate(dueDate))return {error:'请选择有效的预产期。'};
+ if(deliveryDate&&(!validDate(deliveryDate)||deliveryDate>today))
+  return {error:'请选择有效的实际分娩日期，日期不能晚于今天。'};
+ return {prePregnancyWeightKg,dueDate:dueDate||null,deliveryDate:deliveryDate||null};
+}
+function maternalStage(profile){
+ if(profile?.deliveryDate)return '产后';
+ return profile?.prePregnancyWeightKg||profile?.dueDate?'孕期':'未设置';
 }
 
 function history(body){
@@ -109,20 +129,29 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  const archive=$('maternalWeightArchive'),status=$('maternalWeightStatus');
  const chartNode=$('maternalWeightChart'),empty=$('maternalWeightEmpty');
  const table=$('maternalWeightTable'),rows=$('maternalWeightRows');
+ const profileForm=$('maternalProfileForm'),profileJin=$('maternalProfileJin');
+ const profileDue=$('maternalProfileDue'),profileDelivery=$('maternalProfileDelivery');
+ const profileStage=$('maternalProfileStage'),profileSave=$('maternalProfileSave'),profileStatus=$('maternalProfileStatus');
  const client=clientFactory?.create({controller,cloudWritesEnabled});
  let operations;
  try{operations=operationsFactory?.create({host,controller,client,cloudWritesEnabled});}
  catch(_){/* Reading is available when persistent browser storage is unavailable. */}
  let scope=null,snapshot=null,canSave=false,busy=false,pending=false,conflict=null;
  let editId=null,draftRequest=null,deletionRequest=null;
+ let profileDirty=false,profileRequest=null;
 
- function canDelete(){
+ function canWrite(){
   return Boolean(scope&&current(scope)&&!busy&&canSave&&!pending&&operations&&cloudWritesEnabled);
  }
 
  function controls(){
   const disabled=busy||!scope;
   save.disabled=disabled||!operations||!cloudWritesEnabled||!canSave||pending;
+  const canWriteNow=canWrite();
+  if(profileForm){
+   profileSave.disabled=!canWriteNow;
+   profileJin.disabled=profileDue.disabled=profileDelivery.disabled=disabled||!canSave||pending;
+  }
   date.disabled=jin.disabled=cancel.disabled=refreshButton.disabled=disabled;
   if(time)time.disabled=disabled;
   if(note)note.disabled=disabled;
@@ -131,9 +160,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   recover.disabled=disabled;
   archive.hidden=!conflict||!canSave||!(snapshot.revision>conflict.expectedRevision);
   archive.disabled=disabled;
-  const deleteDisabled=!canDelete();
   for(const button of rows.querySelectorAll('button'))
-   button.disabled=button.dataset.deleteWeight?deleteDisabled:disabled||!canSave;
+   button.disabled=button.dataset.deleteWeight?!canWriteNow:disabled||!canSave;
  }
  function resetForm(){
   editId=draftRequest=null;
@@ -145,7 +173,18 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   $('maternalWeightHeading').textContent='记录体重';
   save.textContent='保存体重记录';
  }
+ function renderProfile(){
+  if(!profileForm)return;
+  const profile=snapshot?.body.maternalProfile;
+  profileStage.textContent=maternalStage(profile);
+  profileDelivery.max=localDate();
+  if(profileDirty)return;
+  profileJin.value=profile?.prePregnancyWeightKg?formatJin(profile.prePregnancyWeightKg):'';
+  profileDue.value=profile?.dueDate||'';
+  profileDelivery.value=profile?.deliveryDate||'';
+ }
  function render(){
+  renderProfile();
   const records=history(snapshot?.body);
   const caption=snapshot?'暂无体重记录':'尚未读取体重记录';
   empty.hidden=records.length>0;
@@ -187,13 +226,13 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   controls();
  }
  function current(started){return scope===started&&same(started,controller.verifiedContext());}
- async function run(message,work){
+ async function run(message,work,feedback=status){
   if(!scope||busy)return;
   const started=scope;
-  busy=true;status.textContent=message;controls();
+  busy=true;feedback.textContent=message;controls();
   try{await work(started);}
   catch(_){
-   if(current(started))status.textContent='操作未完成，请刷新记录或核验待确认保存。';
+   if(current(started))feedback.textContent='操作未完成，请刷新记录或核验待确认保存。';
   }finally{
    if(scope===started){busy=false;controls();}
   }
@@ -222,16 +261,18 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
     :'云端体重记录已刷新。';
   });
  }
- async function send(started){
+ async function send(started,feedback=status){
   const result=await operations.send();
   if(!current(started))return;
   const deletedId=deletionRequest&&result.requestId===deletionRequest.requestId
    ?deletionRequest.recordId:null;
+  const savedProfile=profileRequest&&result.requestId===profileRequest;
   const committed=result.status==='COMMITTED'||result.status==='COMMITTED_NEEDS_REFRESH';
   if(committed){
    const editRemoved=editId&&result.status==='COMMITTED'
     &&!result.document.body.items.some(item=>item.id===editId&&item.kind==='weight');
-   if(result.requestId===draftRequest||(deletedId&&editId===deletedId)||editRemoved)resetForm();
+   if(savedProfile){profileDirty=false;profileRequest=null;}
+   else if(result.requestId===draftRequest||(deletedId&&editId===deletedId)||editRemoved)resetForm();
    if(deletedId)deletionRequest=null;
   }
   if(result.status==='COMMITTED'){
@@ -244,32 +285,36 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   }
   await review(started);
   if(!current(started))return;
-  status.textContent=result.status==='COMMITTED'
-   ?(deletedId?'体重记录已从云端删除。':'体重记录已保存至云端。')
+  const message=result.status==='COMMITTED'
+   ?(savedProfile?'妈妈健康档案已保存至云端。':deletedId?'体重记录已从云端删除。':'记录已保存至云端。')
    :result.status==='EMPTY'?'没有待确认的保存请求。'
    :messages[result.status]||'本次保存未确认，请刷新记录或核验原请求。';
+  feedback.textContent=message;
+  if(savedProfile)profileStatus.textContent=message;
  }
- async function saveDocument(started,nextBody,deletedId=null){
+ async function saveDocument(started,nextBody,{deletedId,profileSave=false}={}){
+  const feedback=profileSave?profileStatus:status;
   const queued=await operations.queue({baseline:snapshot,nextBody});
   if(!current(started))return;
   if(queued.status==='QUEUED'){
    if(deletedId)deletionRequest={requestId:queued.requestId,recordId:deletedId};
+   else if(profileSave)profileRequest=queued.requestId;
    else draftRequest=queued.requestId;
    pending=true;
-   await send(started);
+   await send(started,feedback);
   }else{
    await review(started);
-   if(current(started))status.textContent=messages[queued.status]||'本机未确认入队，请核验待确认保存。';
+   if(current(started))feedback.textContent=messages[queued.status]||'本机未确认入队，请核验待确认保存。';
   }
  }
  function deleteRecord(item){
-  if(!canDelete())return;
+  if(!canWrite())return;
   if(!doc.defaultView?.confirm('确定删除 '+item.date+' 的妈妈体重记录？删除后无法撤销。'))return;
-  if(!canDelete())return;
+  if(!canWrite())return;
   return run('正在删除体重记录…',async started=>{
    const nextBody=deleteDocument(snapshot.body,item.id);
    if(!nextBody){status.textContent='原记录已变化，请刷新云端记录后重试。';return;}
-   await saveDocument(started,nextBody,item.id);
+   await saveDocument(started,nextBody,{deletedId:item.id});
   });
  }
  form.addEventListener('submit',event=>{
@@ -294,6 +339,27 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
    await saveDocument(started,nextBody);
   });
  });
+ profileForm?.addEventListener('input',()=>{
+  profileDirty=true;
+  profileStatus.textContent='';
+ });
+ profileForm?.addEventListener('submit',event=>{
+  event.preventDefault();
+  if(!canWrite())return;
+  if([profileJin,profileDue,profileDelivery].some(input=>input.validity?.badInput)){
+   profileStatus.textContent='请检查孕前体重和日期输入。';return;
+  }
+  const profile=profileInput({jin:profileJin.value,dueDate:profileDue.value,deliveryDate:profileDelivery.value});
+  if(profile.error){profileStatus.textContent=profile.error;return;}
+  const nextBody={...snapshot.body};
+  const previous=nextBody.maternalProfile;
+  if(profile.prePregnancyWeightKg!==null&&previous?.prePregnancyWeightKg
+    &&formatJin(profile.prePregnancyWeightKg)===formatJin(previous.prePregnancyWeightKg))
+   profile.prePregnancyWeightKg=previous.prePregnancyWeightKg;
+  if(maternalStage(profile)==='未设置')delete nextBody.maternalProfile;
+  else nextBody.maternalProfile={...previous,...profile};
+  return run('正在保存妈妈健康档案…',started=>saveDocument(started,nextBody,{profileSave:true}),profileStatus);
+ });
  refreshButton.addEventListener('click',refresh);
  recover.addEventListener('click',()=>run('正在核验原保存请求…',send));
  cancel.addEventListener('click',()=>{resetForm();controls();});
@@ -311,6 +377,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   if(!scope&&!next||same(scope,next))return;
   scope=next;snapshot=null;canSave=busy=pending=false;conflict=null;
   deletionRequest=null;
+  profileDirty=false;profileRequest=null;
+  if(profileStatus)profileStatus.textContent='';
   resetForm();render();
   status.textContent='尚未读取云端体重记录。';
   if(scope&&panel.classList.contains('active'))void refresh();
@@ -319,7 +387,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  return {setContext};
 }
 
-const api={mount,localDate,formatJin,weightInput,history,updateDocument,deleteDocument,chart};
+const api={mount,localDate,formatJin,weightInput,profileInput,maternalStage,history,updateDocument,deleteDocument,chart};
 if(root)root.XBMaternalWeight=api;
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);

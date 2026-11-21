@@ -63,7 +63,7 @@ DECLARE
  rejected_request constant uuid := 'a1300000-0000-4000-8000-000000000003';
  empty_body constant jsonb := '{"schemaVersion":1,"items":[]}';
  first_body constant jsonb := '{"schemaVersion":1,"items":[{"id":"mock-w","kind":"weight","date":"2026-01-02","weightKg":62}]}';
- second_body constant jsonb := '{"schemaVersion":1,"items":[{"id":"mock-w","kind":"weight","date":"2026-01-02","weightKg":63},{"id":"mock-c","kind":"constipation","date":"2026-01-03"},{"id":"mock-r","kind":"postpartum_recovery","date":"2026-01-04"}]}';
+ second_body constant jsonb := '{"schemaVersion":1,"maternalProfile":{"prePregnancyWeightKg":47.005,"dueDate":"2026-01-01","deliveryDate":null},"source":{"label":"synthetic"},"items":[{"id":"mock-w","kind":"weight","date":"2026-01-02","time":"06:05","weightKg":63,"note":"synthetic note"},{"id":"mock-c","kind":"constipation","date":"2026-01-03"},{"id":"mock-r","kind":"postpartum_recovery","date":"2026-01-04"}]}';
  invalid_body jsonb;
  denied_actor text;
 BEGIN
@@ -101,11 +101,11 @@ BEGIN
  EXCEPTION WHEN unique_violation THEN NULL;
  END;
  PERFORM public.xb_test_assert(public.xb_put_maternal_health(f,1,second_request,second_body)->>'revision' = '2',
-  'B updates the same family document to revision 2');
+  'B adds a maternal profile and updates the same family document to revision 2');
 
  PERFORM set_config('xb.test.uid','t09-health-a',true);
  PERFORM public.xb_test_assert(public.xb_read_maternal_health(f) =
-  jsonb_build_object('family_id',f,'revision',2,'body',second_body), 'A sees B edits and additions');
+  jsonb_build_object('family_id',f,'revision',2,'body',second_body), 'A reads the complete profile, history and extensions unchanged');
  PERFORM public.xb_test_assert(public.xb_check_maternal_health_request(f,first_request) =
   jsonb_build_object('status','COMMITTED','family_id',f,'request_id',first_request,'revision',1),
   'lost ACK can be recovered after the family revision advances');

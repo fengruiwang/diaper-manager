@@ -8,16 +8,25 @@ const validRevision=value=>Number.isSafeInteger(value)&&value>=0;
 const kinds=new Set(['weight','constipation','postpartum_recovery']);
 const outcome=(status,fields={})=>Object.freeze({status,...fields});
 
+function validDate(value){
+ if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||value.startsWith('0000-'))return false;
+ const time=Date.parse(value+'T00:00:00Z');
+ return Number.isFinite(time)&&new Date(time).toISOString().slice(0,10)===value;
+}
+function validProfile(profile){
+ if(!isObject(profile))return false;
+ const {prePregnancyWeightKg,dueDate,deliveryDate}=profile;
+ return (prePregnancyWeightKg==null||(Number.isFinite(prePregnancyWeightKg)&&prePregnancyWeightKg>0))
+  &&(dueDate==null||validDate(dueDate))&&(deliveryDate==null||validDate(deliveryDate));
+}
 function validBody(body){
  if(!isObject(body)||body.schemaVersion!==1||!Array.isArray(body.items))return false;
+ if(body.maternalProfile!==undefined&&!validProfile(body.maternalProfile))return false;
  const ids=new Set();
  for(const item of body.items){
   if(!isObject(item)||typeof item.id!=='string'||!item.id.trim()||item.id.trim().length>200
-    ||ids.has(item.id)||!kinds.has(item.kind)||typeof item.date!=='string'
-    ||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(item.date)||item.date.startsWith('0000-'))
+    ||ids.has(item.id)||!kinds.has(item.kind)||!validDate(item.date))
    return false;
-  const time=Date.parse(item.date+'T00:00:00Z');
-  if(!Number.isFinite(time)||new Date(time).toISOString().slice(0,10)!==item.date)return false;
   if(item.kind==='weight'&&(!Number.isFinite(item.weightKg)||item.weightKg<=0))return false;
   ids.add(item.id);
  }

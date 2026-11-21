@@ -214,6 +214,52 @@ test('optional local time and note round-trip across the family without changing
  assert.deepEqual((await f.client.read(A)).body,edited);
 });
 
+test('the optional profile contract accepts old documents and rejects invalid profile fields',()=>{
+ assert.equal(Client.validBody(EMPTY),true);
+ assert.equal(Client.validBody({...EMPTY,maternalProfile:{
+  prePregnancyWeightKg:null,dueDate:'2024-02-29',deliveryDate:null
+ }}),true);
+ for(const maternalProfile of [null,[],{dueDate:'2026-02-29'},{deliveryDate:'2026/01/01'},
+  {prePregnancyWeightKg:0},{prePregnancyWeightKg:'47'}]){
+  assert.equal(Client.validBody({...EMPTY,maternalProfile}),false);
+ }
+});
+
+test('A and B share profile changes with CAS conflict and original receipt recovery',async()=>{
+ const f=fixture();
+ const first={...body(52),source:{label:'synthetic'},maternalProfile:{
+  prePregnancyWeightKg:47,dueDate:'2026-01-01',deliveryDate:null
+ }};
+ Object.assign(first.items[0],{time:'06:05',note:'synthetic note'});
+ const initial=await f.client.read(A);
+ await f.ops.queue({baseline:initial,nextBody:first});
+ assert.equal((await f.ops.send()).revision,1);
+ const staleA=await f.client.read(A);
+ f.actAs(B);
+ const baseline=await f.client.read(B);
+ assert.deepEqual(baseline.body,first);
+ const next={...first,maternalProfile:{...first.maternalProfile,deliveryDate:'2025-12-31'}};
+ const queued=await f.ops.queue({baseline,nextBody:next});
+ let lost=false;
+ f.intercept((name,_args,call)=>{
+  if(name==='xb_put_maternal_health'){call();lost=true;throw Error('synthetic ACK loss');}
+  if(lost&&name==='xb_check_maternal_health_request')throw Error('synthetic disconnection');
+  return call();
+ });
+ assert.deepEqual(await f.ops.send(),{status:'UNKNOWN',requestId:queued.requestId});
+ f.intercept(null);
+ const recovered=await f.make().ops.send();
+ assert.equal(recovered.status,'COMMITTED');
+ assert.equal(recovered.requestId,queued.requestId);
+ assert.equal(recovered.revision,2);
+ assert.equal(f.generated,2);
+ f.actAs(A);
+ assert.deepEqual((await f.client.read(A)).body,next);
+ await f.ops.queue({baseline:staleA,nextBody:first});
+ assert.equal((await f.ops.send()).status,'REVISION_CONFLICT');
+ assert.deepEqual((await f.client.read(A)).body,next);
+});
+
 test('CAS conflict remains after a revised save and explicit archival preserves its history',async()=>{
  const f=fixture(),a=await f.client.read(A);
  f.actAs(B);

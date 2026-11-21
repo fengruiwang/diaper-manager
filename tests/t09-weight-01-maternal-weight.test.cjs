@@ -53,7 +53,7 @@ test('deletion removes only the matching weight ID and preserves the immutable s
  assert.deepEqual(body.items,[first,constipation,second,recovery]);
 });
 
-async function mountedWeights(items,{legacy=false}={}){
+async function mountedWeights(items,{legacy=false,profile,extensions={}}={}){
  const nodes=new Map();
  function element(tag){
   return {
@@ -83,10 +83,12 @@ async function mountedWeights(items,{legacy=false}={}){
  const prompts=[],queued=[];
  let confirm=true,outcome='COMMITTED',pending=0,sends=0,request;
  const scope={app:{},familyId:'synthetic-family',actorUid:'synthetic-actor'};
- let snapshot={status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items}};
+ let snapshot={status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items,...extensions}};
+ if(profile)snapshot.body.maternalProfile=profile;
  const doc={
   defaultView:{confirm(message){assert.equal(this,doc.defaultView);prompts.push(message);return confirm;}},
-  getElementById:id=>legacy&&['maternalWeightTime','maternalWeightNote'].includes(id)?null:get(id),
+  getElementById:id=>legacy&&(id.startsWith('maternalProfile')||
+   ['maternalWeightTime','maternalWeightNote'].includes(id))?null:get(id),
   createElement:element,addEventListener(){},
  };
  const panel=weight.mount({
@@ -118,6 +120,7 @@ async function mountedWeights(items,{legacy=false}={}){
    get('maternalWeightForm').handlers.submit({preventDefault(){}});
    await new Promise(resolve=>setImmediate(resolve));
   },
+  saveProfile:()=>get('maternalProfileForm').handlers.submit({preventDefault(){}}),
   edit:index=>rows.children[index].querySelectorAll('button')[0].handlers.click(),
   remove:()=>rows.querySelectorAll('button').filter(button=>button.dataset.deleteWeight),
   setConfirm:value=>{confirm=value;},setOutcome:value=>{outcome=value;},
@@ -127,6 +130,70 @@ async function mountedWeights(items,{legacy=false}={}){
 const first=measurement('first','2026-11-20',51.5);
 const second=measurement('second',today,52);
 const other={id:'other',kind:'constipation',date:today};
+
+test('profile input accepts independent calendar dates and rejects malformed weight and future delivery',()=>{
+ const fields={jin:'94.01',dueDate:'2026-01-01',deliveryDate:''};
+ const profile=weight.profileInput(fields,today);
+ assert.deepEqual(profile,{prePregnancyWeightKg:47.005,dueDate:'2026-01-01',deliveryDate:null});
+ assert.equal(weight.maternalStage(profile),'孕期');
+ assert.equal(weight.maternalStage({...profile,deliveryDate:'2025-12-31'}),'产后');
+ for(const jin of ['0','-1','94.001','NaN','1e2'])
+  assert.match(weight.profileInput({...fields,jin},today).error,/孕前体重/);
+ assert.match(weight.profileInput({...fields,dueDate:'2026-02-29'},today).error,/预产期/);
+ assert.match(weight.profileInput({...fields,deliveryDate:'2026-02-29'},today).error,/分娩日期/);
+ assert.match(weight.profileInput({...fields,deliveryDate:'2026-11-22'},today).error,/分娩日期/);
+ assert.equal(weight.profileInput({...fields,deliveryDate:'2025-12-31'},today).deliveryDate,'2025-12-31');
+});
+
+test('profile saves, refills and clears without replacing history, extensions or a weight draft',async()=>{
+ const record={...first,time:'08:30',note:'保留'};
+ const extension={familyPreference:true};
+ const f=await mountedWeights([record,other],{extensions:{extension}});
+ const jin=f.get('maternalProfileJin'),due=f.get('maternalProfileDue');
+ const delivery=f.get('maternalProfileDelivery'),stage=f.get('maternalProfileStage');
+ assert.deepEqual([stage.textContent,jin.value,due.value,delivery.value],['未设置','','','']);
+ f.edit(0);
+ f.jin.value='103.27';
+ f.get('maternalWeightNote').value='未保存的修改';
+ jin.value='94.01';due.value='2026-01-01';
+ await f.saveProfile();
+ const firstBody=f.queued[0].nextBody;
+ assert.deepEqual(firstBody,{schemaVersion:1,items:[record,other],extension,
+  maternalProfile:{prePregnancyWeightKg:47.005,dueDate:'2026-01-01',deliveryDate:null}});
+ assert.equal(stage.textContent,'孕期');
+ assert.match(f.get('maternalProfileStatus').textContent,/已保存至云端/);
+ assert.deepEqual([f.jin.value,f.get('maternalWeightNote').value],['103.27','未保存的修改']);
+ delivery.value='2025-12-31';
+ await f.saveProfile();
+ assert.equal(stage.textContent,'产后');
+ const reopened=await mountedWeights([record,other],{profile:f.queued[1].nextBody.maternalProfile});
+ assert.deepEqual(['maternalProfileJin','maternalProfileDue','maternalProfileDelivery']
+  .map(id=>reopened.get(id).value),['94.01','2026-01-01','2025-12-31']);
+ assert.equal(reopened.get('maternalProfileStage').textContent,'产后');
+ jin.value=due.value=delivery.value='';
+ await f.saveProfile();
+ assert.equal(stage.textContent,'未设置');
+ assert.deepEqual(f.queued[2].nextBody,{schemaVersion:1,items:[record,other],extension});
+ assert.equal(f.get('maternalWeightCancel').hidden,false);
+ assert.equal(f.jin.value,'103.27');
+});
+
+test('profile receipt recovery keeps the original request and the weight draft',async()=>{
+ const f=await mountedWeights([first]);
+ f.edit(0);f.jin.value='103.25';
+ f.get('maternalProfileDue').value='2026-01-01';
+ f.setOutcome('UNKNOWN');
+ await f.saveProfile();
+ assert.equal(f.get('maternalProfileStage').textContent,'未设置');
+ assert.equal(f.get('maternalProfileSave').disabled,true);
+ assert.match(f.get('maternalProfileStatus').textContent,/原请求已保留/);
+ f.setOutcome('COMMITTED');
+ await f.get('maternalWeightRecover').handlers.click();
+ assert.equal(f.queued.length,1);
+ assert.equal(f.sends,2);
+ assert.equal(f.get('maternalProfileStage').textContent,'孕期');
+ assert.equal(f.jin.value,'103.25');
+});
 
 test('new records default to the local minute and save the selected time and optional note verbatim',async()=>{
  const before=new Date();
