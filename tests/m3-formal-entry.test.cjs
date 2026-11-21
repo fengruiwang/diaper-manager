@@ -232,7 +232,8 @@ test('startup while offline does not attempt SDK initialization, does not clear 
 test('formal static upload references two real parent-directory controllers and inline modules match Feature sources',()=>{
  const assets=[...html.matchAll(/<(?:script|link|img|source)\b[^>]*\b(?:src|href)="([^"]+)"/gi)]
   .map(m=>m[1]);
- assert.deepEqual(assets,['../m1-controller.js','../formal-controller.js']);
+ assert.deepEqual(assets,['../m1-controller.js','../../../sync/maternal-health-client.js',
+  '../../../sync/maternal-health-operations.js','../maternal-weight.js','../formal-controller.js']);
  // Resolve URL-relative imports from the actual HTML folder; missing assets
  // must fail before a green CI can claim a deployable browser preview.
  for(const asset of assets){
@@ -242,7 +243,7 @@ test('formal static upload references two real parent-directory controllers and 
  }
  for(const name of [
   'primary-cloud-operations','primary-business-commands',
-  'primary-formal-ui-actions','primary-stocktake-batch-client','idb-outbox',
+  'primary-formal-ui-actions','primary-stocktake-batch-client','idb-outbox','outbox-contract',
   'primary-documents-client','primary-documents-operations',
   'primary-documents-business-commands','primary-documents-overlay']){
   const code=fs.readFileSync(path.join(__dirname,'../sync/'+name+'.js'),'utf8');

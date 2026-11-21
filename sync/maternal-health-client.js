@@ -29,6 +29,7 @@ function errorStatus(error,status){
  if(code==='40001')return 'REVISION_CONFLICT';
  if(code==='23505')return 'REQUEST_ID_CONFLICT';
  if(code==='22023')return 'INVALID_INPUT';
+ if(['42883','PGRST202','404'].includes(code)||Number(status)===404)return 'UNAVAILABLE';
  if(['42501','401','403'].includes(code)||[401,403].includes(Number(status)))
   return 'PERMISSION_DENIED';
  return 'UNKNOWN';

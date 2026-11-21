@@ -104,7 +104,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  commandsFactory,actionsFactory,projection,ui,scriptLoader,
  documentsFactory=null,documentsOverlay=null,
  documentOpsFactory=null,documentCommandsFactory=null,
- historyCache=null,
+ historyCache=null,maternalWeightFactory=null,
  batchStocktakeFactory=null,
  purchaseReleaseEnabled=FORMAL_PURCHASE_ENABLED,
  purchaseOperatorApproved=()=>false,
@@ -118,7 +118,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  let controller=null,primary=null,warmPrimary=null,attached=null,pendingGuard=null,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
- let familyContext=null;
+ let familyContext=null,maternalWeight=null;
  let shownStock=null,localInventoryBaselineReady=false,cachedPreview=null;
  const BOOT_MESSAGE='正在进入小宝管家…';
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
@@ -359,6 +359,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
  function setFamilyContext(ctx){
   if(familyContext&&!sameFamilyContext(ctx))ui.resetNavigation?.();
   familyContext=ctx;
+  maternalWeight?.setContext(ctx);
   if(ctx)doc.body.dataset.formalFamilyReady='true';
   else delete doc.body.dataset.formalFamilyReady;
   const entry=$('formalOpenMaternalHealth');
@@ -1967,6 +1968,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    host,storage:null,view:authView(),scriptLoader,
    deferChildReadToFormal:true
   });
+  maternalWeight=maternalWeightFactory?.(controller);
   restoreOtpCooldown();startOtpTicker();redrawConfirmButton();
   function on(id,fn){
    $(id)?.addEventListener('click',()=>{
@@ -2071,7 +2073,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const groupOf=field=>{
     const id=String(field?.id||'');
     if(['growthRange','refBrand','refSize','refSearch','formalEmail',
-       'formalOtp'].includes(id))return null;
+       'formalOtp','maternalWeightDate','maternalWeightJin'].includes(id))return null;
     if(['sizeMode','currentSize','goalPrice'].includes(id))return 'size';
     if(['replenishMode','replenishDays'].includes(id)
       ||/^(target_|daily_)/.test(id))return 'plans';
@@ -2759,6 +2761,11 @@ function browserStart(){
   host:root,doc,scriptLoader:loader,
   purchaseOperatorApproved:()=>FORMAL_PURCHASE_ENABLED,
   loginController:root.XBM1PreviewModule,
+  maternalWeightFactory:controller=>root.XBMaternalWeight?.mount({
+   doc,host:root,controller,
+   clientFactory:root.XBMaternalHealthClient,operationsFactory:root.XBMaternalHealthOperations,
+   cloudWritesEnabled:true
+  }),
   projection:root.XBPrimaryUIProjection,ui:root.XBM3UI,
   historyCache:root.XBPrimaryCloudReadModel.createHistoryCache(),
   documentsFactory:app=>root.XBPrimaryDocumentsClient?.create({

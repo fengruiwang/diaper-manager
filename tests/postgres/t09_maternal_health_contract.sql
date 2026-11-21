@@ -8,11 +8,10 @@ SELECT public.xb_test_assert(
  AND NOT has_function_privilege('anon','public.xb_read_maternal_health(uuid)','EXECUTE')
  AND NOT has_function_privilege('anon','public.xb_check_maternal_health_request(uuid,uuid)','EXECUTE')
  AND NOT has_function_privilege('anon','public.xb_put_maternal_health(uuid,bigint,uuid,jsonb)','EXECUTE')
- AND NOT has_function_privilege('authenticated','public.xb_put_maternal_health(uuid,bigint,uuid,jsonb)','EXECUTE'),
- 'health tables are private and app writes start closed');
-
--- Enable writes exclusively in this disposable database.
-GRANT EXECUTE ON FUNCTION public.xb_put_maternal_health(uuid,bigint,uuid,jsonb) TO authenticated;
+ AND has_function_privilege('authenticated','public.xb_read_maternal_health(uuid)','EXECUTE')
+ AND has_function_privilege('authenticated','public.xb_check_maternal_health_request(uuid,uuid)','EXECUTE')
+ AND has_function_privilege('authenticated','public.xb_put_maternal_health(uuid,bigint,uuid,jsonb)','EXECUTE'),
+ 'health tables are private and authenticated has all three RPCs');
 
 INSERT INTO public.families(id,display_name,owner_uid) VALUES
  ('f1300000-0000-4000-8000-000000000001','SYNTHETIC HEALTH FAMILY','t09-health-a'),
@@ -33,6 +32,29 @@ INSERT INTO public.family_app_access(family_id,user_uid,app_code,granted_by) VAL
  ('f1300000-0000-4000-8000-000000000003','t09-cas-b','xb','t09-cas-a');
 
 SET ROLE authenticated;
+DO $$
+BEGIN
+ BEGIN
+  PERFORM 1 FROM public.xb_maternal_health_documents;
+  RAISE EXCEPTION 'expected direct document read denial';
+ EXCEPTION WHEN insufficient_privilege THEN NULL;
+ END;
+ BEGIN
+  DELETE FROM public.xb_maternal_health_documents WHERE false;
+  RAISE EXCEPTION 'expected direct document write denial';
+ EXCEPTION WHEN insufficient_privilege THEN NULL;
+ END;
+ BEGIN
+  PERFORM 1 FROM public.xb_maternal_health_requests;
+  RAISE EXCEPTION 'expected direct receipt read denial';
+ EXCEPTION WHEN insufficient_privilege THEN NULL;
+ END;
+ BEGIN
+  DELETE FROM public.xb_maternal_health_requests WHERE false;
+  RAISE EXCEPTION 'expected direct receipt write denial';
+ EXCEPTION WHEN insufficient_privilege THEN NULL;
+ END;
+END $$;
 DO $$
 DECLARE
  f constant uuid := 'f1300000-0000-4000-8000-000000000001';

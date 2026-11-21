@@ -1516,7 +1516,7 @@
    const handler=event=>{
     if(!formalModeSelected())return;
     const el=event.target?.closest?.('button,[data-action],[data-preset]');
-    if(!el)return;
+    if(!el||doc.getElementById('maternal-health')?.contains?.(el))return;
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
@@ -1564,7 +1564,7 @@
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
    const formHandler=event=>{
-    if(!formalModeSelected())return;
+    if(!formalModeSelected()||doc.getElementById('maternal-health')?.contains?.(event.target))return;
     event.preventDefault();event.stopImmediatePropagation();
     if(event.target?.id!=='priceEditForm')return;
     if(readSyncBusy()){

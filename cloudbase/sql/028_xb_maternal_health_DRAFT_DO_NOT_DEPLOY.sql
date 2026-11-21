@@ -1,6 +1,5 @@
 -- V1.3.0 family-scoped maternal health. Install only with separate authorization.
--- Depends on 001 shared foundation. The write RPC is installed without EXECUTE
--- for application roles until separately approved.
+-- Depends on 001 shared foundation. Application roles use the family-scoped RPCs.
 BEGIN;
 
 CREATE TABLE public.xb_maternal_health_documents (
@@ -161,5 +160,6 @@ REVOKE ALL ON FUNCTION public.xb_read_maternal_health(uuid),
  public.xb_check_maternal_health_request(uuid,uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.xb_read_maternal_health(uuid),
  public.xb_check_maternal_health_request(uuid,uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.xb_put_maternal_health(uuid,bigint,uuid,jsonb) TO authenticated;
 
 COMMIT;

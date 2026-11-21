@@ -127,6 +127,9 @@ body[data-formal-family-ready]:not([data-formal-state="ready"]):has(#maternal-he
 body:not([data-formal-state="ready"]) .wrap :is(.hero,.pwa-launch,.pwa-notice,.tab:not([data-tab="maternal-health"]),.panel:not(#maternal-health)),
 body:not([data-formal-state="ready"]) #priceEditor{display:none!important}
 body:not([data-formal-state="ready"]) [data-tab="maternal-health"]{grid-column:1/-1}
+#maternal-health .weight-card{margin-bottom:16px}
+#maternal-health .weight-actions{display:flex;flex-wrap:wrap;gap:8px}
+#maternal-health .weight-feedback{margin:12px 0;color:var(--muted)}
 /* Android Chrome/Edge/PWA: prefer the in-app top pull to browser reload.
    Native desktop scrolling and editing containers are unaffected. */
 @media (pointer:coarse), (any-pointer:coarse), (hover:none){
@@ -393,9 +396,39 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
     </section>
     <section class="panel" id="maternal-health" role="tabpanel" aria-labelledby="tabMaternalHealth">
       <div class="head"><h2>妈妈健康</h2></div>
-      <div class="empty"><b>暂无健康记录</b></div>
-      <div class="action-row">
-        <button id="maternalHealthBack" class="btn secondary" type="button">查看宝宝业务状态</button>
+      <div class="card weight-card">
+        <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
+        <form id="maternalWeightForm" novalidate>
+          <div class="form-grid">
+            <label class="field">测量日期<input id="maternalWeightDate" type="date" required></label>
+            <label class="field">体重（斤）<input id="maternalWeightJin" type="number" inputmode="decimal" step="0.01" min="0.01" required></label>
+          </div>
+          <div class="action-row">
+            <button id="maternalWeightSave" class="btn" type="submit" disabled>保存体重记录</button>
+            <button id="maternalWeightCancel" class="btn ghost" type="button" hidden>取消编辑</button>
+          </div>
+        </form>
+        <p class="weight-feedback" id="maternalWeightStatus" role="status" aria-live="polite">尚未读取云端体重记录。</p>
+        <div class="weight-actions">
+          <button id="maternalWeightRefresh" class="btn secondary sm" type="button">刷新云端记录</button>
+          <button id="maternalWeightRecover" class="btn secondary sm" type="button" hidden>核验待确认保存</button>
+          <button id="maternalWeightArchive" class="btn ghost sm" type="button" hidden>放弃旧冲突请求</button>
+          <button id="maternalHealthBack" class="btn ghost sm" type="button">查看宝宝业务状态</button>
+        </div>
+      </div>
+      <div class="card weight-card">
+        <h3 class="section-title">体重趋势（斤）</h3>
+        <div id="maternalWeightChart" class="empty">尚未读取体重记录</div>
+      </div>
+      <div class="card">
+        <h3 class="section-title">历史记录</h3>
+        <div id="maternalWeightEmpty" class="empty">尚未读取体重记录</div>
+        <div id="maternalWeightTable" class="table-wrap" hidden>
+          <table class="tbl">
+            <thead><tr><th scope="col">测量日期</th><th scope="col">体重（斤）</th><th scope="col">操作</th></tr></thead>
+            <tbody id="maternalWeightRows"></tbody>
+          </table>
+        </div>
       </div>
     </section>
   </main>
@@ -658,6 +691,7 @@ function tab(to,{scroll=true}={}){
  if(to==='settings')renderSettings();
  if(to==='growth')renderGrowth();
  if(to==='compare'){renderQuotes();renderReferenceTable();}
+ if(to==='maternal-health')document.dispatchEvent(new Event('maternal-health-open'));
  if(scroll)window.scrollTo({top:0,behavior:'smooth'});
 }
 function restoreActiveTab(){/* default overview, never read tab storage */}
@@ -2047,8 +2081,8 @@ restoreActiveTab();
    Does not perform persistence or network requests. */
 (function(root){
  'use strict';
- const TYPES=Object.freeze(['inventory.delta','inventory.count','transaction.reverse','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch']);
- const NEED_REV=new Set(['inventory.count','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch']);
+ const TYPES=Object.freeze(['inventory.delta','inventory.count','transaction.reverse','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch','maternal-health.upsert']);
+ const NEED_REV=new Set(['inventory.count','weight.upsert','weight.delete','profile.patch','settings.patch','quote.upsert','quote.delete','reference.patch','maternal-health.upsert']);
  const WAITING=new Set(['pending','retry','conflict']);
  const validString=x=>typeof x==='string'&&x.length>0&&x.length<=160;
  const isObject=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -6293,7 +6327,7 @@ restoreActiveTab();
    const handler=event=>{
     if(!formalModeSelected())return;
     const el=event.target?.closest?.('button,[data-action],[data-preset]');
-    if(!el)return;
+    if(!el||doc.getElementById('maternal-health')?.contains?.(el))return;
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
@@ -6341,7 +6375,7 @@ restoreActiveTab();
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
    const formHandler=event=>{
-    if(!formalModeSelected())return;
+    if(!formalModeSelected()||doc.getElementById('maternal-health')?.contains?.(event.target))return;
     event.preventDefault();event.stopImmediatePropagation();
     if(event.target?.id!=='priceEditForm')return;
     if(readSyncBusy()){
@@ -7496,6 +7530,9 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
+<script src="../../../sync/maternal-health-client.js" defer></script>
+<script src="../../../sync/maternal-health-operations.js" defer></script>
+<script src="../maternal-weight.js" defer></script>
 <script src="../formal-controller.js" defer></script>
 
 </body>
