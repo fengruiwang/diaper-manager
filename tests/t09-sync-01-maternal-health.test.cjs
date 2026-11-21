@@ -196,6 +196,24 @@ test('a CAS deletion through the durable queue is visible to both family account
  assert.deepEqual(refreshed.body,EMPTY);
 });
 
+test('optional local time and note round-trip across the family without changing old rows',async()=>{
+ const f=fixture();
+ const initial=await f.client.read(A);
+ const next=body(52);
+ const id='new-weight';
+ next.items.push({id,kind:'weight',date:'2026-11-20',time:'06:05',weightKg:51.755,note:'早起测量'});
+ await f.ops.queue({baseline:initial,nextBody:next});
+ assert.equal((await f.ops.send()).status,'COMMITTED');
+ f.actAs(B);
+ const baseline=await f.client.read(B);
+ assert.deepEqual(baseline.body,next);
+ const edited={...next,items:[next.items[0],{...next.items[1],time:'07:10',note:''}]};
+ await f.ops.queue({baseline,nextBody:edited});
+ assert.equal((await f.ops.send()).revision,2);
+ f.actAs(A);
+ assert.deepEqual((await f.client.read(A)).body,edited);
+});
+
 test('CAS conflict remains after a revised save and explicit archival preserves its history',async()=>{
  const f=fixture(),a=await f.client.read(A);
  f.actAs(B);

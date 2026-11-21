@@ -123,6 +123,18 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
 #maternal-health .weight-card{margin-bottom:16px}
 #maternal-health .weight-actions{display:flex;flex-wrap:wrap;gap:8px}
 #maternal-health .weight-feedback{margin:12px 0;color:var(--muted)}
+#maternalWeightNote{min-width:0;width:100%;resize:vertical;font:inherit;color:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+#maternalWeightTable .tbl{white-space:normal;table-layout:fixed}
+#maternalWeightTable th:nth-child(1),#maternalWeightTable th:nth-child(5){width:22%}
+#maternalWeightTable th:nth-child(2),#maternalWeightTable th:nth-child(3){width:15%}
+#maternalWeightTable td{overflow-wrap:break-word}
+#maternalWeightTable td:nth-child(4){white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:600px){
+ #maternalWeightTable th,#maternalWeightTable td{padding:8px 2px}
+ #maternalWeightTable th:nth-child(1){width:28%}
+ #maternalWeightTable th:nth-child(5){width:18%}
+ #maternalWeightTable .btn{display:block;margin:2px 0;padding:5px 3px;max-width:100%;white-space:normal}
+}
 /* Android Chrome/Edge/PWA: prefer the in-app top pull to browser reload.
    Native desktop scrolling and editing containers are unaffected. */
 @media (pointer:coarse), (any-pointer:coarse), (hover:none){
@@ -384,7 +396,9 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <form id="maternalWeightForm" novalidate>
           <div class="form-grid">
             <label class="field">测量日期<input id="maternalWeightDate" type="date" required></label>
+            <label class="field">测量时间<input id="maternalWeightTime" type="time" step="60"></label>
             <label class="field">体重（斤）<input id="maternalWeightJin" type="number" inputmode="decimal" step="0.01" min="0.01" required></label>
+            <label class="field wide">备注（可选）<textarea id="maternalWeightNote" rows="2"></textarea></label>
           </div>
           <div class="action-row">
             <button id="maternalWeightSave" class="btn" type="submit" disabled>保存体重记录</button>
@@ -408,7 +422,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <div id="maternalWeightEmpty" class="empty">尚未读取体重记录</div>
         <div id="maternalWeightTable" class="table-wrap" hidden>
           <table class="tbl">
-            <thead><tr><th scope="col">测量日期</th><th scope="col">体重（斤）</th><th scope="col">操作</th></tr></thead>
+            <thead><tr><th scope="col">测量日期</th><th scope="col">时间</th><th scope="col">体重（斤）</th><th scope="col">备注</th><th scope="col">操作</th></tr></thead>
             <tbody id="maternalWeightRows"></tbody>
           </table>
         </div>

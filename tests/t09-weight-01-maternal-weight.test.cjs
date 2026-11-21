@@ -53,7 +53,7 @@ test('deletion removes only the matching weight ID and preserves the immutable s
  assert.deepEqual(body.items,[first,constipation,second,recovery]);
 });
 
-async function mountedWeights(items){
+async function mountedWeights(items,{legacy=false}={}){
  const nodes=new Map();
  function element(tag){
   return {
@@ -86,10 +86,12 @@ async function mountedWeights(items){
  let snapshot={status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items}};
  const doc={
   defaultView:{confirm(message){assert.equal(this,doc.defaultView);prompts.push(message);return confirm;}},
-  getElementById:get,createElement:element,addEventListener(){},
+  getElementById:id=>legacy&&['maternalWeightTime','maternalWeightNote'].includes(id)?null:get(id),
+  createElement:element,addEventListener(){},
  };
  const panel=weight.mount({
-  doc,host:{},controller:{verifiedContext:()=>scope},cloudWritesEnabled:true,
+  doc,host:{crypto:{randomUUID:()=> 'new-record'}},
+  controller:{verifiedContext:()=>scope},cloudWritesEnabled:true,
   clientFactory:{create:()=>({read:async()=>snapshot})},
   operationsFactory:{create:()=>({
    pending:async()=>({status:'QUEUE_VERIFIED',pending,retry:0}),
@@ -112,6 +114,10 @@ async function mountedWeights(items){
  await get('maternalWeightRefresh').handlers.click();
  return {get,status,rows,chart,history,jin,prompts,queued,
   get sends(){return sends;},
+  async submit(){
+   get('maternalWeightForm').handlers.submit({preventDefault(){}});
+   await new Promise(resolve=>setImmediate(resolve));
+  },
   edit:index=>rows.children[index].querySelectorAll('button')[0].handlers.click(),
   remove:()=>rows.querySelectorAll('button').filter(button=>button.dataset.deleteWeight),
   setConfirm:value=>{confirm=value;},setOutcome:value=>{outcome=value;},
@@ -121,6 +127,65 @@ async function mountedWeights(items){
 const first=measurement('first','2026-11-20',51.5);
 const second=measurement('second',today,52);
 const other={id:'other',kind:'constipation',date:today};
+
+test('new records default to the local minute and save the selected time and optional note verbatim',async()=>{
+ const before=new Date();
+ const f=await mountedWeights([]);
+ const after=new Date();
+ const date=f.get('maternalWeightDate'),time=f.get('maternalWeightTime'),note=f.get('maternalWeightNote');
+ const localMinute=now=>weight.localDate(now)+' '+[now.getHours(),now.getMinutes()]
+  .map(part=>String(part).padStart(2,'0')).join(':');
+ assert.ok([localMinute(before),localMinute(after)].includes(date.value+' '+time.value));
+ assert.equal(date.max,date.value);
+ assert.equal(note.value,'');
+
+ date.value='2026-01-04';f.jin.value='103.51';time.value='24:00';
+ await f.submit();
+ assert.match(f.status.textContent,/HH:mm/);
+ assert.equal(f.queued.length,0);
+ time.value='06:05';note.value='早起测量\n补录';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[
+  {id:'new-record',kind:'weight',date:'2026-01-04',weightKg:51.755,time:'06:05',note:'早起测量\n补录'}
+ ]);
+ assert.deepEqual(f.rows.children[0].children.slice(0,4).map(cell=>cell.textContent),
+  ['2026-01-04','06:05','103.51','早起测量\n补录']);
+});
+
+test('history sorts by local time and edits both timed and legacy rows without losing extensions',async()=>{
+ const early={...second,id:'early',time:'07:00',note:'早上'};
+ const late={...second,id:'late',time:'21:30',note:'晚上',extension:{source:'synthetic'}};
+ const f=await mountedWeights([second,early,other,late]);
+ const time=f.get('maternalWeightTime'),note=f.get('maternalWeightNote');
+ assert.deepEqual(f.rows.children.map(row=>row.children[1].textContent),['21:30','07:00','未记录']);
+ assert.equal(f.rows.children[2].children[3].textContent,'');
+ f.edit(0);
+ assert.deepEqual([f.get('maternalWeightDate').value,time.value,f.jin.value,note.value],
+  [today,'21:30','104','晚上']);
+ time.value='22:00';note.value='';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[second,early,other,{...late,time:'22:00',note:''}]);
+
+ f.edit(2);
+ assert.equal(time.value,'');
+ assert.equal(note.value,'');
+ note.value='历史补录';
+ await f.submit();
+ assert.deepEqual(f.queued[1].nextBody.items[0],{...second,note:'历史补录'});
+ f.edit(2);
+ time.value='06:00';
+ await f.submit();
+ assert.deepEqual(f.queued[2].nextBody.items[0],{...second,time:'06:00',note:'历史补录'});
+});
+
+test('the older preview markup still edits weight without erasing the new fields',async()=>{
+ const record={...second,time:'19:15',note:'保留'};
+ const f=await mountedWeights([record],{legacy:true});
+ assert.equal(f.rows.children[0].children.length,3);
+ f.edit(0);f.jin.value='100';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[{...record,weightKg:50}]);
+});
 
 test('cancel keeps the active edit and creates no request',async()=>{
  const f=await mountedWeights([first,second]);

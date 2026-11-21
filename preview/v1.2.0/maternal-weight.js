@@ -7,6 +7,14 @@ function localDate(now=new Date()){
   String(now.getDate()).padStart(2,'0')].join('-');
 }
 
+function localTime(now=new Date()){
+ return [now.getHours(),now.getMinutes()].map(part=>String(part).padStart(2,'0')).join(':');
+}
+
+const isTime=value=>typeof value==='string'&&/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+const recordTime=item=>isTime(item?.time)?item.time:'';
+const recordNote=item=>typeof item.note==='string'?item.note:'';
+
 function formatJin(kg){return String(Number((kg*2).toFixed(2)));}
 
 function weightInput(date,jin,today=localDate()){
@@ -24,7 +32,7 @@ function weightInput(date,jin,today=localDate()){
 
 function history(body){
  return (body?.items||[]).filter(item=>item.kind==='weight')
-  .sort((a,b)=>b.date.localeCompare(a.date));
+  .sort((a,b)=>b.date.localeCompare(a.date)||recordTime(b).localeCompare(recordTime(a)));
 }
 
 function updateDocument(body,record){
@@ -95,6 +103,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  const panel=$('maternal-health'),form=$('maternalWeightForm');
  if(!panel||!form)return;
  const date=$('maternalWeightDate'),jin=$('maternalWeightJin');
+ const time=$('maternalWeightTime'),note=$('maternalWeightNote');
  const save=$('maternalWeightSave'),cancel=$('maternalWeightCancel');
  const refreshButton=$('maternalWeightRefresh'),recover=$('maternalWeightRecover');
  const archive=$('maternalWeightArchive'),status=$('maternalWeightStatus');
@@ -115,6 +124,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   const disabled=busy||!scope;
   save.disabled=disabled||!operations||!cloudWritesEnabled||!canSave||pending;
   date.disabled=jin.disabled=cancel.disabled=refreshButton.disabled=disabled;
+  if(time)time.disabled=disabled;
+  if(note)note.disabled=disabled;
   cancel.hidden=!editId;
   recover.hidden=!pending;
   recover.disabled=disabled;
@@ -126,7 +137,10 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  }
  function resetForm(){
   editId=draftRequest=null;
-  date.max=date.value=localDate();
+  const now=new Date();
+  date.max=date.value=localDate(now);
+  if(time)time.value=localTime(now);
+  if(note)note.value='';
   jin.value='';
   $('maternalWeightHeading').textContent='记录体重';
   save.textContent='保存体重记录';
@@ -140,7 +154,11 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   rows.replaceChildren();
   for(const item of records){
    const tr=doc.createElement('tr');
-   for(const value of [item.date,formatJin(item.weightKg)]){
+   const values=[item.date];
+   if(time)values.push(recordTime(item)||'未记录');
+   values.push(formatJin(item.weightKg));
+   if(note)values.push(recordNote(item));
+   for(const value of values){
     const td=doc.createElement('td');td.textContent=value;tr.append(td);
    }
    const td=doc.createElement('td'),button=doc.createElement('button');
@@ -149,6 +167,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
    button.addEventListener('click',()=>{
     if(busy||!canSave)return;
     editId=item.id;draftRequest=null;date.value=item.date;jin.value=formatJin(item.weightKg);
+    if(time)time.value=recordTime(item);
+    if(note)note.value=recordNote(item);
     $('maternalWeightHeading').textContent='编辑体重';
     save.textContent='保存修改';
     controls();
@@ -259,6 +279,13 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   if(fields.error){status.textContent=fields.error;return;}
   const existing=editId&&snapshot.body.items.find(item=>item.id===editId&&item.kind==='weight');
   if(editId&&!existing){status.textContent='原记录已变化，请取消编辑后从历史记录重新选择。';return;}
+  if(time){
+   if(isTime(time.value))fields.time=time.value;
+   else if(time.value||time.validity?.badInput||!existing||recordTime(existing)){
+    status.textContent='请输入有效的测量时间（HH:mm）。';return;
+   }
+  }
+  if(note)fields.note=note.value;
   if(existing&&formatJin(existing.weightKg)===formatJin(fields.weightKg))
    fields.weightKg=existing.weightKg;
   void run('正在保存体重记录…',async started=>{

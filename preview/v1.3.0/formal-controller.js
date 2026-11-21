@@ -2068,7 +2068,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    const groupOf=field=>{
     const id=String(field?.id||'');
     if(['growthRange','refBrand','refSize','refSearch','formalEmail',
-       'formalOtp','maternalWeightDate','maternalWeightJin'].includes(id))return null;
+       'formalOtp','maternalWeightDate','maternalWeightTime','maternalWeightJin','maternalWeightNote'].includes(id))return null;
     if(['sizeMode','currentSize','goalPrice'].includes(id))return 'size';
     if(['replenishMode','replenishDays'].includes(id)
       ||/^(target_|daily_)/.test(id))return 'plans';
