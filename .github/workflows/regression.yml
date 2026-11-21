@@ -7,6 +7,7 @@ on:
       - feature/replenishment-v1.1.1
       - feature/weight-auto-stock-v1.1.2
       - feature/cloudbase-sync-v1.2.0
+      - feature/v1.3.0
   pull_request:
 permissions:
   contents: read
@@ -15,5 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Legacy regression fixtures read the pinned V1.1.2 commit.
       - name: Verify JavaScript and migration compatibility
         run: node --test tests/*.test.cjs
