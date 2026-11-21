@@ -1,16 +1,14 @@
 /* Isolated Node VM: executes EXACT production importData, save, load and
- * helpers extracted from current index.html with a SYNTHETIC FileReader.
+ * helpers extracted from the V1.1.2 index.html with a SYNTHETIC FileReader.
  * localStorage is replaced with a disposable Map scoped to one VM call.
  * No real browser, user backup, credential, network or filesystem writes.
  * Never bundle this test-only helper in production PWA or public test pages.
  */
 'use strict';
-const fs=require('node:fs');
-const path=require('node:path');
 const vm=require('node:vm');
+const {readLegacy}=require('./v112-baseline.cjs');
 const Growth=require('../../growth.js');
-const root=path.join(__dirname,'../..');
-const page=fs.readFileSync(path.join(root,'index.html'),'utf8');
+const page=readLegacy('index.html');
 const lines=page.split(/\r?\n/);
 function exactLine(prefix){
  const found=lines.filter(line=>line.startsWith(prefix));

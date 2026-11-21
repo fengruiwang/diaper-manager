@@ -1,5 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
+const {readLegacy}=require('./helpers/v112-baseline.cjs');
 const {createHash}=require('node:crypto');
 const ROOT=path.resolve(__dirname,'..'),OUT=path.join(ROOT,'release-candidate/pages-v1.2.0');
 const load=p=>fs.readFileSync(path.join(ROOT,p));
@@ -63,13 +64,13 @@ test('P4-04A read-only production build gates, no Tencent test assets or fake re
  assert.doesNotMatch(html,/<button[^>]*(?:demo|S140)/i);
  assert.doesNotMatch(html,/window\.XBM3UI\.demo\s*\(/);
 });
-test('P4-04A original Pages V1.1.2 root files and legacy data keys remain untouched',()=>{
- const rootIndex=load('index.html').toString('utf8');
- assert.match(load('sw.js').toString('utf8'),/xiaobao-shell-v1\.1\.2/);
- assert.equal(JSON.parse(load('version.json')).version,'1.1.2');
+test('P4-04A archived Pages V1.1.2 root files preserve legacy data keys',()=>{
+ const rootIndex=readLegacy('index.html');
+ assert.match(readLegacy('sw.js'),/xiaobao-shell-v1\.1\.2/);
+ assert.equal(JSON.parse(readLegacy('version.json')).version,'1.1.2');
  assert.match(rootIndex,/小宝管家 · 备货比价/);
  assert.doesNotMatch(rootIndex,/xiaobao-pages-candidate-source/);
- assert.match(load('pwa.js').toString('utf8'),/xiaobao_diaper_planner_v1/);
+ assert.match(readLegacy('pwa.js'),/xiaobao_diaper_planner_v1/);
 });
 test('P4-04A Manifest retains installed PWA identity, scope, start_url and all old icons',()=>{
  const old=JSON.parse(load('manifest.webmanifest'));

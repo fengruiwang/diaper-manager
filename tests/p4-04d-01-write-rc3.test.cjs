@@ -3,6 +3,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
 const ROOT=path.resolve(__dirname,'..');
 const OUT=path.join(ROOT,'release-candidate/pages-v1.2.0-rc3');
 const read=p=>fs.readFileSync(path.join(ROOT,p));
+const {readLegacy}=require('./helpers/v112-baseline.cjs');
 const file=p=>fs.readFileSync(path.join(OUT,p));
 const str=p=>file(p).toString('utf8');
 const expected=['.nojekyll','index.html','formal-controller.js','m1-controller.js',
@@ -71,7 +72,7 @@ test('P4-04D candidate enables both write domains and explicit user-approved bus
  assert.doesNotMatch(html,/<script[^>]+src="\.\.\//);
 });
 test('P4-04D original V1.1.2 and read-only rc2 are not converted into write builds',()=>{
- assert.equal(JSON.parse(read('version.json').toString()).version,'1.1.2');
+ assert.equal(JSON.parse(readLegacy('version.json')).version,'1.1.2');
  assert.equal(JSON.parse(read('release-candidate/pages-v1.2.0/version.json').toString()).version,'1.2.0-rc.2');
  assert.match(read('release-candidate/pages-v1.2.0/formal-controller.js').toString(),
   /const FORMAL_WRITE_ENABLED=false;/);

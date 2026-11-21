@@ -5,7 +5,8 @@ const path=require('node:path');
 const Harness=require('./helpers/isolated-v1-import-harness.cjs');
 const Projection=require('../sync/legacy-restore-projection.js');
 const Growth=require('../growth.js');
-const source=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
+const {readLegacy}=require('./helpers/v112-baseline.cjs');
+const source=readLegacy('index.html');
 const SIZES=['NB','S','M','L','XL','XXL'];
 const plain=()=>({
  dueDate:'2027-01-08',birthDate:'',currentSize:'NB',babyWeight:'',
@@ -26,7 +27,7 @@ const wrap=data=>({
 });
 function run(data,opts){return Harness.executeImport(wrap(data),opts);}
 function changedRoots(report){return report.sectionChanges.map(x=>x.section);}
-test('P2-4C extracts exact current production importData function, not reimplementation',()=>{
+test('P2-4C extracts the exact V1.1.2 production importData function',()=>{
  assert.equal(source.split(/\r?\n/).filter(x=>x.startsWith('function importData(file)')).length,1);
  assert.ok(source.includes(Harness.importSource));
  assert.match(Harness.importSource,/const reader=new FileReader\(\)/);

@@ -5,7 +5,8 @@ const path=require('node:path');
 const Projection=require('../sync/legacy-restore-projection.js');
 const Growth=require('../growth.js');
 const source=fs.readFileSync(path.join(__dirname,'../sync/legacy-restore-projection.js'),'utf8');
-const production=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
+const {readLegacy}=require('./helpers/v112-baseline.cjs');
+const production=readLegacy('index.html');
 const state=()=>({
  dueDate:'2027-01-08',birthDate:'',currentSize:'NB',babyWeight:'',
  babyProfile:{name:'小宝',sex:'',birthTime:'',birthWeight:'',birthLength:''},

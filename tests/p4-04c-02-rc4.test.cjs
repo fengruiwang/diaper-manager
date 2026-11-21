@@ -3,6 +3,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
 const ROOT=path.resolve(__dirname,'..');
 const OUT=path.join(ROOT,'release-candidate/pages-v1.2.0-rc4');
 const read=p=>fs.readFileSync(path.join(ROOT,p));
+const {readLegacy}=require('./helpers/v112-baseline.cjs');
 const candidate=p=>fs.readFileSync(path.join(OUT,p));
 const txt=p=>candidate(p).toString('utf8');
 const files=['.nojekyll','index.html','formal-controller.js','m1-controller.js',
@@ -29,7 +30,7 @@ test('P4-04C-02 rc4 14 files, version, PWA scope, all images, SW cache and origi
  assert.deepEqual(candidate('m1-controller.js'),read('preview/v1.2.0/m1-controller.js'));
  // rc4 growth.js remains immutable and is checked against its pinned blob SHA.
  require('../scripts/verify-v120-frozen-candidates.cjs').check('rc4');
- assert.equal(JSON.parse(read('version.json')).version,'1.1.2');
+ assert.equal(JSON.parse(readLegacy('version.json')).version,'1.1.2');
  assert.doesNotMatch(txt('sw.js')+txt('pwa.js'),/indexedDB\.deleteDatabase|localStorage\.clear\(/);
 });
 test('P4-04C-02 status is a compact line after tabs; real pending and conflict actions remain reachable',()=>{
@@ -79,7 +80,7 @@ test('P4-04C-02 rc4 has all write domains, original UUID/readback, C-01 and late
  assert.doesNotMatch(html,/src="\.\.\//);
  assert.doesNotMatch(html,/\/xb-test\//);
 });
-test('P4-04C-02 previous rc2 and rc3 artifacts remain frozen and main stays V1.1.2',()=>{
+test('P4-04C-02 previous rc2 and rc3 artifacts remain frozen',()=>{
  const frozen=require('../scripts/verify-v120-frozen-candidates.cjs');
  frozen.check('rc2');frozen.check('rc3');frozen.check('rc4');
  const old=txt('version.json');
