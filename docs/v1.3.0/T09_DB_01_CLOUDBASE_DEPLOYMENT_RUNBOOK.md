@@ -6,7 +6,9 @@
 
 在获授权的 CloudBase 项目中打开 PostgreSQL SQL 控制台，确认当前环境是授权指定的环境。完整执行 [028A 部署前只读检查](../../cloudbase/sql/028A_xb_maternal_health_preflight_READONLY.sql)，保存 PostgreSQL 版本、控制台角色与全部结果。
 
-只有所有行均为 `PASS` 才可进入下一步。任一项报错或 `FAIL` 都应停止。如果任何目标表、RPC 或同名重载已存在，先核实当前安装状态。即使只发现一个对象，也不要执行 SQL 028。
+用同一个控制台角色执行 028A 和后续 SQL 028。028A 按实际执行角色 `current_user` 检查 `public` 的 `CREATE` 和 `USAGE`、`public.families` 的 `REFERENCES`、`xb_private` 和 `auth` 的 `USAGE`，以及 `xb_private.can_use_app(uuid,text)` 和 `auth.uid()` 的 `EXECUTE`。这些检查用于提前发现建表、建外键和访问权限函数所需的授权缺口。
+
+所有行均为 `PASS` 才可执行 SQL 028。任一权限或其他检查为 `FAIL`，或检查执行报错，立即停止，禁止执行 SQL 028。如果任何目标表、RPC 或同名重载已存在，先核实当前安装状态。
 
 ## 2. 执行一次完整 SQL 028
 
