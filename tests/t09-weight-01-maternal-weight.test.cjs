@@ -53,7 +53,7 @@ test('deletion removes only the matching weight ID and preserves the immutable s
  assert.deepEqual(body.items,[first,constipation,second,recovery]);
 });
 
-async function mountedWeights(items,{legacy=false,profile,extensions={}}={}){
+async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead=true}={}){
  const nodes=new Map();
  function element(tag){
   return {
@@ -82,9 +82,10 @@ async function mountedWeights(items,{legacy=false,profile,extensions={}}={}){
  const jin=get('maternalWeightJin');
  const prompts=[],queued=[];
  let confirm=true,outcome='COMMITTED',pending=0,sends=0,request;
- const scope={app:{},familyId:'synthetic-family',actorUid:'synthetic-actor'};
+ let scope={app:{},familyId:'synthetic-family',actorUid:'synthetic-actor'};
  let snapshot={status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items,...extensions}};
  if(profile)snapshot.body.maternalProfile=profile;
+ let read=async()=>snapshot;
  const doc={
   defaultView:{confirm(message){assert.equal(this,doc.defaultView);prompts.push(message);return confirm;}},
   getElementById:id=>legacy&&(id.startsWith('maternalProfile')||
@@ -94,7 +95,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={}}={}){
  const panel=weight.mount({
   doc,host:{crypto:{randomUUID:()=> 'new-record'}},
   controller:{verifiedContext:()=>scope},cloudWritesEnabled:true,
-  clientFactory:{create:()=>({read:async()=>snapshot})},
+  clientFactory:{create:()=>({read:context=>read(context)})},
   operationsFactory:{create:()=>({
    pending:async()=>({status:'QUEUE_VERIFIED',pending,retry:0}),
    conflicts:async()=>({status:'CONFLICTS_VERIFIED',items:[]}),
@@ -113,7 +114,8 @@ async function mountedWeights(items,{legacy=false,profile,extensions={}}={}){
   })},
  });
  panel.setContext(scope);
- await get('maternalWeightRefresh').handlers.click();
+ const refresh=()=>get('maternalWeightRefresh').handlers.click();
+ if(autoRead)await refresh();
  return {get,status,rows,chart,history,jin,prompts,queued,
   get sends(){return sends;},
   async submit(){
@@ -124,12 +126,75 @@ async function mountedWeights(items,{legacy=false,profile,extensions={}}={}){
   edit:index=>rows.children[index].querySelectorAll('button')[0].handlers.click(),
   remove:()=>rows.querySelectorAll('button').filter(button=>button.dataset.deleteWeight),
   setConfirm:value=>{confirm=value;},setOutcome:value=>{outcome=value;},
+  refresh,setRead:next=>{read=next;},
+  switchScope:(actorUid,familyId)=>{
+   scope={...scope,actorUid,familyId};panel.setContext(scope);
+  },
  };
 }
 
 const first=measurement('first','2026-11-20',51.5);
 const second=measurement('second',today,52);
 const other={id:'other',kind:'constipation',date:today};
+
+test('first profile read shows loading and only a verified empty document shows unset',async()=>{
+ const f=await mountedWeights([],{autoRead:false});
+ const stage=f.get('maternalProfileStage'),save=f.get('maternalProfileSave');
+ assert.equal(stage.textContent,'尚未读取');
+ assert.equal(save.disabled,true);
+ f.setRead(async()=>{throw Error('synthetic read rejection');});
+ await f.refresh();
+ assert.equal(stage.textContent,'暂时无法读取');
+ assert.match(f.get('maternalProfileStatus').textContent,/刷新云端记录/);
+ assert.equal(save.disabled,true);
+ let resolve;
+ f.setRead(()=>new Promise(done=>{resolve=done;}));
+ const reading=f.refresh();
+ assert.equal(stage.textContent,'正在读取妈妈健康档案…');
+ assert.equal(f.get('maternalProfileJin').disabled,true);
+ resolve({status:'READ_VERIFIED',revision:0,body:{schemaVersion:1,items:[]}});
+ await reading;
+ assert.equal(stage.textContent,'未设置');
+ assert.equal(save.disabled,false);
+ assert.equal(f.get('maternalProfileStatus').textContent,'');
+});
+
+test('profile refresh preserves the verified display and draft until switching scope',async()=>{
+ const profile={prePregnancyWeightKg:47,dueDate:'2026-01-01',deliveryDate:null};
+ const f=await mountedWeights([first],{profile});
+ const stage=f.get('maternalProfileStage'),jin=f.get('maternalProfileJin'),due=f.get('maternalProfileDue');
+ assert.equal(stage.textContent,'孕期');
+ f.setRead(async()=>({status:'OFFLINE'}));
+ const failed=f.refresh();
+ assert.equal(stage.textContent,'正在读取妈妈健康档案…');
+ assert.equal(jin.value,'94');
+ await failed;
+ assert.equal(stage.textContent,'暂时无法读取');
+ assert.equal(due.value,profile.dueDate);
+ assert.match(f.get('maternalProfileStatus').textContent,/保留上次读取/);
+ assert.equal(f.get('maternalProfileSave').disabled,true);
+
+ due.value='2026-01-03';
+ f.get('maternalProfileForm').handlers.input();
+ const result={status:'READ_VERIFIED',revision:6,body:{schemaVersion:1,items:[first],maternalProfile:profile}};
+ f.setRead(async()=>result);
+ await f.refresh();
+ assert.equal(stage.textContent,'孕期');
+ assert.equal(due.value,'2026-01-03');
+
+ let resolve;
+ f.setRead(()=>new Promise(done=>{resolve=done;}));
+ const oldRead=f.refresh();
+ f.switchScope('synthetic-b','synthetic-family');
+ assert.equal(stage.textContent,'尚未读取');
+ assert.deepEqual([jin.value,due.value],['','']);
+ assert.equal(f.rows.children.length,0);
+ resolve(result);
+ await oldRead;
+ assert.equal(stage.textContent,'尚未读取');
+ assert.equal(jin.value,'');
+ assert.equal(f.rows.children.length,0);
+});
 
 test('profile input accepts independent calendar dates and rejects malformed weight and future delivery',()=>{
  const fields={jin:'94.01',dueDate:'2026-01-01',deliveryDate:''};

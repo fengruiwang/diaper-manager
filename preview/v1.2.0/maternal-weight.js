@@ -139,6 +139,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  let scope=null,snapshot=null,canSave=false,busy=false,pending=false,conflict=null;
  let editId=null,draftRequest=null,deletionRequest=null;
  let profileDirty=false,profileRequest=null;
+ let profileRead='idle';
 
  function canWrite(){
   return Boolean(scope&&current(scope)&&!busy&&canSave&&!pending&&operations&&cloudWritesEnabled);
@@ -173,10 +174,16 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   $('maternalWeightHeading').textContent='记录体重';
   save.textContent='保存体重记录';
  }
+ function renderProfileStage(){
+  if(!profileForm)return;
+  profileStage.textContent=profileRead==='ready'?maternalStage(snapshot.body.maternalProfile)
+   :profileRead==='loading'?'正在读取妈妈健康档案…'
+   :profileRead==='failed'?'暂时无法读取':'尚未读取';
+ }
  function renderProfile(){
   if(!profileForm)return;
   const profile=snapshot?.body.maternalProfile;
-  profileStage.textContent=maternalStage(profile);
+  renderProfileStage();
   profileDelivery.max=localDate();
   if(profileDirty)return;
   profileJin.value=profile?.prePregnancyWeightKg?formatJin(profile.prePregnancyWeightKg):'';
@@ -247,10 +254,23 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  }
  function refresh(){
   return run('正在读取云端体重记录…',async started=>{
-   const result=host.navigator?.onLine===false?{status:'OFFLINE'}:await client?.read(started);
+   if(profileStatus&&profileRead==='failed')profileStatus.textContent='';
+   profileRead='loading';
+   renderProfileStage();
+   let result;
+   try{
+    result=host.navigator?.onLine===false?{status:'OFFLINE'}:await client?.read(started);
+   }catch(_){/* Treat a rejected read like an unverified result. */}
    if(!current(started))return;
    canSave=result?.status==='READ_VERIFIED';
+   profileRead=canSave?'ready':'failed';
    if(canSave){snapshot=result;render();}
+   else{
+    renderProfileStage();
+    if(profileStatus)profileStatus.textContent=snapshot
+     ?'保留上次读取的档案，请点击「刷新云端记录」重试。'
+     :'请点击「刷新云端记录」重试。';
+   }
    await review(started);
    if(!current(started))return;
    status.textContent=!canSave
@@ -277,6 +297,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   }
   if(result.status==='COMMITTED'){
    snapshot=result.document;canSave=true;
+   if(profileStatus&&profileRead==='failed')profileStatus.textContent='';
+   profileRead='ready';
    render();
   }else if(result.status==='COMMITTED_NEEDS_REFRESH'){
    canSave=false;
@@ -377,6 +399,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   if(!scope&&!next||same(scope,next))return;
   scope=next;snapshot=null;canSave=busy=pending=false;conflict=null;
   deletionRequest=null;
+  profileRead='idle';
   profileDirty=false;profileRequest=null;
   if(profileStatus)profileStatus.textContent='';
   resetForm();render();
