@@ -39,6 +39,161 @@ test('new measurements and edits preserve other health records, metadata and IDs
  assert.equal(weight.updateDocument(original,measurement('recovery-a',today,52)),null);
 });
 
+test('deletion removes only the matching weight ID and preserves the immutable source document',()=>{
+ const first=measurement('first',today,51.5),second=measurement('second',today,52);
+ const constipation={id:'other',kind:'constipation',date:today};
+ const recovery={id:'recovery',kind:'postpartum_recovery',date:today};
+ const body=Object.freeze({schemaVersion:1,source:'synthetic',
+  items:Object.freeze([first,constipation,second,recovery])});
+ assert.deepEqual(weight.deleteDocument(body,'first'),{
+  schemaVersion:1,source:'synthetic',items:[constipation,second,recovery]
+ });
+ assert.equal(weight.deleteDocument(body,'missing'),null);
+ assert.equal(weight.deleteDocument(body,'other'),null);
+ assert.deepEqual(body.items,[first,constipation,second,recovery]);
+});
+
+async function mountedWeights(items){
+ const nodes=new Map();
+ function element(tag){
+  return {
+   tag,children:[],dataset:{},handlers:{},attributes:{},
+   classList:{contains:()=>false,toggle(){}},
+   append(...children){this.children.push(...children);},
+   replaceChildren(){this.children=[];},
+   querySelectorAll(selector){
+    return this.children.flatMap(child=>child.tag===selector?[child]:child.querySelectorAll(selector));
+   },
+   setAttribute(name,value){this.attributes[name]=value;},
+   set textContent(value){this.text=value;this.innerHTML='';},
+   get textContent(){return this.text;},
+   addEventListener(name,callback){this.handlers[name]=callback;},
+   focus(){},
+  };
+ }
+ const get=id=>{
+  if(!nodes.has(id))nodes.set(id,element(id));
+  return nodes.get(id);
+ };
+ const status=get('maternalWeightStatus');
+ const rows=get('maternalWeightRows');
+ const chart=get('maternalWeightChart');
+ const history=get('maternalWeightTable');
+ const jin=get('maternalWeightJin');
+ const prompts=[],queued=[];
+ let confirm=true,outcome='COMMITTED',pending=0,sends=0,request;
+ const scope={app:{},familyId:'synthetic-family',actorUid:'synthetic-actor'};
+ let snapshot={status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items}};
+ const doc={
+  defaultView:{confirm(message){assert.equal(this,doc.defaultView);prompts.push(message);return confirm;}},
+  getElementById:get,createElement:element,addEventListener(){},
+ };
+ const panel=weight.mount({
+  doc,host:{},controller:{verifiedContext:()=>scope},cloudWritesEnabled:true,
+  clientFactory:{create:()=>({read:async()=>snapshot})},
+  operationsFactory:{create:()=>({
+   pending:async()=>({status:'QUEUE_VERIFIED',pending,retry:0}),
+   conflicts:async()=>({status:'CONFLICTS_VERIFIED',items:[]}),
+   queue:async input=>{
+    queued.push(input);request={...input,requestId:'request-'+queued.length};pending=1;
+    return {status:'QUEUED',requestId:request.requestId};
+   },
+   send:async()=>{
+    sends++;
+    if(outcome==='UNKNOWN')return {status:outcome};
+    pending=0;
+    if(outcome==='REVISION_CONFLICT')return {status:outcome,requestId:request.requestId};
+    snapshot={...snapshot,revision:snapshot.revision+1,body:request.nextBody};
+    return {status:'COMMITTED',requestId:request.requestId,document:snapshot};
+   },
+  })},
+ });
+ panel.setContext(scope);
+ await get('maternalWeightRefresh').handlers.click();
+ return {get,status,rows,chart,history,jin,prompts,queued,
+  get sends(){return sends;},
+  edit:index=>rows.children[index].querySelectorAll('button')[0].handlers.click(),
+  remove:()=>rows.querySelectorAll('button').filter(button=>button.dataset.deleteWeight),
+  setConfirm:value=>{confirm=value;},setOutcome:value=>{outcome=value;},
+ };
+}
+
+const first=measurement('first','2026-11-20',51.5);
+const second=measurement('second',today,52);
+const other={id:'other',kind:'constipation',date:today};
+
+test('cancel keeps the active edit and creates no request',async()=>{
+ const f=await mountedWeights([first,second]);
+ f.edit(0);f.jin.value='105';f.setConfirm(false);
+ const [remove]=f.remove();
+ assert.match(remove.attributes['aria-label'],/删除 2026-11-21 的体重记录/);
+ await remove.handlers.click();
+ assert.deepEqual(f.prompts,['确定删除 2026-11-21 的妈妈体重记录？删除后无法撤销。']);
+ assert.equal(f.jin.value,'105');
+ assert.equal(f.rows.children.length,2);
+ assert.deepEqual(f.queued,[]);
+ assert.equal(f.sends,0);
+});
+
+test('confirmed deletion sends once, preserves another edit, and clears the deleted edit and last chart point',async()=>{
+ const f=await mountedWeights([first,second,other]);
+ f.edit(1);f.jin.value='99';
+ const [remove]=f.remove();
+ const saving=remove.handlers.click();
+ assert.ok(f.remove().every(button=>button.disabled));
+ assert.equal(f.rows.children.length,2);
+ await remove.handlers.click();
+ await saving;
+ assert.equal(f.queued.length,1);
+ assert.equal(f.sends,1);
+ assert.equal(f.queued[0].baseline.revision,5);
+ assert.deepEqual(f.queued[0].nextBody.items,[first,other]);
+ assert.equal(f.rows.children.length,1);
+ assert.match(f.chart.innerHTML,/共1个数据点/);
+ assert.match(f.status.textContent,/已从云端删除/);
+ assert.equal(f.jin.value,'99');
+ assert.equal(f.get('maternalWeightCancel').hidden,false);
+ await f.remove()[0].handlers.click();
+ assert.equal(f.jin.value,'');
+ assert.equal(f.get('maternalWeightCancel').hidden,true);
+ assert.equal(f.history.hidden,true);
+ assert.equal(f.get('maternalWeightEmpty').textContent,'暂无体重记录');
+ assert.equal(f.get('maternalWeightEmpty').hidden,false);
+ assert.equal(f.chart.textContent,'暂无体重记录');
+});
+
+test('unconfirmed deletion blocks another delete; CAS conflict keeps the original list and chart',async()=>{
+ const f=await mountedWeights([first,second]);
+ f.setOutcome('UNKNOWN');
+ await f.remove()[0].handlers.click();
+ assert.ok(f.remove().every(button=>button.disabled));
+ await f.remove()[1].handlers.click();
+ assert.equal(f.queued.length,1);
+ assert.equal(f.rows.children.length,2);
+ f.setOutcome('REVISION_CONFLICT');
+ await f.get('maternalWeightRecover').handlers.click();
+ assert.equal(f.rows.children.length,2);
+ assert.match(f.chart.innerHTML,/共2个数据点/);
+ assert.match(f.status.textContent,/另一端已更新/);
+ assert.ok(f.remove().every(button=>button.disabled));
+});
+
+test('receipt recovery confirms the original deletion without queuing a replacement',async()=>{
+ const f=await mountedWeights([first]);
+ f.edit(0);
+ f.setOutcome('UNKNOWN');
+ await f.remove()[0].handlers.click();
+ assert.equal(f.rows.children.length,1);
+ assert.equal(f.get('maternalWeightRecover').hidden,false);
+ f.setOutcome('COMMITTED');
+ await f.get('maternalWeightRecover').handlers.click();
+ assert.equal(f.queued.length,1);
+ assert.equal(f.sends,2);
+ assert.equal(f.rows.children.length,0);
+ assert.equal(f.get('maternalWeightCancel').hidden,true);
+ assert.match(f.status.textContent,/已从云端删除/);
+});
+
 test('history sorts descending and SVG uses the same records plotted by date in jin',()=>{
  const body={schemaVersion:1,items:[
   measurement('last','2026-11-21',52),

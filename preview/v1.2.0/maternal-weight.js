@@ -36,6 +36,14 @@ function updateDocument(body,record){
  return {...body,items};
 }
 
+function deleteDocument(body,recordId){
+ const index=body.items.findIndex(item=>item.id===recordId&&item.kind==='weight');
+ if(index===-1)return null;
+ const items=body.items.slice();
+ items.splice(index,1);
+ return {...body,items};
+}
+
 function chart(records){
  if(!records.length)return '';
  // The same grid, polyline and point pattern as the existing growth SVG.
@@ -97,7 +105,11 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  try{operations=operationsFactory?.create({host,controller,client,cloudWritesEnabled});}
  catch(_){/* Reading is available when persistent browser storage is unavailable. */}
  let scope=null,snapshot=null,canSave=false,busy=false,pending=false,conflict=null;
- let editId=null,draftRequest=null;
+ let editId=null,draftRequest=null,deletionRequest=null;
+
+ function canDelete(){
+  return Boolean(scope&&current(scope)&&!busy&&canSave&&!pending&&operations&&cloudWritesEnabled);
+ }
 
  function controls(){
   const disabled=busy||!scope;
@@ -108,7 +120,9 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   recover.disabled=disabled;
   archive.hidden=!conflict||!canSave||!(snapshot.revision>conflict.expectedRevision);
   archive.disabled=disabled;
-  for(const button of rows.querySelectorAll('button'))button.disabled=disabled||!canSave;
+  const deleteDisabled=!canDelete();
+  for(const button of rows.querySelectorAll('button'))
+   button.disabled=button.dataset.deleteWeight?deleteDisabled:disabled||!canSave;
  }
  function resetForm(){
   editId=draftRequest=null;
@@ -140,7 +154,12 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
     controls();
     jin.focus();
    });
-   td.append(button);tr.append(td);rows.append(tr);
+   const remove=doc.createElement('button');
+   remove.type='button';remove.className='btn ghost sm';remove.textContent='删除';
+   remove.dataset.deleteWeight=item.id;
+   remove.setAttribute('aria-label','删除 '+item.date+' 的体重记录（'+formatJin(item.weightKg)+' 斤）');
+   remove.addEventListener('click',()=>deleteRecord(item));
+   td.append(button,remove);tr.append(td);rows.append(tr);
   }
   chartNode.classList.toggle('empty',!records.length);
   if(records.length)chartNode.innerHTML=chart(records);
@@ -186,21 +205,52 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  async function send(started){
   const result=await operations.send();
   if(!current(started))return;
+  const deletedId=deletionRequest&&result.requestId===deletionRequest.requestId
+   ?deletionRequest.recordId:null;
+  const committed=result.status==='COMMITTED'||result.status==='COMMITTED_NEEDS_REFRESH';
+  if(committed){
+   const editRemoved=editId&&result.status==='COMMITTED'
+    &&!result.document.body.items.some(item=>item.id===editId&&item.kind==='weight');
+   if(result.requestId===draftRequest||(deletedId&&editId===deletedId)||editRemoved)resetForm();
+   if(deletedId)deletionRequest=null;
+  }
   if(result.status==='COMMITTED'){
    snapshot=result.document;canSave=true;
-   if(result.requestId===draftRequest)resetForm();
    render();
   }else if(result.status==='COMMITTED_NEEDS_REFRESH'){
    canSave=false;
-   if(result.requestId===draftRequest)resetForm();
   }else if(['REVISION_CONFLICT','REQUEST_ID_CONFLICT','UNAVAILABLE'].includes(result.status)){
    canSave=false;
   }
   await review(started);
   if(!current(started))return;
-  status.textContent=result.status==='COMMITTED'?'体重记录已保存至云端。'
+  status.textContent=result.status==='COMMITTED'
+   ?(deletedId?'体重记录已从云端删除。':'体重记录已保存至云端。')
    :result.status==='EMPTY'?'没有待确认的保存请求。'
    :messages[result.status]||'本次保存未确认，请刷新记录或核验原请求。';
+ }
+ async function saveDocument(started,nextBody,deletedId=null){
+  const queued=await operations.queue({baseline:snapshot,nextBody});
+  if(!current(started))return;
+  if(queued.status==='QUEUED'){
+   if(deletedId)deletionRequest={requestId:queued.requestId,recordId:deletedId};
+   else draftRequest=queued.requestId;
+   pending=true;
+   await send(started);
+  }else{
+   await review(started);
+   if(current(started))status.textContent=messages[queued.status]||'本机未确认入队，请核验待确认保存。';
+  }
+ }
+ function deleteRecord(item){
+  if(!canDelete())return;
+  if(!doc.defaultView?.confirm('确定删除 '+item.date+' 的妈妈体重记录？删除后无法撤销。'))return;
+  if(!canDelete())return;
+  return run('正在删除体重记录…',async started=>{
+   const nextBody=deleteDocument(snapshot.body,item.id);
+   if(!nextBody){status.textContent='原记录已变化，请刷新云端记录后重试。';return;}
+   await saveDocument(started,nextBody,item.id);
+  });
  }
  form.addEventListener('submit',event=>{
   event.preventDefault();
@@ -214,15 +264,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   void run('正在保存体重记录…',async started=>{
    const nextBody=updateDocument(snapshot.body,{id:editId||host.crypto.randomUUID(),kind:'weight',...fields});
    if(!nextBody){status.textContent=messages.INVALID_INPUT;return;}
-   const queued=await operations.queue({baseline:snapshot,nextBody});
-   if(!current(started))return;
-   if(queued.status==='QUEUED'){
-    draftRequest=queued.requestId;pending=true;
-    await send(started);
-   }else{
-    await review(started);
-    if(current(started))status.textContent=messages[queued.status]||'本机未确认入队，请核验待确认保存。';
-   }
+   await saveDocument(started,nextBody);
   });
  });
  refreshButton.addEventListener('click',refresh);
@@ -241,6 +283,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  function setContext(next){
   if(!scope&&!next||same(scope,next))return;
   scope=next;snapshot=null;canSave=busy=pending=false;conflict=null;
+  deletionRequest=null;
   resetForm();render();
   status.textContent='尚未读取云端体重记录。';
   if(scope&&panel.classList.contains('active'))void refresh();
@@ -249,7 +292,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  return {setContext};
 }
 
-const api={mount,localDate,formatJin,weightInput,history,updateDocument,chart};
+const api={mount,localDate,formatJin,weightInput,history,updateDocument,deleteDocument,chart};
 if(root)root.XBMaternalWeight=api;
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);

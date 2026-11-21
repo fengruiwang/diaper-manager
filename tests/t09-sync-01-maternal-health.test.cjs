@@ -5,6 +5,7 @@ const Client=require('../sync/maternal-health-client.js');
 const Ops=require('../sync/maternal-health-operations.js');
 const Contract=require('../sync/outbox-contract.js');
 const Durable=require('../sync/idb-outbox.js');
+const {deleteDocument}=require('../preview/v1.2.0/maternal-weight.js');
 
 const familyId='f1300000-0000-4000-8000-000000000001';
 const otherFamily='f1300000-0000-4000-8000-000000000002';
@@ -173,6 +174,26 @@ test('A and B see each other edits, with the first save advancing 0 to 1',async(
  assert.equal((await f.ops.send()).revision,2);
  f.actAs(A);
  assert.deepEqual((await f.client.read(A)).body,body(52));
+});
+
+test('a CAS deletion through the durable queue is visible to both family accounts',async()=>{
+ const f=fixture();
+ const initial=await f.client.read(A);
+ await f.ops.queue({baseline:initial,nextBody:body(52)});
+ assert.equal((await f.ops.send()).revision,1);
+ f.actAs(B);
+ const baseline=await f.client.read(B);
+ const queued=await f.ops.queue({baseline,nextBody:deleteDocument(baseline.body,recordId)});
+ assert.equal(queued.status,'QUEUED');
+ const deleted=await f.ops.send();
+ assert.equal(deleted.status,'COMMITTED');
+ assert.equal(deleted.requestId,queued.requestId);
+ assert.equal(deleted.revision,2);
+ assert.deepEqual(deleted.document.body,EMPTY);
+ f.actAs(A);
+ const refreshed=await f.client.read(A);
+ assert.equal(refreshed.revision,2);
+ assert.deepEqual(refreshed.body,EMPTY);
 });
 
 test('CAS conflict remains after a revised save and explicit archival preserves its history',async()=>{
