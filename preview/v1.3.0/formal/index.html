@@ -105,6 +105,24 @@ body[data-formal-state="ready"] #formalNotice:is([data-sync-phase="partial"],[da
 #formalNotice .btn{font-size:12px;padding:4px 8px}
 body:not([data-formal-state="ready"]) .wrap{display:none!important}
 body[data-formal-state="ready"] #formalGate{display:none!important}
+body:not([data-formal-family-ready="true"]) [data-tab="maternal-health"],
+body:not([data-formal-family-ready="true"]) #maternal-health,
+body[data-formal-state="ready"] #maternalHealthBack{display:none!important}
+body[data-formal-family-ready="true"][data-formal-maternal-only="true"] .wrap{display:block!important}
+body[data-formal-maternal-only="true"] #formalGate,
+body[data-formal-maternal-only="true"] .wrap .hero,
+body[data-formal-maternal-only="true"] .wrap .tab:not([data-tab="maternal-health"]),
+body[data-formal-maternal-only="true"] .wrap .panel:not(#maternal-health),
+body[data-formal-maternal-only="true"] #formalNotice,
+body[data-formal-maternal-only="true"] #priceEditor{display:none!important}
+body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:1/-1}
+@media(max-width:600px){
+ body[data-formal-family-ready="true"] .tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%}
+ body[data-formal-family-ready="true"] .tab{min-height:44px;padding:8px 4px}
+}
+#maternal-health .weight-card{margin-bottom:16px}
+#maternal-health .weight-actions{display:flex;flex-wrap:wrap;gap:8px}
+#maternal-health .weight-feedback{margin:12px 0;color:var(--muted)}
 /* Android Chrome/Edge/PWA: prefer the in-app top pull to browser reload.
    Native desktop scrolling and editing containers are unaffected. */
 @media (pointer:coarse), (any-pointer:coarse), (hover:none){
@@ -158,6 +176,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
   </div>
   <div id="formalGateActions" hidden>
    <div class="action-row">
+    <button id="formalOpenMaternalHealth" class="btn secondary" type="button" hidden>进入妈妈健康</button>
     <button id="formalRetry" type="button" class="btn secondary sm">重新检查</button>
     <button id="formalGateSignOut" type="button" class="btn ghost sm">切换账号</button>
    </div>
@@ -184,6 +203,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
     <button class="tab" data-tab="history">📒 采购记录</button>
     <button class="tab" data-tab="growth">📈 成长</button>
     <button class="tab" data-tab="settings">⚙️ 个性设置</button>
+    <button class="tab" id="tabMaternalHealth" type="button" role="tab" aria-controls="maternal-health" aria-selected="false" data-tab="maternal-health">🌿 妈妈健康</button>
   </nav>
   <div class="sync-line" id="formalNotice" role="status" aria-live="polite">
    <span id="formalSyncState" class="fine">正在检查…</span>
@@ -355,6 +375,43 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <button id="importDataBtn" disabled type="button"></button>
         <button id="resetAll" disabled type="button"></button>
         <input type="file" id="importFile" disabled />
+      </div>
+    </section>
+    <section class="panel" id="maternal-health" role="tabpanel" aria-labelledby="tabMaternalHealth">
+      <div class="head"><h2>妈妈健康</h2></div>
+      <div class="card weight-card">
+        <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
+        <form id="maternalWeightForm" novalidate>
+          <div class="form-grid">
+            <label class="field">测量日期<input id="maternalWeightDate" type="date" required></label>
+            <label class="field">体重（斤）<input id="maternalWeightJin" type="number" inputmode="decimal" step="0.01" min="0.01" required></label>
+          </div>
+          <div class="action-row">
+            <button id="maternalWeightSave" class="btn" type="submit" disabled>保存体重记录</button>
+            <button id="maternalWeightCancel" class="btn ghost" type="button" hidden>取消编辑</button>
+          </div>
+        </form>
+        <p class="weight-feedback" id="maternalWeightStatus" role="status" aria-live="polite">尚未读取云端体重记录。</p>
+        <div class="weight-actions">
+          <button id="maternalWeightRefresh" class="btn secondary sm" type="button">刷新云端记录</button>
+          <button id="maternalWeightRecover" class="btn secondary sm" type="button" hidden>核验待确认保存</button>
+          <button id="maternalWeightArchive" class="btn ghost sm" type="button" hidden>放弃旧冲突请求</button>
+          <button id="maternalHealthBack" class="btn ghost sm" type="button">查看宝宝业务状态</button>
+        </div>
+      </div>
+      <div class="card weight-card">
+        <h3 class="section-title">体重趋势（斤）</h3>
+        <div id="maternalWeightChart" class="empty">尚未读取体重记录</div>
+      </div>
+      <div class="card">
+        <h3 class="section-title">历史记录</h3>
+        <div id="maternalWeightEmpty" class="empty">尚未读取体重记录</div>
+        <div id="maternalWeightTable" class="table-wrap" hidden>
+          <table class="tbl">
+            <thead><tr><th scope="col">测量日期</th><th scope="col">体重（斤）</th><th scope="col">操作</th></tr></thead>
+            <tbody id="maternalWeightRows"></tbody>
+          </table>
+        </div>
       </div>
     </section>
   </main>
@@ -599,8 +656,31 @@ const currMonth=()=>localDate().slice(0,7);
 const fmtDate=d=>String(d??'').slice(0,10);
 let toastTimer;function toast(txt){const el=$('toast');el.textContent=txt;el.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('on'),2600)}
 // M3 tab navigation is memory-only.
-const VALID_TABS=new Set(['overview','compare','history','growth','settings']);
-function tab(to,{scroll=true}={}){if(!VALID_TABS.has(to))return;document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===to));document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));void 0;if(to==='history')renderHistory();if(to==='settings')renderSettings();if(to==='growth')renderGrowth();if(to==='compare'){renderQuotes();renderReferenceTable();}if(scroll)window.scrollTo({top:0,behavior:'smooth'})}
+const VALID_TABS=new Set(['overview','compare','history','growth','settings','maternal-health']);
+function selectTab(to){
+ const state=document.body.dataset;
+ if(to==='maternal-health'&&state.formalState!=='ready'&&state.formalFamilyReady==='true')
+  state.formalMaternalOnly='true';
+ else delete state.formalMaternalOnly;
+ document.querySelectorAll('.tab').forEach(el=>{
+  const selected=el.dataset.tab===to;
+  el.classList.toggle('active',selected);
+  el.setAttribute('aria-selected',String(selected));
+ });
+ document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));
+}
+function tab(to,{scroll=true}={}){
+ if(!VALID_TABS.has(to))return;
+ const {formalState,formalFamilyReady}=document.body.dataset;
+ if(to==='maternal-health'?formalFamilyReady!=='true':formalState!=='ready')return;
+ selectTab(to);
+ if(to==='history')renderHistory();
+ if(to==='settings')renderSettings();
+ if(to==='growth')renderGrowth();
+ if(to==='compare'){renderQuotes();renderReferenceTable();}
+ if(to==='maternal-health')document.dispatchEvent(new Event('maternal-health-open'));
+ if(scroll)window.scrollTo({top:0,behavior:'smooth'});
+}
 function restoreActiveTab(){/* default overview, never read tab storage */}
 // Calendar-month age. Month anniversaries are capped to the last day in short months.
 function calculateBirthAge(birth,today){
@@ -985,6 +1065,10 @@ $('qBrand').addEventListener('change',()=>{$('qSeries').value='';updateSeriesPic
 $('qSeriesChoice').addEventListener('change',chooseSeriesFromSelect);
 $('qSeries').addEventListener('input',renderSeriesChips);
 Array.from(document.querySelectorAll('.tab')).forEach(el=>el.addEventListener('click',()=>tab(el.dataset.tab)));
+$('maternalHealthBack').addEventListener('click',()=>{
+ selectTab('overview');
+ $('formalRetry').focus();
+});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;if(action==='go'){tab(b.dataset.target);return}if(action==='consume'){consume(b.dataset.size,b.dataset.count);return}if(action==='editstock'){tab('history');const field=$('inv_'+b.dataset.size);const section=field?.closest('details');if(section)section.open=true;field?.focus();return}if(action==='deletequote'){state.quotes=state.quotes.filter(q=>q.id!==b.dataset.id);save();renderQuotes();toast('候选已移除');return}if(action==='buyquote'){const q=state.quotes.find(q=>q.id===b.dataset.id);if(q)addBuy(q);return}if(action==='deletetx'){undo(b.dataset.id);return}if(action==='series'){$('qSeries').value=b.dataset.series;$('qSeriesChoice').value=b.dataset.series;$('qSeries').hidden=true;renderSeriesChips();preview();return}if(action==='pickref'){$('qBrand').value=b.dataset.brand;$('qSeries').value=b.dataset.series;$('qSize').value=b.dataset.size;updateSeriesPicks();preview();document.querySelector('#compare .head')?.scrollIntoView({behavior:'smooth',block:'start'});toast('已填入品牌、系列与尺码');return}if(action==='editref'){editReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}if(action==='resetref'){restoreReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}});
 for(const x of ['qBrand','qSeries','qSize','qPerPack','qPacks','qPrice'])$(x).addEventListener('input',preview);
 $('saveQuote').addEventListener('click',()=>{const q=compareInput();if(!validateQuote(q))return;state.quotes.push({...q,id:uid(),date:localDate()});save();renderQuotes();toast('候选价已保存，可继续录入另一款比较')});
@@ -1030,6 +1114,19 @@ $('resetAll').addEventListener('click',()=>{if(window.XBM102?.isActive()){toast(
 window.XBM3UI=Object.freeze({
  defaults:()=>defaults(),
  isActive:()=>m3ReadOnly,
+ openMaternalHealth:()=>{
+  tab('maternal-health');
+  $('tabMaternalHealth').focus();
+ },
+ resetNavigation:()=>{
+  selectTab('overview');
+  closeReferenceEditor();
+  formalEditingQuoteId=null;
+  $('saveQuote').textContent='加入候选价';
+  for(const id of ['qBrand','qSize'])$(id).selectedIndex=0;
+  for(const id of ['qSeries','qPerPack','qPacks','qPrice'])$(id).value=$(id).defaultValue;
+  updateSeriesPicks();
+ },
  show:projection=>{
   if(window.XBM102?.isActive())throw Error('m3:smoke_mode_active');
   if(!projection||projection.canWrite!==false||!projection.state)
@@ -6216,7 +6313,7 @@ restoreActiveTab();
    const handler=event=>{
     if(!formalModeSelected())return;
     const el=event.target?.closest?.('button,[data-action],[data-preset]');
-    if(!el)return;
+    if(!el||doc.getElementById('maternal-health')?.contains?.(el))return;
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
@@ -6264,7 +6361,7 @@ restoreActiveTab();
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
    const formHandler=event=>{
-    if(!formalModeSelected())return;
+    if(!formalModeSelected()||doc.getElementById('maternal-health')?.contains?.(event.target))return;
     event.preventDefault();event.stopImmediatePropagation();
     if(event.target?.id!=='priceEditForm')return;
     if(readSyncBusy()){
@@ -7419,7 +7516,12 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
-<script src="../../../formal-controller.js" defer></script>
+<script src="../../../sync/outbox-contract.js" defer></script>
+<script src="../../../sync/idb-outbox.js" defer></script>
+<script src="../../../sync/maternal-health-client.js" defer></script>
+<script src="../../../sync/maternal-health-operations.js" defer></script>
+<script src="../../v1.2.0/maternal-weight.js" defer></script>
+<script src="../formal-controller.js" defer></script>
 
 </body>
 </html>

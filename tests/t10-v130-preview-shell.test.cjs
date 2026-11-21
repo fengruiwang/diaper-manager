@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
+const formal = require('../preview/v1.3.0/formal-controller.js');
 
 const root = path.resolve(__dirname, '..');
 const stableSha = 'cc908a037ecb754f3aa47bba7f94c87bff70e6b1';
@@ -24,32 +26,50 @@ test('V1.3.0 local preview has its own title and robots directive', () => {
   assert.match(markup(preview), /<meta name="robots" content="noindex,nofollow" \/>/);
 });
 
-test('V1.3.0 local preview retains the five stable tabs and their business panels', () => {
-  const tabs = ['overview', 'compare', 'history', 'growth', 'settings'];
+test('V1.3.0 local preview adds maternal health to the five intact stable business panels', () => {
+  const tabs = ['overview', 'compare', 'history', 'growth', 'settings', 'maternal-health'];
   const tags = markup(preview);
-  assert.deepEqual(Array.from(tags.matchAll(/<button class="tab(?: active)?" data-tab="([^"]+)"/g), m => m[1]), tabs);
+  assert.deepEqual(Array.from(tags.matchAll(/<button class="tab(?: active)?"[^>]* data-tab="([^"]+)"/g), m => m[1]), tabs);
   assert.deepEqual(Array.from(tags.matchAll(/<section class="panel(?: active)?" id="([^"]+)"/g), m => m[1]), tabs);
   for (const id of [
     'formalGate', 'formalOtp', 'formalConfirmOtp', 'kpiGrid', 'qBrand', 'saveQuote',
     'buyNow', 'historyList', 'saveStocks', 'growthChart', 'growthHistory', 'saveWeight',
     'saveProfile', 'savePlans', 'formalGetCloudLatest',
+    'maternalWeightForm', 'maternalWeightChart', 'maternalWeightRows', 'maternalWeightSave',
+    'maternalWeightRefresh', 'maternalWeightRecover', 'maternalWeightArchive', 'maternalHealthBack',
   ]) {
     assert.ok(tags.includes('id="' + id + '"'), 'Missing DOM ID ' + id);
   }
   const businessMarkup = html => markup(html).slice(markup(html).indexOf('<nav class="tabs"'));
-  assert.equal(businessMarkup(preview), businessMarkup(stableHtml));
+  const stableBusiness = businessMarkup(preview)
+    .replace(/^ .*data-tab="maternal-health".*\n/m, '')
+    .replace(/^    <section class="panel" id="maternal-health"[\s\S]*?^    <\/section>\n/m, '');
+  assert.equal(stableBusiness, businessMarkup(stableHtml));
+  assert.match(tags, /id="formalOpenMaternalHealth"[^>]* hidden>/);
+  assert.match(tags, /\.tabs\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.doesNotMatch(tags, /:has\([^)]*maternal/);
 });
 
-test('V1.3.0 controllers resolve from the nested preview URL to the stable root files', () => {
+test('V1.3.0 loads existing sync and weight scripts before its write-enabled formal controller', () => {
   const pageUrl = new URL('/' + entry.replace(/index\.html$/, ''), 'http://localhost:8000');
-  const files = ['m1-controller.js', 'formal-controller.js'];
-  const references = externalScripts(preview);
-  assert.deepEqual(references, files.map(file => '../../../' + file));
-  for (const [index, file] of files.entries()) {
-    const url = new URL(references[index], pageUrl);
-    assert.equal(url.href, new URL('/' + file, pageUrl).href);
-    assert.equal(read(url.pathname.slice(1)), stable(file));
+  const files = [
+    '/m1-controller.js', '/sync/outbox-contract.js', '/sync/idb-outbox.js',
+    '/sync/maternal-health-client.js', '/sync/maternal-health-operations.js',
+    '/preview/v1.2.0/maternal-weight.js', '/preview/v1.3.0/formal-controller.js',
+  ];
+  assert.deepEqual(externalScripts(preview).map(src => new URL(src, pageUrl).pathname), files);
+  for (const file of files) {
+    assert.doesNotThrow(() => new vm.Script(read(file.slice(1))));
   }
+  const controller = read(files.at(-1).slice(1));
+  assert.match(controller, /XBMaternalWeight\.mount\(\{[\s\S]*?clientFactory:root\.XBMaternalHealthClient,operationsFactory:root\.XBMaternalHealthOperations,\s*cloudWritesEnabled:true/);
+  const browserHost = controller.match(/function maternalBrowserHost[\s\S]*?(?=function browserStart)/)[0];
+  const withUuid = vm.runInNewContext(browserHost + 'maternalBrowserHost');
+  const oldChrome = { crypto: { getRandomValues: bytes => bytes.fill(0xab) } };
+  assert.equal(withUuid(oldChrome).crypto.randomUUID(), 'abababab-abab-4bab-abab-abababababab');
+  assert.equal(formal.FORMAL_WRITE_ENABLED, true);
+  assert.equal(formal.FORMAL_DOCUMENT_WRITE_ENABLED, true);
+  assert.equal(formal.FORMAL_PURCHASE_ENABLED, true);
 });
 
 test('V1.3.0 local preview excludes old preview resources, S140 fixtures and PWA entry points', () => {
@@ -57,11 +77,125 @@ test('V1.3.0 local preview excludes old preview resources, S140 fixtures and PWA
   assert.doesNotMatch(markup(preview), /rel="(?:manifest|icon|apple-touch-icon)"|id="(?:installPwa|pwaLaunch|pwaUpdateNotice)"/);
 });
 
-test('V1.3.0 local preview keeps the stable embedded business scripts and production root intact', () => {
+test('V1.3.0 keeps the original inline logic outside the navigation and maternal event integration', () => {
   const scripts = inlineScripts(stableHtml);
-  assert.ok(scripts.length > 0);
-  assert.deepEqual(inlineScripts(preview), scripts);
-  for (const file of ['index.html', 'pwa.js', 'sw.js', 'manifest.webmanifest', 'version.json']) {
+  const current = inlineScripts(preview);
+  const withoutIntegration = script => script
+    .replace(/const VALID_TABS[\s\S]*?(?=function restoreActiveTab)/, '')
+    .replace(/\$\('maternalHealthBack'\)\.addEventListener[\s\S]*?\n\}\);\n/, '')
+    .replace(/^ openMaternalHealth:[\s\S]*?(?=^ show:projection)/m, '')
+    .replace("||doc.getElementById('maternal-health')?.contains?.(el)", '')
+    .replace("||doc.getElementById('maternal-health')?.contains?.(event.target)", '');
+  assert.deepEqual(current.map(withoutIntegration), scripts.map(withoutIntegration));
+  for (const script of current) assert.doesNotThrow(() => new vm.Script(script));
+  for (const file of ['index.html', 'formal-controller.js', 'm1-controller.js', 'pwa.js', 'sw.js', 'manifest.webmanifest', 'version.json']) {
     assert.equal(read(file), stable(file), file);
   }
+});
+
+test('V1.3.0 navigation allows the family-only panel and retains baby tabs for the ready state', () => {
+  const dataset = { formalState: 'unverified' };
+  const tabs = ['overview', 'maternal-health'].map(tab => ({
+    dataset: { tab }, classList: { toggle() {} }, setAttribute() {},
+  }));
+  const panels = tabs.map(tab => ({
+    id: tab.dataset.tab, classList: { toggle: (_name, active) => { tab.active = active; } },
+  }));
+  const events = [];
+  const document = {
+    body: { dataset },
+    querySelectorAll: selector => selector === '.tab' ? tabs : panels,
+    dispatchEvent: event => events.push(event.type),
+  };
+  const code = preview.match(/const VALID_TABS[\s\S]*?(?=function restoreActiveTab)/)[0];
+  const { tab, selectTab } = vm.runInNewContext(code + '({tab,selectTab})', { document, Event });
+  const open = name => tab(name, { scroll: false });
+  selectTab('overview');
+  open('maternal-health');
+  assert.equal(tabs[0].active, true);
+  assert.deepEqual(events, []);
+  dataset.formalFamilyReady = 'true';
+  open('maternal-health');
+  open('overview');
+  assert.equal(dataset.formalMaternalOnly, 'true');
+  assert.equal(tabs[1].active, true);
+  assert.deepEqual(events, ['maternal-health-open']);
+  selectTab('overview');
+  assert.equal(dataset.formalMaternalOnly, undefined);
+  dataset.formalState = 'ready';
+  open('maternal-health');
+  open('overview');
+  assert.equal(tabs[0].active, true);
+  assert.equal(dataset.formalMaternalOnly, undefined);
+});
+
+test('V1.3.0 passes only verified family context and clears it across account changes and logout', async () => {
+  const nodes = new Map();
+  const doc = {
+    body: { dataset: {} }, addEventListener() {},
+    getElementById(id) {
+      if (!nodes.has(id)) nodes.set(id, {
+        hidden: true, dataset: {}, addEventListener(_event, callback) { this.click = callback; },
+      });
+      return nodes.get(id);
+    },
+  };
+  const contexts = [];
+  const cloud = {};
+  let context = { app: cloud, actorUid: 'a', familyId: 'family-a' };
+  let loginStatus = 'FORMAL_FAMILY_VERIFIED';
+  let primaryStatus = 'PRIMARY_NOT_READY';
+  let opens = 0;
+  let resets = 0;
+  const controller = {
+    connect: async () => loginStatus,
+    verifiedContext: () => context,
+    signOut: async () => { context = null; return 'LOGIN_REQUIRED'; },
+  };
+  const app = formal.create({
+    doc, host: { addEventListener() {}, navigator: { onLine: true } },
+    loginController: { create: () => controller },
+    readModelFactory: () => ({ read: async () => ({ status: primaryStatus, canWrite: false }) }),
+    primaryFactory: () => ({}),
+    commandsFactory: { create() {} }, actionsFactory: { create() {} },
+    projection: { project() { assert.fail('Baby data is not ready'); } }, scriptLoader: async () => {},
+    ui: {
+      defaults() {}, show() { assert.fail('Baby data is not ready'); }, clear() {},
+      openMaternalHealth() { opens++; }, resetNavigation() { resets++; },
+    },
+    maternalWeightFactory(auth) {
+      assert.equal(auth, controller);
+      return { setContext: current => contexts.push(current) };
+    },
+  });
+  await app.start();
+  const entryButton = nodes.get('formalOpenMaternalHealth');
+  assert.equal(app.mode, 'unverified');
+  assert.equal(entryButton.hidden, false);
+  assert.equal(contexts.at(-1), context);
+  await entryButton.click();
+  assert.equal(opens, 1);
+
+  context = { app: cloud, actorUid: 'b', familyId: 'family-b' };
+  primaryStatus = 'MIGRATION_READ_NOT_READY';
+  await app.restore();
+  assert.deepEqual(contexts.slice(-2), [null, context]);
+  assert.equal(resets, 1);
+  assert.equal(entryButton.hidden, false);
+
+  loginStatus = 'FAMILY_PERMISSION_DENIED';
+  await app.restore();
+  assert.equal(entryButton.hidden, true);
+  assert.equal(doc.body.dataset.formalFamilyReady, undefined);
+  assert.equal(contexts.at(-1), null);
+  await entryButton.click();
+  assert.equal(opens, 1);
+
+  loginStatus = 'FORMAL_FAMILY_VERIFIED';
+  await app.restore();
+  await app.signOut();
+  assert.equal(app.mode, 'login');
+  assert.equal(entryButton.hidden, true);
+  assert.equal(contexts.at(-1), null);
+  assert.equal(resets, 3);
 });
