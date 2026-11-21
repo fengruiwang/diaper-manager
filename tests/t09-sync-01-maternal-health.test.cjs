@@ -5,7 +5,7 @@ const Client=require('../sync/maternal-health-client.js');
 const Ops=require('../sync/maternal-health-operations.js');
 const Contract=require('../sync/outbox-contract.js');
 const Durable=require('../sync/idb-outbox.js');
-const {deleteDocument}=require('../preview/v1.2.0/maternal-weight.js');
+const {deleteDocument,formatJin,profileInput}=require('../preview/v1.2.0/maternal-weight.js');
 
 const familyId='f1300000-0000-4000-8000-000000000001';
 const otherFamily='f1300000-0000-4000-8000-000000000002';
@@ -227,17 +227,22 @@ test('the optional profile contract accepts old documents and rejects invalid pr
 
 test('A and B share profile changes with CAS conflict and original receipt recovery',async()=>{
  const f=fixture();
- const first={...body(52),source:{label:'synthetic'},maternalProfile:{
-  prePregnancyWeightKg:47,dueDate:'2026-01-01',deliveryDate:null
- }};
+ const first={...body(52),source:{label:'synthetic'},maternalProfile:profileInput({
+  jin:'96',dueDate:'2026-01-01',deliveryDate:''
+ })};
+ assert.equal(first.maternalProfile.prePregnancyWeightKg,48);
  Object.assign(first.items[0],{time:'06:05',note:'synthetic note'});
  const initial=await f.client.read(A);
- await f.ops.queue({baseline:initial,nextBody:first});
+ const firstQueued=await f.ops.queue({baseline:initial,nextBody:first});
+ const storage=Durable.create({indexedDB:f.indexedDB,contract:Contract,dbName:Ops.DB_NAME});
+ assert.equal((await storage.get(A,firstQueued.requestId)).payload.nextBody.maternalProfile.prePregnancyWeightKg,48);
  assert.equal((await f.ops.send()).revision,1);
+ assert.equal(f.calls.find(call=>call.name==='xb_put_maternal_health').args.p_next_body.maternalProfile.prePregnancyWeightKg,48);
  const staleA=await f.client.read(A);
  f.actAs(B);
  const baseline=await f.client.read(B);
  assert.deepEqual(baseline.body,first);
+ assert.equal(formatJin(baseline.body.maternalProfile.prePregnancyWeightKg),'96');
  const next={...first,maternalProfile:{...first.maternalProfile,deliveryDate:'2025-12-31'}};
  const queued=await f.ops.queue({baseline,nextBody:next});
  let lost=false;
@@ -254,7 +259,9 @@ test('A and B share profile changes with CAS conflict and original receipt recov
  assert.equal(recovered.revision,2);
  assert.equal(f.generated,2);
  f.actAs(A);
- assert.deepEqual((await f.client.read(A)).body,next);
+ const refreshed=await f.client.read(A);
+ assert.deepEqual(refreshed.body,next);
+ assert.equal(formatJin(refreshed.body.maternalProfile.prePregnancyWeightKg),'96');
  await f.ops.queue({baseline:staleA,nextBody:first});
  assert.equal((await f.ops.send()).status,'REVISION_CONFLICT');
  assert.deepEqual((await f.client.read(A)).body,next);

@@ -176,7 +176,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  }
  function renderProfileStage(){
   if(!profileForm)return;
-  profileStage.textContent=profileRead==='ready'?maternalStage(snapshot.body.maternalProfile)
+  profileStage.textContent=snapshot?maternalStage(snapshot.body.maternalProfile)
    :profileRead==='loading'?'正在读取妈妈健康档案…'
    :profileRead==='failed'?'暂时无法读取':'尚未读取';
  }
@@ -236,7 +236,9 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  async function run(message,work,feedback=status){
   if(!scope||busy)return;
   const started=scope;
-  busy=true;feedback.textContent=message;controls();
+  busy=true;
+  if(message)feedback.textContent=message;
+  controls();
   try{await work(started);}
   catch(_){
    if(current(started))feedback.textContent='操作未完成，请刷新记录或核验待确认保存。';
@@ -252,27 +254,34 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   if(queue.status==='QUEUE_VERIFIED')pending=queue.pending+queue.retry>0;
   if(conflicts.status==='CONFLICTS_VERIFIED')conflict=conflicts.items[0]||null;
  }
- function refresh(){
-  return run('正在读取云端体重记录…',async started=>{
+ function refresh({background=false}={}){
+  const quiet=background&&Boolean(snapshot);
+  return run(quiet?null:'正在读取云端体重记录…',async started=>{
    if(profileStatus&&profileRead==='failed')profileStatus.textContent='';
-   profileRead='loading';
-   renderProfileStage();
+   if(!snapshot){
+    profileRead='loading';
+    renderProfileStage();
+   }
    let result;
    try{
     result=host.navigator?.onLine===false?{status:'OFFLINE'}:await client?.read(started);
    }catch(_){/* Treat a rejected read like an unverified result. */}
    if(!current(started))return;
-   canSave=result?.status==='READ_VERIFIED';
+   canSave=result?.status==='READ_VERIFIED'&&(!snapshot||result.revision>=snapshot.revision);
    profileRead=canSave?'ready':'failed';
    if(canSave){snapshot=result;render();}
    else{
     renderProfileStage();
     if(profileStatus)profileStatus.textContent=snapshot
-     ?'保留上次读取的档案，请点击「刷新云端记录」重试。'
+     ?'云端刷新失败，当前显示上次读取的数据。请点击「刷新云端记录」重试。'
      :'请点击「刷新云端记录」重试。';
    }
    await review(started);
    if(!current(started))return;
+   if(quiet&&canSave&&operations&&!pending&&!conflict){
+    status.textContent='';
+    return;
+   }
    status.textContent=!canSave
     ?messages[result?.status]||'暂时无法读取妈妈健康云端记录，请刷新重试。'
     :!operations?'体重记录已读取。浏览器持久化存储不可用，暂不能保存。'
@@ -393,7 +402,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   if(current(started))status.textContent=result.status==='ABANDONED'
    ?'旧冲突请求已归档。':'旧请求尚未归档，请刷新后重试。';
  }));
- doc.addEventListener('maternal-health-open',refresh);
+ doc.addEventListener('maternal-health-open',()=>refresh({background:true}));
 
  function setContext(next){
   if(!scope&&!next||same(scope,next))return;
