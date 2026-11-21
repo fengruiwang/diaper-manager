@@ -43,7 +43,7 @@ function chart(records){
  const width=w-left-right,height=h-top-bottom;
  const entries=records.slice().reverse();
  const dates=entries.map(item=>Date.parse(item.date+'T00:00:00Z'));
- const span=dates.at(-1)-dates[0];
+ const span=dates[dates.length-1]-dates[0];
  const values=entries.map(item=>Number(formatJin(item.weightKg)));
  const high=Math.max(...values)+1,low=Math.max(0,Math.min(...values)-1);
  const xy=entries.map((item,i)=>({
@@ -63,7 +63,7 @@ function chart(records){
  const labels='<text x="'+(span?left:left+width/2)+'" y="'+(h-9)+'" font-size="14" fill="#657189"'
   +(span?'':' text-anchor="middle"')+'>'+entries[0].date+'</text>'
   +(span?'<text x="'+(w-right)+'" y="'+(h-9)+'" font-size="14" text-anchor="end" fill="#657189">'
-   +entries.at(-1).date+'</text>':'');
+   +entries[entries.length-1].date+'</text>':'');
  return '<svg class="growth-chart" role="img" aria-label="妈妈体重趋势，单位斤，共'+entries.length
   +'个数据点" viewBox="0 0 '+w+' '+h+'">'+grid+line+points+labels+'</svg>';
 }

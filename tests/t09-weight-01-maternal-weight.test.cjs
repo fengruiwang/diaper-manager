@@ -1,6 +1,8 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
 const weight=require('../preview/v1.2.0/maternal-weight.js');
 const client=require('../sync/maternal-health-client.js');
 
@@ -56,6 +58,24 @@ test('history sorts descending and SVG uses the same records plotted by date in 
  assert.equal((xs[1]-xs[0])*5,xs[2]-xs[0]);
  assert.doesNotMatch(weight.chart(history.slice(0,1)),/<polyline/);
  assert.equal(weight.chart([]),'');
+});
+
+test('trend SVG renders single and multiple measurements without Array.prototype.at',()=>{
+ const filename=require.resolve('../preview/v1.2.0/maternal-weight.js');
+ const legacy=vm.createContext({module:{exports:{}}});
+ vm.runInContext('delete Array.prototype.at',legacy);
+ assert.equal(vm.runInContext('typeof Array.prototype.at',legacy),'undefined');
+ vm.runInContext(fs.readFileSync(filename,'utf8'),legacy,{filename});
+ const newest=measurement('last','2026-11-21',52);
+ const oldest=measurement('first','2026-11-11',51.5);
+ for(const records of [[newest],[newest,oldest]]){
+  legacy.recordsJSON=JSON.stringify(records);
+  const svg=vm.runInContext('module.exports.chart(JSON.parse(recordsJSON))',legacy);
+  assert.equal(svg,weight.chart(records));
+  assert.equal([...svg.matchAll(/<circle\b/g)].length,records.length);
+  assert.equal(svg.includes('<polyline'),records.length>1);
+  assert.match(svg,/>2026-11-21<\/text>/);
+ }
 });
 
 test('health client distinguishes missing RPCs for the undeployed preview',async()=>{
