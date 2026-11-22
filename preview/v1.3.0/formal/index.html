@@ -393,16 +393,19 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
       <div class="head"><h2>妈妈健康</h2></div>
       <div class="card weight-card">
         <h3 class="section-title">妈妈健康档案</h3>
-        <p>当前阶段：<strong id="maternalProfileStage" aria-live="polite">尚未读取</strong></p>
+        <p>当前阶段：<strong id="maternalProfileStage" aria-live="polite">未关联宝宝资料</strong></p>
+        <div class="form-grid">
+          <div class="field"><span>预产期</span><strong id="maternalProfileDue">未填写</strong></div>
+          <div class="field"><span>实际分娩日期</span><strong id="maternalProfileDelivery">未填写</strong></div>
+        </div>
+        <p class="fine">日期统一在「个性设置 → 宝宝基本资料」中维护，妈妈健康仅引用。</p>
         <form id="maternalProfileForm" novalidate>
           <div class="form-grid">
             <label class="field">孕前体重（斤）<input id="maternalProfileJin" type="number" inputmode="decimal" step="0.01" min="0.01" disabled></label>
-            <label class="field">预产期<input id="maternalProfileDue" type="date" disabled></label>
-            <label class="field">实际分娩日期<input id="maternalProfileDelivery" type="date" disabled></label>
           </div>
           <div class="action-row"><button id="maternalProfileSave" class="btn" type="submit" disabled>保存档案</button></div>
         </form>
-        <p class="fine" id="maternalProfileStatus" role="status" aria-live="polite"></p>
+        <p class="fine" id="maternalProfileStatus" role="status" aria-live="polite">尚未读取妈妈健康档案。</p>
       </div>
       <div class="card weight-card">
         <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>

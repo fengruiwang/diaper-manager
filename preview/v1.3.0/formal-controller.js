@@ -434,7 +434,8 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    &&found.items.length>0);
  }
  function clear({keepFamily=false}={}){
-  if(!keepFamily)setFamilyContext(null);
+  if(keepFamily)maternalWeight?.setBabyDates?.(null);
+  else setFamilyContext(null);
   stopInventoryPolling();
   historyCache?.invalidate?.();
   conflictButton(false);batchConflictButton(false);
@@ -514,6 +515,18 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   ui.show(data);
   // A verified RPC response alone is not proof that the UI rendered it.
   const scope=data?.cloudDocumentsActorScope;
+  // The complete profile overlay is the editable baby profile from Settings.
+  // A base-only view can contain the older migrated dates.
+  const active=controller.verifiedContext();
+  const verifiedBabyProfile=data?.status==='PRIMARY_READ_ONLY_READY'
+   &&data.source==='cloudbase-primary-receipt-verified'&&data.synthetic!==true
+   &&data.sharedBusinessDocumentsVerified===true
+   &&Number.isSafeInteger(data.documentRevisions?.profile)
+   &&scope?.familyId===ctx.familyId&&data.familyId===ctx.familyId
+   &&data.childId&&scope.childId===data.childId&&data.actorUid===ctx.actorUid&&data.state
+   &&active?.app===ctx.app&&active?.actorUid===ctx.actorUid&&active.familyId===ctx.familyId;
+  maternalWeight?.setBabyDates?.(verifiedBabyProfile
+   ?{dueDate:data.state.dueDate,birthDate:data.state.birthDate}:null);
   renderedReference=data?.sharedBusinessDocumentsVerified===true
    &&scope?.familyId===ctx.familyId
    &&scope?.childId===data.childId
@@ -2069,7 +2082,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     const id=String(field?.id||'');
     if(['growthRange','refBrand','refSize','refSearch','formalEmail',
        'formalOtp','maternalWeightDate','maternalWeightTime','maternalWeightJin','maternalWeightNote',
-       'maternalProfileJin','maternalProfileDue','maternalProfileDelivery'].includes(id))return null;
+       'maternalProfileJin'].includes(id))return null;
     if(['sizeMode','currentSize','goalPrice'].includes(id))return 'size';
     if(['replenishMode','replenishDays'].includes(id)
       ||/^(target_|daily_)/.test(id))return 'plans';

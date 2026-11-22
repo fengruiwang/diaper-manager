@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const formal = require('../preview/v1.3.0/formal-controller.js');
+const documentsOverlay = require('../sync/primary-documents-overlay.js');
 
 const root = path.resolve(__dirname, '..');
 const stableSha = 'cc908a037ecb754f3aa47bba7f94c87bff70e6b1';
@@ -45,6 +46,11 @@ test('V1.3.0 local preview adds maternal health to the five intact stable busine
     .replace(/^ .*data-tab="maternal-health".*\n/m, '')
     .replace(/^    <section class="panel" id="maternal-health"[\s\S]*?^    <\/section>\n/m, '');
   assert.equal(stableBusiness, businessMarkup(stableHtml));
+  assert.match(tags, /<input type="date" id="dueDate"/);
+  assert.match(tags, /<input type="date" id="birthDate"/);
+  assert.match(tags, /<strong id="maternalProfileDue">/);
+  assert.match(tags, /<strong id="maternalProfileDelivery">/);
+  assert.doesNotMatch(tags, /<input[^>]*id="maternalProfile(?:Due|Delivery)"/);
   assert.match(tags, /id="formalOpenMaternalHealth"[^>]* hidden>/);
   assert.match(tags, /\.tabs\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.doesNotMatch(tags, /:has\([^)]*maternal/);
@@ -198,4 +204,88 @@ test('V1.3.0 passes only verified family context and clears it across account ch
   assert.equal(entryButton.hidden, true);
   assert.equal(contexts.at(-1), null);
   assert.equal(resets, 3);
+});
+
+test('verified baby dates follow profile ACKs and another actor’s refresh, with no migrated-date fallback', async () => {
+  const nodes = new Map(), dates = [];
+  const doc = {
+    body: { dataset: {} }, addEventListener() {},
+    getElementById(id) {
+      if (!nodes.has(id)) nodes.set(id, { dataset: {}, addEventListener() {} });
+      return nodes.get(id);
+    },
+  };
+  const cloud = { auth: { getSession: async () => ({}) } };
+  let ctx = { app: cloud, actorUid: 'a', familyId: 'family' };
+  let childId = 'primary', profileRevision = 0, callbacks;
+  let profile = { babyProfile: {}, dueDate: '2026-01-01', birthDate: '' };
+  const kinds = ['reference', 'quotes', 'growth', 'profile', 'settings'];
+  const document = kind => ({
+    status: 'PRIMARY_DOCUMENT_READ_VERIFIED', kind, familyId: ctx.familyId, childId,
+    revision: kind === 'profile' ? profileRevision : 0,
+    body: { reference: { referenceOverrides: {} }, quotes: { items: [] },
+      growth: { items: [] }, profile, settings: { target: {}, daily: {} } }[kind],
+  });
+  const app = formal.create({
+    doc, host: { addEventListener() {}, navigator: { onLine: true } },
+    loginController: { create: () => ({
+      connect: async () => 'FORMAL_FAMILY_VERIFIED', verifiedContext: () => ctx,
+    }) },
+    readModelFactory: () => ({ read: async () => childId ? {
+      status: 'PRIMARY_READ_ONLY_READY', source: 'cloudbase-primary-receipt-verified',
+      canWrite: false, actorUid: ctx.actorUid, familyId: ctx.familyId, childId,
+      inventory: {}, revisions: {},
+    } : { status: 'PRIMARY_NOT_READY' } }),
+    projection: { project: read => ({
+      ...read, state: { inventory: {}, transactions: [], dueDate: '2025-01-01', birthDate: '2025-01-02' },
+    }) },
+    primaryFactory: () => ({ activate: async () => ({ status: 'PRIMARY_OUTBOX_READ_ONLY_READY' }) }),
+    commandsFactory: { create: () => ({}) },
+    actionsFactory: { create(config) {
+      callbacks = config;
+      return { attach: () => ({ detach() {} }) };
+    } },
+    documentsFactory: () => ({
+      readAll: async () => ({ status: 'PRIMARY_DOCUMENTS_FULLY_READ',
+        documents: Object.fromEntries(kinds.map(kind => [kind, document(kind)])) }),
+      read: async ({ kind }) => document(kind),
+    }),
+    documentsOverlay,
+    ui: { defaults: () => ({}), show() {}, clear() {} },
+    scriptLoader: async () => {},
+    maternalWeightFactory: () => ({
+      setContext(current) { if (!current) dates.push(null); },
+      setBabyDates: value => dates.push(value),
+    }),
+  });
+  await app.start();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.mode, 'ready');
+  assert.deepEqual(dates.filter(Boolean), [{ dueDate: '2026-01-01', birthDate: '' }]);
+
+  async function ack(change) {
+    const expectedRevision = profileRevision++;
+    profile = { ...profile, ...change };
+    return callbacks.onProfileAck({
+      kind: 'profile', actorUid: ctx.actorUid, familyId: ctx.familyId, childId,
+      requestId: 'synthetic-ack-' + profileRevision, expectedRevision, revision: profileRevision,
+      record: change, nextBody: profile,
+    });
+  }
+  assert.equal(await ack({ dueDate: '2026-01-03' }), 'ready');
+  assert.deepEqual(dates.at(-1), { dueDate: '2026-01-03', birthDate: '' });
+  assert.equal(await ack({ birthDate: '2026-01-02' }), 'ready');
+  assert.deepEqual(dates.at(-1), { dueDate: '2026-01-03', birthDate: '2026-01-02' });
+
+  ctx = { ...ctx, actorUid: 'b' };
+  const previousDateCount = dates.length;
+  await app.restore({ requireComplete: true });
+  assert.equal(dates[previousDateCount], null);
+  assert.deepEqual(dates.at(-1), { dueDate: '2026-01-03', birthDate: '2026-01-02' });
+
+  childId = '';
+  await app.restore();
+  assert.equal(app.mode, 'unverified');
+  assert.equal(dates.at(-1), null);
+  assert.equal(doc.body.dataset.formalFamilyReady, 'true');
 });

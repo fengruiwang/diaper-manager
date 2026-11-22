@@ -128,6 +128,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
   remove:()=>rows.querySelectorAll('button').filter(button=>button.dataset.deleteWeight),
   setConfirm:value=>{confirm=value;},setOutcome:value=>{outcome=value;},
   refresh,open:()=>handlers['maternal-health-open'](),setRead:next=>{read=next;},
+  setBabyDates:panel.setBabyDates,
   switchScope:(actorUid,familyId)=>{
    scope={...scope,actorUid,familyId};panel.setContext(scope);
   },
@@ -138,32 +139,35 @@ const first=measurement('first','2026-11-20',51.5);
 const second=measurement('second',today,52);
 const other={id:'other',kind:'constipation',date:today};
 
-test('first profile read shows loading and only a verified empty document shows unset',async()=>{
+test('first maternal read reports loading and failure independently of the baby stage',async()=>{
  const f=await mountedWeights([],{autoRead:false});
  const stage=f.get('maternalProfileStage'),save=f.get('maternalProfileSave');
- assert.equal(stage.textContent,'尚未读取');
+ const feedback=f.get('maternalProfileStatus');
+ assert.equal(stage.textContent,'未关联宝宝资料');
+ assert.match(feedback.textContent,/尚未读取/);
  assert.equal(save.disabled,true);
  f.setRead(async()=>{throw Error('synthetic read rejection');});
  await f.refresh();
- assert.equal(stage.textContent,'暂时无法读取');
- assert.match(f.get('maternalProfileStatus').textContent,/刷新云端记录/);
+ assert.equal(stage.textContent,'未关联宝宝资料');
+ assert.match(feedback.textContent,/暂时无法读取.*刷新云端记录/);
  assert.equal(save.disabled,true);
  let resolve;
  f.setRead(()=>new Promise(done=>{resolve=done;}));
  const reading=f.open();
- assert.equal(stage.textContent,'正在读取妈妈健康档案…');
+ assert.equal(feedback.textContent,'正在读取妈妈健康档案…');
  assert.equal(f.get('maternalProfileJin').disabled,true);
  resolve({status:'READ_VERIFIED',revision:0,body:{schemaVersion:1,items:[]}});
  await reading;
- assert.equal(stage.textContent,'未设置');
+ assert.equal(stage.textContent,'未关联宝宝资料');
  assert.equal(save.disabled,false);
  assert.equal(f.get('maternalProfileStatus').textContent,'');
 });
 
 test('repeat entry refreshes silently, blocks stale writes, and preserves drafts until switching scope',async()=>{
- const profile={prePregnancyWeightKg:48,dueDate:'2026-01-01',deliveryDate:null};
+ const profile={prePregnancyWeightKg:48,dueDate:'2026-01-09',deliveryDate:'2026-01-05'};
  const f=await mountedWeights([first],{profile});
  const stage=f.get('maternalProfileStage'),jin=f.get('maternalProfileJin'),due=f.get('maternalProfileDue');
+ f.setBabyDates({dueDate:'2026-01-01',birthDate:''});
  assert.equal(stage.textContent,'孕期');
  f.edit(0);
  f.jin.value='105.23';
@@ -183,18 +187,18 @@ test('repeat entry refreshes silently, blocks stale writes, and preserves drafts
   maternalProfile:{...profile,prePregnancyWeightKg:48.005,deliveryDate:'2026-01-02'}}};
  resolve(result);
  await reentry;
- assert.equal(stage.textContent,'产后');
+ assert.equal(stage.textContent,'孕期');
  assert.equal(jin.value,'96.01');
  assert.equal(f.jin.value,'105.23');
  assert.equal(f.get('maternalProfileSave').disabled,false);
 
  f.setRead(async()=>({status:'OFFLINE'}));
  const failed=f.open();
- assert.equal(stage.textContent,'产后');
+ assert.equal(stage.textContent,'孕期');
  assert.equal(jin.value,'96.01');
  await failed;
- assert.equal(stage.textContent,'产后');
- assert.equal(due.value,profile.dueDate);
+ assert.equal(stage.textContent,'孕期');
+ assert.equal(due.textContent,'2026-01-01');
  assert.match(f.get('maternalProfileStatus').textContent,/当前显示上次读取的数据/);
  assert.equal(f.get('maternalProfileSave').disabled,true);
 
@@ -205,70 +209,73 @@ test('repeat entry refreshes silently, blocks stale writes, and preserves drafts
  assert.equal(jin.value,'96.01');
  assert.equal(f.get('maternalProfileSave').disabled,true);
 
- due.value='2026-01-03';
+ jin.value='96.15';
  f.get('maternalProfileForm').handlers.input();
+ f.setBabyDates({dueDate:'2026-01-03',birthDate:'2026-01-02'});
+ assert.equal(stage.textContent,'产后');
  f.setRead(async()=>result);
  await f.open();
  assert.equal(stage.textContent,'产后');
- assert.equal(due.value,'2026-01-03');
+ assert.equal(due.textContent,'2026-01-03');
+ assert.equal(jin.value,'96.15');
  assert.equal(f.queued.length,0);
 
  f.setRead(()=>new Promise(done=>{resolve=done;}));
  const oldRead=f.open();
  f.switchScope('synthetic-b','synthetic-family');
- assert.equal(stage.textContent,'尚未读取');
- assert.deepEqual([jin.value,due.value],['','']);
+ assert.equal(stage.textContent,'未关联宝宝资料');
+ assert.deepEqual([jin.value,due.textContent],['','未填写']);
  assert.equal(f.rows.children.length,0);
  resolve(result);
  await oldRead;
- assert.equal(stage.textContent,'尚未读取');
+ assert.equal(stage.textContent,'未关联宝宝资料');
  assert.equal(jin.value,'');
  assert.equal(f.rows.children.length,0);
 });
 
-test('profile input accepts independent calendar dates and rejects malformed weight and future delivery',()=>{
- const fields={jin:'94.01',dueDate:'2026-01-01',deliveryDate:''};
- const profile=weight.profileInput(fields,today);
- assert.deepEqual(profile,{prePregnancyWeightKg:47.005,dueDate:'2026-01-01',deliveryDate:null});
- assert.equal(weight.maternalStage(profile),'孕期');
- assert.equal(weight.maternalStage({...profile,deliveryDate:'2025-12-31'}),'产后');
+test('stage uses verified baby dates and profile input only accepts pre-pregnancy weight',()=>{
+ const fields={jin:'94.01',dueDate:'2026-01-01',deliveryDate:'2025-12-31'};
+ assert.deepEqual(weight.profileInput(fields),{prePregnancyWeightKg:47.005});
+ assert.equal(weight.maternalStage(null),'未关联宝宝资料');
+ assert.equal(weight.maternalStage({dueDate:'2026-01-01'}),'孕期');
+ assert.equal(weight.maternalStage({dueDate:'2099-01-01'}),'孕期');
+ assert.equal(weight.maternalStage({dueDate:'2026-01-01',birthDate:'2025-12-31'}),'产后');
+ assert.equal(weight.maternalStage({dueDate:'2026-01-01',birthDate:'2026-02-29'}),'孕期');
+ assert.equal(weight.maternalStage({}),'未填写宝宝日期');
  for(const jin of ['0','-1','94.001','NaN','1e2'])
-  assert.match(weight.profileInput({...fields,jin},today).error,/孕前体重/);
- assert.match(weight.profileInput({...fields,dueDate:'2026-02-29'},today).error,/预产期/);
- assert.match(weight.profileInput({...fields,deliveryDate:'2026-02-29'},today).error,/分娩日期/);
- assert.match(weight.profileInput({...fields,deliveryDate:'2026-11-22'},today).error,/分娩日期/);
- assert.equal(weight.profileInput({...fields,deliveryDate:'2025-12-31'},today).deliveryDate,'2025-12-31');
+  assert.match(weight.profileInput({...fields,jin}).error,/孕前体重/);
 });
 
 test('profile saves, refills and clears without replacing history, extensions or a weight draft',async()=>{
  const record={...first,time:'08:30',note:'保留'};
  const extension={familyPreference:true};
- const f=await mountedWeights([record,other],{extensions:{extension}});
+ const legacyProfile={dueDate:'2026-01-09',deliveryDate:'2026-01-05',custom:'synthetic'};
+ const f=await mountedWeights([record,other],{extensions:{extension},profile:legacyProfile});
  const jin=f.get('maternalProfileJin'),due=f.get('maternalProfileDue');
  const delivery=f.get('maternalProfileDelivery'),stage=f.get('maternalProfileStage');
- assert.deepEqual([stage.textContent,jin.value,due.value,delivery.value],['未设置','','','']);
+ assert.deepEqual([stage.textContent,jin.value,due.textContent,delivery.textContent],
+  ['未关联宝宝资料','','未填写','未填写']);
  f.edit(0);
  f.jin.value='103.27';
  f.get('maternalWeightNote').value='未保存的修改';
- jin.value='94.01';due.value='2026-01-01';
+ f.setBabyDates({dueDate:'2026-01-01',birthDate:''});
+ jin.value='94.01';
  await f.saveProfile();
  const firstBody=f.queued[0].nextBody;
  assert.deepEqual(firstBody,{schemaVersion:1,items:[record,other],extension,
-  maternalProfile:{prePregnancyWeightKg:47.005,dueDate:'2026-01-01',deliveryDate:null}});
+  maternalProfile:{...legacyProfile,prePregnancyWeightKg:47.005}});
  assert.equal(stage.textContent,'孕期');
  assert.match(f.get('maternalProfileStatus').textContent,/已保存至云端/);
  assert.deepEqual([f.jin.value,f.get('maternalWeightNote').value],['103.27','未保存的修改']);
- delivery.value='2025-12-31';
+ assert.equal(delivery.textContent,'未填写');
+ f.setBabyDates({dueDate:'2026-01-01',birthDate:'2025-12-31'});
+ assert.equal(stage.textContent,'产后');
+ assert.equal(delivery.textContent,'2025-12-31');
+ assert.equal(f.queued.length,1);
+ jin.value='';
  await f.saveProfile();
  assert.equal(stage.textContent,'产后');
- const reopened=await mountedWeights([record,other],{profile:f.queued[1].nextBody.maternalProfile});
- assert.deepEqual(['maternalProfileJin','maternalProfileDue','maternalProfileDelivery']
-  .map(id=>reopened.get(id).value),['94.01','2026-01-01','2025-12-31']);
- assert.equal(reopened.get('maternalProfileStage').textContent,'产后');
- jin.value=due.value=delivery.value='';
- await f.saveProfile();
- assert.equal(stage.textContent,'未设置');
- assert.deepEqual(f.queued[2].nextBody,{schemaVersion:1,items:[record,other],extension});
+ assert.deepEqual(f.queued[1].nextBody,{...firstBody,maternalProfile:{...legacyProfile,prePregnancyWeightKg:null}});
  assert.equal(f.get('maternalWeightCancel').hidden,false);
  assert.equal(f.jin.value,'103.27');
 });
@@ -276,17 +283,18 @@ test('profile saves, refills and clears without replacing history, extensions or
 test('profile receipt recovery keeps the original request and the weight draft',async()=>{
  const f=await mountedWeights([first]);
  f.edit(0);f.jin.value='103.25';
- f.get('maternalProfileDue').value='2026-01-01';
+ f.get('maternalProfileJin').value='96';
  f.setOutcome('UNKNOWN');
  await f.saveProfile();
- assert.equal(f.get('maternalProfileStage').textContent,'未设置');
+ assert.equal(f.get('maternalProfileStage').textContent,'未关联宝宝资料');
  assert.equal(f.get('maternalProfileSave').disabled,true);
  assert.match(f.get('maternalProfileStatus').textContent,/原请求已保留/);
  f.setOutcome('COMMITTED');
  await f.get('maternalWeightRecover').handlers.click();
  assert.equal(f.queued.length,1);
  assert.equal(f.sends,2);
- assert.equal(f.get('maternalProfileStage').textContent,'孕期');
+ assert.equal(f.get('maternalProfileStage').textContent,'未关联宝宝资料');
+ assert.deepEqual(f.queued[0].nextBody.maternalProfile,{prePregnancyWeightKg:48});
  assert.equal(f.jin.value,'103.25');
 });
 

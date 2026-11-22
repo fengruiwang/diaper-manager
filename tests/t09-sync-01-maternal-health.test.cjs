@@ -227,9 +227,9 @@ test('the optional profile contract accepts old documents and rejects invalid pr
 
 test('A and B share profile changes with CAS conflict and original receipt recovery',async()=>{
  const f=fixture();
- const first={...body(52),source:{label:'synthetic'},maternalProfile:profileInput({
-  jin:'96',dueDate:'2026-01-01',deliveryDate:''
- })};
+ const first={...body(52),source:{label:'synthetic'},maternalProfile:{
+  dueDate:'2026-01-01',deliveryDate:null,...profileInput({jin:'96'})
+ }};
  assert.equal(first.maternalProfile.prePregnancyWeightKg,48);
  Object.assign(first.items[0],{time:'06:05',note:'synthetic note'});
  const initial=await f.client.read(A);
@@ -243,7 +243,7 @@ test('A and B share profile changes with CAS conflict and original receipt recov
  const baseline=await f.client.read(B);
  assert.deepEqual(baseline.body,first);
  assert.equal(formatJin(baseline.body.maternalProfile.prePregnancyWeightKg),'96');
- const next={...first,maternalProfile:{...first.maternalProfile,deliveryDate:'2025-12-31'}};
+ const next={...first,maternalProfile:{...first.maternalProfile,...profileInput({jin:'98.01'})}};
  const queued=await f.ops.queue({baseline,nextBody:next});
  let lost=false;
  f.intercept((name,_args,call)=>{
@@ -261,7 +261,7 @@ test('A and B share profile changes with CAS conflict and original receipt recov
  f.actAs(A);
  const refreshed=await f.client.read(A);
  assert.deepEqual(refreshed.body,next);
- assert.equal(formatJin(refreshed.body.maternalProfile.prePregnancyWeightKg),'96');
+ assert.equal(formatJin(refreshed.body.maternalProfile.prePregnancyWeightKg),'98.01');
  await f.ops.queue({baseline:staleA,nextBody:first});
  assert.equal((await f.ops.send()).status,'REVISION_CONFLICT');
  assert.deepEqual((await f.client.read(A)).body,next);

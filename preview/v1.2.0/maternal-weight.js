@@ -18,9 +18,9 @@ const recordNote=item=>typeof item.note==='string'?item.note:'';
 function formatJin(kg){return String(Number((kg*2).toFixed(2)));}
 
 function validDate(date){
+ if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||date.startsWith('0000-'))return false;
  const time=Date.parse(date+'T00:00:00Z');
- return /^\d{4}-\d{2}-\d{2}$/.test(date)&&!date.startsWith('0000-')
-  &&Number.isFinite(time)&&new Date(time).toISOString().slice(0,10)===date;
+ return Number.isFinite(time)&&new Date(time).toISOString().slice(0,10)===date;
 }
 function jinToKg(jin){
  const value=String(jin).trim();
@@ -36,18 +36,16 @@ function weightInput(date,jin,today=localDate()){
   return {error:'请输入大于 0 的体重，最多保留两位小数（斤）。'};
  return {date,weightKg};
 }
-function profileInput({jin,dueDate,deliveryDate},today=localDate()){
+function profileInput({jin}){
  const prePregnancyWeightKg=jinToKg(jin);
  if(jin.trim()&&prePregnancyWeightKg===null)
   return {error:'孕前体重必须大于 0，最多保留两位小数（斤）。'};
- if(dueDate&&!validDate(dueDate))return {error:'请选择有效的预产期。'};
- if(deliveryDate&&(!validDate(deliveryDate)||deliveryDate>today))
-  return {error:'请选择有效的实际分娩日期，日期不能晚于今天。'};
- return {prePregnancyWeightKg,dueDate:dueDate||null,deliveryDate:deliveryDate||null};
+ return {prePregnancyWeightKg};
 }
-function maternalStage(profile){
- if(profile?.deliveryDate)return '产后';
- return profile?.prePregnancyWeightKg||profile?.dueDate?'孕期':'未设置';
+function maternalStage(babyDates){
+ if(!babyDates)return '未关联宝宝资料';
+ if(validDate(babyDates.birthDate))return '产后';
+ return validDate(babyDates.dueDate)?'孕期':'未填写宝宝日期';
 }
 
 function history(body){
@@ -151,7 +149,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   const canWriteNow=canWrite();
   if(profileForm){
    profileSave.disabled=!canWriteNow;
-   profileJin.disabled=profileDue.disabled=profileDelivery.disabled=disabled||!canSave||pending;
+   profileJin.disabled=disabled||!canSave||pending;
   }
   date.disabled=jin.disabled=cancel.disabled=refreshButton.disabled=disabled;
   if(time)time.disabled=disabled;
@@ -174,21 +172,16 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   $('maternalWeightHeading').textContent='记录体重';
   save.textContent='保存体重记录';
  }
- function renderProfileStage(){
-  if(!profileForm)return;
-  profileStage.textContent=snapshot?maternalStage(snapshot.body.maternalProfile)
-   :profileRead==='loading'?'正在读取妈妈健康档案…'
-   :profileRead==='failed'?'暂时无法读取':'尚未读取';
+ function setBabyDates(dates){
+  if(!profileForm||(dates&&!current(scope)))return;
+  profileStage.textContent=maternalStage(dates);
+  profileDue.textContent=validDate(dates?.dueDate)?dates.dueDate:'未填写';
+  profileDelivery.textContent=validDate(dates?.birthDate)?dates.birthDate:'未填写';
  }
  function renderProfile(){
-  if(!profileForm)return;
+  if(!profileForm||profileDirty)return;
   const profile=snapshot?.body.maternalProfile;
-  renderProfileStage();
-  profileDelivery.max=localDate();
-  if(profileDirty)return;
   profileJin.value=profile?.prePregnancyWeightKg?formatJin(profile.prePregnancyWeightKg):'';
-  profileDue.value=profile?.dueDate||'';
-  profileDelivery.value=profile?.deliveryDate||'';
  }
  function render(){
   renderProfile();
@@ -260,7 +253,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
    if(profileStatus&&profileRead==='failed')profileStatus.textContent='';
    if(!snapshot){
     profileRead='loading';
-    renderProfileStage();
+    if(profileStatus)profileStatus.textContent='正在读取妈妈健康档案…';
    }
    let result;
    try{
@@ -268,13 +261,13 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
    }catch(_){/* Treat a rejected read like an unverified result. */}
    if(!current(started))return;
    canSave=result?.status==='READ_VERIFIED'&&(!snapshot||result.revision>=snapshot.revision);
+   if(canSave&&profileStatus&&profileRead==='loading')profileStatus.textContent='';
    profileRead=canSave?'ready':'failed';
    if(canSave){snapshot=result;render();}
    else{
-    renderProfileStage();
     if(profileStatus)profileStatus.textContent=snapshot
      ?'云端刷新失败，当前显示上次读取的数据。请点击「刷新云端记录」重试。'
-     :'请点击「刷新云端记录」重试。';
+     :'暂时无法读取妈妈健康档案，请点击「刷新云端记录」重试。';
    }
    await review(started);
    if(!current(started))return;
@@ -377,18 +370,17 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  profileForm?.addEventListener('submit',event=>{
   event.preventDefault();
   if(!canWrite())return;
-  if([profileJin,profileDue,profileDelivery].some(input=>input.validity?.badInput)){
-   profileStatus.textContent='请检查孕前体重和日期输入。';return;
+  if(profileJin.validity?.badInput){
+   profileStatus.textContent='请检查孕前体重输入。';return;
   }
-  const profile=profileInput({jin:profileJin.value,dueDate:profileDue.value,deliveryDate:profileDelivery.value});
+  const profile=profileInput({jin:profileJin.value});
   if(profile.error){profileStatus.textContent=profile.error;return;}
   const nextBody={...snapshot.body};
   const previous=nextBody.maternalProfile;
   if(profile.prePregnancyWeightKg!==null&&previous?.prePregnancyWeightKg
     &&formatJin(profile.prePregnancyWeightKg)===formatJin(previous.prePregnancyWeightKg))
    profile.prePregnancyWeightKg=previous.prePregnancyWeightKg;
-  if(maternalStage(profile)==='未设置')delete nextBody.maternalProfile;
-  else nextBody.maternalProfile={...previous,...profile};
+  if(previous||profile.prePregnancyWeightKg!==null)nextBody.maternalProfile={...previous,...profile};
   return run('正在保存妈妈健康档案…',started=>saveDocument(started,nextBody,{profileSave:true}),profileStatus);
  });
  refreshButton.addEventListener('click',refresh);
@@ -407,16 +399,17 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
  function setContext(next){
   if(!scope&&!next||same(scope,next))return;
   scope=next;snapshot=null;canSave=busy=pending=false;conflict=null;
+  setBabyDates(null);
   deletionRequest=null;
   profileRead='idle';
   profileDirty=false;profileRequest=null;
-  if(profileStatus)profileStatus.textContent='';
+  if(profileStatus)profileStatus.textContent='尚未读取妈妈健康档案。';
   resetForm();render();
   status.textContent='尚未读取云端体重记录。';
   if(scope&&panel.classList.contains('active'))void refresh();
  }
- resetForm();render();
- return {setContext};
+ setBabyDates(null);resetForm();render();
+ return {setContext,setBabyDates};
 }
 
 const api={mount,localDate,formatJin,weightInput,profileInput,maternalStage,history,updateDocument,deleteDocument,chart};
