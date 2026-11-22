@@ -1,12 +1,15 @@
-name: XiaoBao V1.3.0 RC1 candidate (NO DEPLOY)
+name: XiaoBao V1.3.0 RC1 and Stable packages (NO DEPLOY)
 on:
   push:
     branches:
       - feature/v1.3.0
     paths:
       - 'release-candidate/pages-v1.3.0-rc1/**'
+      - 'release-candidate/pages-v1.3.0-final/**'
       - 'scripts/build-pages-v130-candidate.cjs'
+      - 'scripts/build-pages-v130-final.cjs'
       - 'tests/pages-v130-candidate.test.cjs'
+      - 'tests/pages-v130-final.test.cjs'
       - '.github/workflows/pages-v130-candidate.yml'
       - '.gitattributes'
   workflow_dispatch:
@@ -27,10 +30,21 @@ jobs:
         run: node scripts/build-pages-v130-candidate.cjs --check
       - name: Run candidate tests
         run: node --test tests/pages-v130-candidate.test.cjs
+      - name: Verify fixed-source Stable package
+        run: node scripts/build-pages-v130-final.cjs --check
+      - name: Run Stable package tests
+        run: node --test tests/pages-v130-final.test.cjs
       - name: Archive verified candidate
         uses: actions/upload-artifact@v4
         with:
           name: XiaoBao-V1.3.0-RC1-NO-DEPLOY
           path: release-candidate/pages-v1.3.0-rc1/
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Archive verified Stable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-V1.3.0-STABLE-NO-DEPLOY
+          path: release-candidate/pages-v1.3.0-final/
           include-hidden-files: true
           if-no-files-found: error

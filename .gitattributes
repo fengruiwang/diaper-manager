@@ -1,2 +1,3 @@
-# Keep the candidate byte-identical to its generated output on every checkout.
+# Keep the V1.3.0 packages byte-identical to their generated output on every checkout.
 release-candidate/pages-v1.3.0-rc1/** -text
+release-candidate/pages-v1.3.0-final/** -text
