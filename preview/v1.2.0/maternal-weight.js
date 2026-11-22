@@ -180,7 +180,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  let operations;
  try{operations=operationsFactory?.create({host,controller,client,cloudWritesEnabled});}
  catch(_){/* Reading is available when persistent browser storage is unavailable. */}
- let scope=null,snapshot=null,canSave=false,busy=false,pending=false,conflict=null;
+ let scope=null,snapshot=null,canSave=false,busy=false,pending=false,conflict=null,queueVerified=false;
+ let reading=false;
  let editId=null,draftRequest=null,deletionRequest=null;
  let weightDirty=false;
  let profileDirty=false,profileRequest=null;
@@ -188,11 +189,11 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  let profileRead='idle';
  let birthDate='',stageView='pregnancy',trendPeriod='all';
  const constipation=constipationFactory?.({
-  doc,localDate,validRecord:clientFactory?.validConstipation,
+  doc,localDate,validDate,validRecord:clientFactory?.validConstipation,
   getBody:()=>scope&&current(scope)?snapshot?.body:null,
   newId:()=>host.crypto.randomUUID(),
   save:(update,{feedback,onCommit,successMessage})=>{
-   if(!canWrite())return;
+   if(!canWrite()||!queueVerified)return;
    return run('正在保存排便记录…',started=>{
     const nextBody=update(snapshot.body);
     if(!nextBody)return;
@@ -223,7 +224,14 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   archive.disabled=disabled;
   for(const button of rows.querySelectorAll('button'))
    button.disabled=button.dataset.deleteWeight?!canWriteNow:disabled||!canSave;
-  constipation?.controls(canWriteNow);
+  const bowelBlock=!scope||!current(scope)?'waiting-context'
+   :reading?'reading'
+   :busy?'working'
+   :pending?'pending'
+   :!canSave?(profileRead==='idle'?'reading':'refresh')
+   :!operations||!queueVerified?'storage'
+   :!cloudWritesEnabled?'disabled':'';
+  constipation?.controls(bowelBlock);
  }
  function resetForm(){
   editId=draftRequest=null;
@@ -332,17 +340,18 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   controls();
  }
  function current(started){return scope===started&&same(started,controller.verifiedContext());}
- async function run(message,work,feedback=status){
+ async function run(message,work,feedback=status,phase=true){
   if(!scope||busy)return;
   const started=scope;
   busy=true;
+  reading=phase==='reading';
   if(message)feedback.textContent=message;
   controls();
   try{return await work(started);}
   catch(_){
    if(current(started))feedback.textContent='操作未完成，请刷新记录或核验待确认保存。';
   }finally{
-   if(scope===started){busy=false;controls();}
+   if(scope===started){busy=reading=false;controls();}
   }
  }
  async function review(started){
@@ -350,7 +359,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   const queue=await operations.pending();
   const conflicts=await operations.conflicts();
   if(!current(started))return;
-  if(queue.status==='QUEUE_VERIFIED')pending=queue.pending+queue.retry>0;
+  queueVerified=queue.status==='QUEUE_VERIFIED';
+  if(queueVerified)pending=queue.pending+queue.retry>0;
   if(conflicts.status==='CONFLICTS_VERIFIED')conflict=conflicts.items[0]||null;
  }
  function refresh({background=false,babyDates=false}={}){
@@ -365,7 +375,16 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
     ?Promise.resolve().then(()=>refreshBabyDates(started)).catch(()=>false):null;
    let result;
    try{
-    result=host.navigator?.onLine===false?{status:'OFFLINE'}:await client?.read(started);
+    if(host.navigator?.onLine===false)result={status:'OFFLINE'};
+    else{
+     let timer;
+     try{
+      result=await Promise.race([
+       client?.read(started),
+       new Promise(resolve=>{timer=setTimeout(resolve,12000);})
+      ]);
+     }finally{clearTimeout(timer);}
+    }
    }catch(_){/* Treat a rejected read like an unverified result. */}
    if(!current(started))return;
    canSave=result?.status==='READ_VERIFIED'&&(!snapshot||result.revision>=snapshot.revision);
@@ -397,7 +416,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
     ?(partialRefresh?'部分刷新。':'')+healthMessage+' '+datesMessage
     :healthMessage;
    return partialRefresh?'partial':canSave?'success':'failure';
-  });
+  },status,'reading');
  }
  async function send(started,feedback=status){
   const result=await operations.send();
@@ -530,7 +549,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
 
  function setContext(next){
   if(!scope&&!next||same(scope,next))return;
-  scope=next;snapshot=null;canSave=busy=pending=false;conflict=null;
+  scope=next;snapshot=null;canSave=busy=reading=pending=queueVerified=false;conflict=null;
   trendPeriod='all';
   setBabyDates(null);
   deletionRequest=null;

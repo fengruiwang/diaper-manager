@@ -36,7 +36,8 @@ function updateDocument(body,record,{editing=false}={}){
  if(editing?previous?.kind!==kind:Boolean(previous))return null;
  if(previous?.date!==record.date&&body.items.some(item=>item.kind===kind&&item.date===record.date))
   return null;
- const next={...previous,...record,details:previous?.details??[]};
+ const next={...previous,...record};
+ if(previous&&'details' in previous)next.details=previous.details;
  return {...body,items:editing?body.items.map(item=>item===previous?next:item):[...body.items,next]};
 }
 function deleteDocument(body,id){
@@ -45,20 +46,39 @@ function deleteDocument(body,id){
 }
 const booleanValue=value=>value==='true'?true:value==='false'?false:null;
 const numericValue=value=>value===''?null:Number(value);
+const blockedMessages={
+ 'waiting-context':'等待家庭账号验证完成。',
+ reading:'正在读取妈妈健康档案…',
+ refresh:'请先刷新云端记录，读取成功后才能录入。',
+ storage:'当前浏览器暂不能保存，请检查浏览器存储。',
+ pending:'请先核验待确认保存。',
+ working:'正在处理妈妈健康操作…',
+ disabled:'当前环境未开放排便记录保存。'
+};
 
-function mount({doc,localDate,validRecord,getBody,newId,save}){
+function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
  const byName=name=>doc.getElementById('maternalConstipation'+name);
  const form=byName('Form');
  if(!form)return;
  const heading=byName('Heading'),status=byName('Status'),saveButton=byName('Save');
  const cancel=byName('Cancel'),empty=byName('Empty'),list=byName('History'),warning=byName('Warning');
+ const blocker=byName('Blocker');
  const inputs=Object.fromEntries(Object.keys(fields).map(name=>[name,byName(name)]));
  const {Date:date,DidDefecate:did,Count:count,StoolType:stool}=inputs;
- let editId=null,dirty=false,writable=false;
+ let editId=null,originalValues=null,dirty=false,blocked='waiting-context';
 
- function controls(canWrite=writable){
-  writable=canWrite;
+ function controls(reason=blocked){
+  blocked=reason;
+  const writable=!blocked;
+  if(blocker){
+   blocker.hidden=writable;
+   blocker.textContent=blockedMessages[blocked]||'';
+  }
   for(const input of Object.values(inputs))input.disabled=!writable;
+  for(const name of ['DidDefecate','Count','Difficulty','Bloating','Pain']){
+   const placeholder=inputs[name].options?.[0];
+   if(placeholder)placeholder.textContent=editId?'未记录':'未选择';
+  }
   stool.disabled=!writable||did.value!=='true';
   saveButton.disabled=!writable;
   cancel.hidden=!dirty&&!editId;
@@ -66,11 +86,11 @@ function mount({doc,localDate,validRecord,getBody,newId,save}){
   for(const button of list.querySelectorAll('button'))button.disabled=!writable;
  }
  function reset(){
-  editId=null;dirty=false;
+  editId=null;originalValues=null;dirty=false;
   date.max=date.value=localDate(new Date());
-  did.value='false';count.value='0';stool.value='';
-  inputs.Difficulty.value=inputs.Bloating.value='none';
-  inputs.Pain.value='false';inputs.Water.value=inputs.Note.value='';
+  did.value=count.value=stool.value='';
+  inputs.Difficulty.value=inputs.Bloating.value='';
+  inputs.Pain.value=inputs.Water.value=inputs.Note.value='';
   heading.textContent='每日排便记录';
   saveButton.textContent='保存排便记录';
   status.textContent='';
@@ -84,6 +104,7 @@ function mount({doc,localDate,validRecord,getBody,newId,save}){
    inputs[name].value=value==null?'':String(value);
   }
   if(did.value==='false')stool.value='';
+  originalValues=Object.fromEntries(Object.entries(inputs).map(([name,input])=>[name,input.value]));
   heading.textContent='编辑排便记录';
   saveButton.textContent='保存修改';
   status.textContent='';
@@ -97,7 +118,7 @@ function mount({doc,localDate,validRecord,getBody,newId,save}){
   controls();
  }
  function deleteRecord(item){
-  if(!writable||!doc.defaultView.confirm('确定删除 '+item.date+' 的排便记录？删除后无法撤销。'))return;
+  if(blocked||!doc.defaultView.confirm('确定删除 '+item.date+' 的排便记录？删除后无法撤销。'))return;
   return save(body=>{
    const next=deleteDocument(body,item.id);
    if(!next)status.textContent='这条排便记录已不存在，请刷新后重试。';
@@ -119,7 +140,7 @@ function mount({doc,localDate,validRecord,getBody,newId,save}){
    const button=doc.createElement('button');
    button.className='btn ghost sm';button.type='button';button.textContent=label;
    button.setAttribute('aria-label',label+' '+item.date+' 的排便记录');
-   button.addEventListener('click',()=>{if(writable)return action();});
+   button.addEventListener('click',()=>{if(!blocked)return action();});
    actions.append(button);
   }
   card.append(title,data,actions);list.append(card);
@@ -141,36 +162,49 @@ function mount({doc,localDate,validRecord,getBody,newId,save}){
   controls();
  }
 
- form.addEventListener('input',()=>{if(writable){dirty=true;controls();}});
- date.addEventListener('change',()=>{if(writable)selectDate();});
+ form.addEventListener('input',()=>{if(!blocked){dirty=true;controls();}});
+ date.addEventListener('change',()=>{if(!blocked)selectDate();});
  did.addEventListener('change',()=>{
-  if(!writable)return;
+  if(blocked)return;
   count.value=did.value==='true'?'1':did.value==='false'?'0':'';
   if(did.value!=='true')stool.value='';
   dirty=true;controls();
  });
  count.addEventListener('change',()=>{
-  if(!writable)return;
+  if(blocked)return;
   did.value=count.value===''?'':String(count.value!=='0');
   if(did.value!=='true')stool.value='';
   dirty=true;controls();
  });
- cancel.addEventListener('click',()=>{if(writable)reset();});
+ cancel.addEventListener('click',()=>{if(!blocked)reset();});
  form.addEventListener('submit',event=>{
   event.preventDefault();
-  if(!writable)return;
+  if(blocked)return;
   if(!editId&&history(getBody()).some(item=>item.date===date.value)){selectDate();return;}
   const today=localDate(new Date());
-  const record={kind,entryVersion:1,date:date.value,didDefecate:booleanValue(did.value),
+  const values={date:date.value,didDefecate:booleanValue(did.value),
    defecationCount:numericValue(count.value),stoolType:numericValue(stool.value),
    difficulty:inputs.Difficulty.value,bloating:inputs.Bloating.value,
    abdominalPain:booleanValue(inputs.Pain.value),waterIntakeRange:inputs.Water.value||null,
-   note:inputs.Note.value,details:[]};
-  if(record.date>today||!validRecord(record)){
-   status.textContent='请填写有效且不晚于今天的日期，以及排便次数、困难程度、腹胀和腹痛情况。';
+   note:inputs.Note.value};
+  if(!validDate(values.date)||values.date>today){
+   status.textContent='请填写有效且不晚于今天的日期。';
    return;
   }
   return save(body=>{
+   const previous=body.items.find(item=>item.kind===kind&&item.id===editId);
+   let record={...values,kind,entryVersion:1,details:previous?.details??[]};
+   if(previous&&previous.entryVersion===undefined){
+    const changes=Object.fromEntries(Object.entries(fields)
+     .filter(([name])=>inputs[name].value!==originalValues[name])
+     .map(([,key])=>[key,values[key]]));
+    const upgraded={stoolType:null,waterIntakeRange:null,note:'',details:[],
+     ...previous,...changes,entryVersion:1};
+    record=validRecord(upgraded)?upgraded:{...previous,...changes};
+   }else if(!validRecord(record)){
+    status.textContent='请明确选择是否排便、排便次数、困难程度、腹胀和腹痛情况。';
+    return null;
+   }
    const next=updateDocument(body,{...record,id:editId||newId()},{editing:Boolean(editId)});
    if(!next)status.textContent='日期已有记录或原记录已不存在，请核对历史记录。';
    return next;
