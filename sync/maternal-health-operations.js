@@ -101,7 +101,13 @@ function create({controller,client,host=root,cloudWritesEnabled=false,
    const queued=await outbox.enqueue(op);
    if(!sameScope(scope,identity()))return outcome('SCOPE_CHANGED');
    return outcome('QUEUED',{requestId,operationStatus:queued.status});
-  }catch(_){return outcome('QUEUE_UNVERIFIED',{requestId});}
+  }catch(error){
+   // The outbox rejects these writes from the transaction abort path.
+   if(requestId&&['outbox_store:write_failed','outbox_store:transaction_aborted',
+    'outbox_store:transaction_unavailable'].includes(error?.message))
+    return outcome('QUEUE_WRITE_FAILED');
+   return outcome('QUEUE_UNVERIFIED',{requestId});
+  }
   finally{busy=false;}
  }
 
@@ -109,11 +115,16 @@ function create({controller,client,host=root,cloudWritesEnabled=false,
   const {id:requestId,expectedRevision}=op;
   if(!sameScope(scope,ack)||ack.requestId!==requestId||ack.revision!==expectedRevision+1)
    return outcome('UNKNOWN',{requestId});
-  await outbox.recordResult(scope,requestId,{kind:'accepted',receiptId:requestId});
+  try{await outbox.recordResult(scope,requestId,{kind:'accepted',receiptId:requestId});}
+  catch(_){
+   return sameScope(scope,identity())?outcome('COMMITTED_QUEUE_UNVERIFIED',{requestId,revision:ack.revision})
+    :outcome('SCOPE_CHANGED');
+  }
   // An older receipt proves the save, while the fresh read supplies the current document.
-  const document=await client.read(scope);
+  let document;
+  try{document=await client.read(scope);}catch(_){/* The ACK still confirms the save. */}
   if(!sameScope(scope,identity()))return outcome('SCOPE_CHANGED');
-  if(document.status!=='READ_VERIFIED'||!sameScope(scope,document)||document.revision<ack.revision)
+  if(document?.status!=='READ_VERIFIED'||!sameScope(scope,document)||document.revision<ack.revision)
    return outcome('COMMITTED_NEEDS_REFRESH',{requestId,revision:ack.revision});
   return outcome('COMMITTED',{requestId,revision:ack.revision,document});
  }
@@ -155,7 +166,7 @@ function create({controller,client,host=root,cloudWritesEnabled=false,
    if(receipt.status==='COMMITTED')return await confirm(scope,op,receipt);
    await outbox.recordResult(scope,requestId,{kind:'timeout'});
    return outcome('UNKNOWN',{requestId});
-  }catch(_){return outcome('UNKNOWN',{requestId});}
+  }catch(_){return requestId?outcome('UNKNOWN',{requestId}):outcome('QUEUE_UNVERIFIED');}
   finally{busy=false;}
  }
  return Object.freeze({queue,send,pending,conflicts,abandonConflict});

@@ -152,10 +152,29 @@ const messages={
  REQUEST_ID_CONFLICT:'原保存请求与云端回执不一致。请刷新记录后核对。',
  INVALID_INPUT:'体重记录未通过保存校验，请检查输入后重试。',
  COMMITTED_NEEDS_REFRESH:'云端已确认保存，历史记录暂未刷新。请点击刷新云端记录。',
+ COMMITTED_QUEUE_UNVERIFIED:'云端已确认保存，本地回执尚未核验，请继续核验原保存请求。',
+ QUEUE_WRITE_FAILED:'本地入队失败，尚未提交云端，请检查浏览器存储后重试。',
+ QUEUE_UNVERIFIED:'本地队列状态未确认，请刷新后核验原保存请求。',
  PENDING_REQUEST:'有待确认的保存，请先核验原请求。',
  UNKNOWN:'保存结果未确认。请核验待确认保存，原请求已保留。'
 };
+const queueMessages={
+ timeout:'本地保存队列核验超时，请重新刷新。',
+ storage:'当前浏览器暂不能保存，请检查浏览器存储。'
+};
 const same=(a,b)=>a&&b&&a.actorUid===b.actorUid&&a.familyId===b.familyId&&a.app===b.app;
+
+// Read-only work may finish later. Only the returned result is applied by the caller.
+async function readWithin(work){
+ let timer;
+ try{
+  return await Promise.race([
+   work(),
+   new Promise(resolve=>{timer=setTimeout(()=>resolve({status:'TIMEOUT'}),12000);})
+  ]);
+ }catch(_){return null;}
+ finally{clearTimeout(timer);}
+}
 
 function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyDates,
  constipationFactory,cloudWritesEnabled=false}){
@@ -180,7 +199,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  let operations;
  try{operations=operationsFactory?.create({host,controller,client,cloudWritesEnabled});}
  catch(_){/* Reading is available when persistent browser storage is unavailable. */}
- let scope=null,snapshot=null,canSave=false,busy=false,pending=false,conflict=null,queueVerified=false;
+ let scope=null,snapshot=null,canSave=false,busy=false,pending=false,conflict=null;
+ let queueState='idle';
  let reading=false;
  let editId=null,draftRequest=null,deletionRequest=null;
  let weightDirty=false;
@@ -193,9 +213,11 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   getBody:()=>scope&&current(scope)?snapshot?.body:null,
   newId:()=>host.crypto.randomUUID(),
   save:(update,{feedback,onCommit,successMessage})=>{
-   if(!canWrite()||!queueVerified)return;
+   if(!canWrite())return;
    return run('正在保存排便记录…',started=>{
-    const nextBody=update(snapshot.body);
+    let nextBody;
+    try{nextBody=update(snapshot.body);}
+    catch(_){feedback.textContent='无法准备排便记录，本次未提交，请重试。';}
     if(!nextBody)return;
     return saveDocument(started,nextBody,{bowelSave:{feedback,onCommit,successMessage}});
    },feedback);
@@ -203,13 +225,14 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  });
 
  function canWrite(){
-  return Boolean(scope&&current(scope)&&!busy&&canSave&&!pending&&operations&&cloudWritesEnabled);
+  return Boolean(scope&&current(scope)&&!busy&&canSave&&queueState==='verified'
+   &&!pending&&operations&&cloudWritesEnabled);
  }
 
  function controls(){
   const disabled=busy||!scope;
-  save.disabled=disabled||!operations||!cloudWritesEnabled||!canSave||pending;
   const canWriteNow=canWrite();
+  save.disabled=!canWriteNow;
   if(profileForm){
    profileSave.disabled=!canWriteNow;
    profileJin.disabled=disabled||!canSave||pending;
@@ -220,16 +243,18 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   cancel.hidden=!editId;
   recover.hidden=!pending;
   recover.disabled=disabled;
-  archive.hidden=!conflict||!canSave||!(snapshot.revision>conflict.expectedRevision);
+  archive.hidden=queueState!=='verified'||!conflict||!canSave||!(snapshot.revision>conflict.expectedRevision);
   archive.disabled=disabled;
   for(const button of rows.querySelectorAll('button'))
    button.disabled=button.dataset.deleteWeight?!canWriteNow:disabled||!canSave;
   const bowelBlock=!scope||!current(scope)?'waiting-context'
    :reading?'reading'
+   :queueState==='checking'?'queue-checking'
    :busy?'working'
    :pending?'pending'
    :!canSave?(profileRead==='idle'?'reading':'refresh')
-   :!operations||!queueVerified?'storage'
+   :queueState==='timeout'?'queue-timeout'
+   :queueState!=='verified'?'storage'
    :!cloudWritesEnabled?'disabled':'';
   constipation?.controls(bowelBlock);
  }
@@ -354,14 +379,22 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    if(scope===started){busy=reading=false;controls();}
   }
  }
- async function review(started){
-  if(!operations)return;
-  const queue=await operations.pending();
-  const conflicts=await operations.conflicts();
+ async function review(started,{refreshing=false}={}){
   if(!current(started))return;
-  queueVerified=queue.status==='QUEUE_VERIFIED';
-  if(queueVerified)pending=queue.pending+queue.retry>0;
-  if(conflicts.status==='CONFLICTS_VERIFIED')conflict=conflicts.items[0]||null;
+  if(!operations){queueState='storage';return;}
+  queueState='checking';
+  if(refreshing)status.textContent='正在核验本地保存队列…';
+  controls();
+  const [queue,conflicts]=await Promise.all([
+   readWithin(()=>operations.pending()),
+   readWithin(()=>operations.conflicts())
+  ]);
+  // Both reads return data only; a timed-out promise or old scope cannot apply it later.
+  if(!current(started))return;
+  if(queue?.status==='QUEUE_VERIFIED')pending=queue.pending+queue.retry>0;
+  if(conflicts?.status==='CONFLICTS_VERIFIED')conflict=conflicts.items[0]||null;
+  queueState=queue?.status==='QUEUE_VERIFIED'&&conflicts?.status==='CONFLICTS_VERIFIED'?'verified'
+   :queue?.status==='TIMEOUT'||conflicts?.status==='TIMEOUT'?'timeout':'storage';
  }
  function refresh({background=false,babyDates=false}={}){
   const quiet=background&&Boolean(snapshot);
@@ -373,20 +406,10 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    }
    const datesRead=babyDates&&refreshBabyDates&&host.navigator?.onLine!==false
     ?Promise.resolve().then(()=>refreshBabyDates(started)).catch(()=>false):null;
-   let result;
-   try{
-    if(host.navigator?.onLine===false)result={status:'OFFLINE'};
-    else{
-     let timer;
-     try{
-      result=await Promise.race([
-       client?.read(started),
-       new Promise(resolve=>{timer=setTimeout(resolve,12000);})
-      ]);
-     }finally{clearTimeout(timer);}
-    }
-   }catch(_){/* Treat a rejected read like an unverified result. */}
+   const result=host.navigator?.onLine===false?{status:'OFFLINE'}
+    :await readWithin(()=>client?.read(started));
    if(!current(started))return;
+   reading=false;
    canSave=result?.status==='READ_VERIFIED'&&(!snapshot||result.revision>=snapshot.revision);
    if(canSave&&profileStatus&&profileRead==='loading')profileStatus.textContent='';
    profileRead=canSave?'ready':'failed';
@@ -396,36 +419,41 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
      ?'云端刷新失败，当前显示上次读取的数据。请点击「刷新云端记录」重试。'
      :'暂时无法读取妈妈健康档案，请点击「刷新云端记录」重试。';
    }
-   await review(started);
+   if(canSave)await review(started,{refreshing:true});
    const datesResult=await datesRead;
    if(!current(started))return;
-   if(quiet&&canSave&&operations&&!pending&&!conflict){
-    status.textContent='';
-    return;
-   }
+   const queueIssue=canSave?queueMessages[queueState]:'';
+   const healthReady=canSave&&!queueIssue;
+   const unavailable=['UNAVAILABLE','PERMISSION_DENIED'].includes(result?.status)?messages[result.status]+' ':'';
    const healthMessage=!canSave
-    ?messages[result?.status]||'暂时无法读取妈妈健康云端记录，请刷新重试。'
-    :!operations?'体重记录已读取。浏览器持久化存储不可用，暂不能保存。'
+    ?unavailable+'云端读取失败，请重新刷新。'
+    :queueIssue?'妈妈健康档案已读取。'+queueIssue
     :pending?messages.PENDING_REQUEST
     :conflict?'云端已刷新。核对并重新编辑后可保存，也可明确放弃旧冲突请求。'
-    :'云端体重记录已刷新。';
+    :'云端体重记录已刷新。'+(cloudWritesEnabled?'妈妈健康档案已读取，可以操作。':'');
    const datesMessage=datesResult===false?'宝宝日期刷新失败，保留上次已验证的日期。请重试。'
     :datesResult===true?'宝宝日期已刷新。':'';
-   const partialRefresh=typeof datesResult==='boolean'&&canSave!==datesResult;
-   status.textContent=datesMessage
-    ?(partialRefresh?'部分刷新。':'')+healthMessage+' '+datesMessage
-    :healthMessage;
-   return partialRefresh?'partial':canSave?'success':'failure';
+   const partialRefresh=Boolean(queueIssue)||(typeof datesResult==='boolean'&&healthReady!==datesResult);
+   status.textContent=(partialRefresh?'部分刷新。':'')+healthMessage+(datesMessage?' '+datesMessage:'');
+   return partialRefresh?'partial':healthReady?'success':'failure';
   },status,'reading');
  }
  async function send(started,feedback=status){
-  const result=await operations.send();
+  let result;
+  try{result=await operations.send();}
+  catch(_){result={status:'UNKNOWN'};}
   if(!current(started))return;
   const deletedId=deletionRequest&&result.requestId===deletionRequest.requestId
    ?deletionRequest.recordId:null;
   const savedProfile=profileRequest&&result.requestId===profileRequest;
   const savedBowel=constipationRequest?.requestId===result.requestId?constipationRequest:null;
-  const committed=result.status==='COMMITTED'||result.status==='COMMITTED_NEEDS_REFRESH';
+  const committed=['COMMITTED','COMMITTED_NEEDS_REFRESH','COMMITTED_QUEUE_UNVERIFIED'].includes(result.status);
+  let message=result.status==='COMMITTED'
+   ?(savedBowel?.successMessage||(savedProfile?'妈妈健康档案已保存至云端。'
+    :deletedId?'体重记录已从云端删除。':'记录已保存至云端。'))
+   :result.status==='EMPTY'?'没有待确认的保存请求。'
+   :messages[result.status]||'本次保存未确认，请刷新记录或核验原请求。';
+  if(['UNAVAILABLE','PERMISSION_DENIED','OFFLINE'].includes(result.status))message='云端提交未完成。'+message;
   if(committed){
    const editRemoved=editId&&result.status==='COMMITTED'
     &&!result.document.body.items.some(item=>item.id===editId&&item.kind==='weight');
@@ -438,37 +466,47 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    snapshot=result.document;canSave=true;
    if(profileStatus&&profileRead==='failed')profileStatus.textContent='';
    profileRead='ready';
-   render();
-  }else if(result.status==='COMMITTED_NEEDS_REFRESH'){
+   try{render();}
+   catch(_){canSave=false;message=messages.COMMITTED_NEEDS_REFRESH;}
+  }else if(committed){
    canSave=false;
   }else if(['REVISION_CONFLICT','REQUEST_ID_CONFLICT','UNAVAILABLE'].includes(result.status)){
    canSave=false;
   }
+  const targets=new Set([feedback,savedProfile?profileStatus:null,savedBowel?.feedback]);
+  for(const target of targets){if(target)target.textContent=message;}
   await review(started);
   if(!current(started))return;
-  const message=result.status==='COMMITTED'
-   ?(savedBowel?.successMessage||(savedProfile?'妈妈健康档案已保存至云端。'
-    :deletedId?'体重记录已从云端删除。':'记录已保存至云端。'))
-   :result.status==='EMPTY'?'没有待确认的保存请求。'
-   :messages[result.status]||'本次保存未确认，请刷新记录或核验原请求。';
-  feedback.textContent=message;
-  if(savedProfile)profileStatus.textContent=message;
-  if(savedBowel)savedBowel.feedback.textContent=message;
+  if(queueMessages[queueState]){
+   const checked=(committed?'保存后的本地队列未确认。':'')+queueMessages[queueState];
+   for(const target of targets){
+    if(target)target.textContent=message+' '+checked;
+   }
+  }
  }
  async function saveDocument(started,nextBody,{deletedId,profileSave=false,bowelSave}={}){
   const feedback=bowelSave?.feedback||(profileSave?profileStatus:status);
-  const queued=await operations.queue({baseline:snapshot,nextBody});
+  feedback.textContent='正在将保存请求写入本地队列…';
+  let queued;
+  try{queued=await operations.queue({baseline:snapshot,nextBody});}
+  catch(_){queued={status:'QUEUE_UNVERIFIED'};}
   if(!current(started))return;
-  if(queued.status==='QUEUED'){
+  if(queued.status==='QUEUED'||(queued.status==='QUEUE_UNVERIFIED'&&queued.requestId)){
    if(deletedId)deletionRequest={requestId:queued.requestId,recordId:deletedId};
    else if(profileSave)profileRequest=queued.requestId;
    else if(bowelSave)constipationRequest={requestId:queued.requestId,...bowelSave};
    else draftRequest=queued.requestId;
    pending=true;
+  }
+  if(queued.status==='QUEUED'){
+   feedback.textContent='正在提交云端并核验保存回执…';
    await send(started,feedback);
   }else{
+   if(queued.status==='QUEUE_UNVERIFIED'||queued.status==='PENDING_REQUEST')pending=true;
+   const message=messages[queued.status]||'本机未确认入队，请核验待确认保存。';
+   feedback.textContent=message;
    await review(started);
-   if(current(started))feedback.textContent=messages[queued.status]||'本机未确认入队，请核验待确认保存。';
+   if(current(started)&&queueMessages[queueState])feedback.textContent=message+' '+queueMessages[queueState];
   }
  }
  function deleteRecord(item){
@@ -549,7 +587,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
 
  function setContext(next){
   if(!scope&&!next||same(scope,next))return;
-  scope=next;snapshot=null;canSave=busy=reading=pending=queueVerified=false;conflict=null;
+  scope=next?{...next}:null;
+  snapshot=null;canSave=busy=reading=pending=false;conflict=null;queueState='idle';
   trendPeriod='all';
   setBabyDates(null);
   deletionRequest=null;

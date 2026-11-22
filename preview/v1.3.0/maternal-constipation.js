@@ -49,6 +49,8 @@ const numericValue=value=>value===''?null:Number(value);
 const blockedMessages={
  'waiting-context':'等待家庭账号验证完成。',
  reading:'正在读取妈妈健康档案…',
+ 'queue-checking':'正在核验本地保存队列…',
+ 'queue-timeout':'本地保存队列核验超时，请重新刷新。',
  refresh:'请先刷新云端记录，读取成功后才能录入。',
  storage:'当前浏览器暂不能保存，请检查浏览器存储。',
  pending:'请先核验待确认保存。',

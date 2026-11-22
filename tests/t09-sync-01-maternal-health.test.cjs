@@ -19,8 +19,10 @@ const body=weightKg=>({schemaVersion:1,
 
 function fakeIndexedDB(){
  const databases=new Map();
+ let failWrite;
  return {
   databases,
+  failNextWrite(method){failWrite=method;},
   open(name){
    const request={};
    setImmediate(()=>{
@@ -41,11 +43,12 @@ function fakeIndexedDB(){
        tx.oncomplete();
       });
       tx.abort=()=>{aborted=true;setImmediate(()=>tx.onabort());};
-      function request(work){
+      function request(work,method){
        const req={};
        pending++;
        setImmediate(()=>{
         if(aborted)return;
+        if(method&&failWrite===method){failWrite=null;req.onerror();return;}
         req.result=work();req.onsuccess();
         if(--pending===0)finish();
        });
@@ -53,8 +56,8 @@ function fakeIndexedDB(){
       }
       tx.objectStore=()=>({
        get:id=>request(()=>records.get(id)),
-       add:op=>request(()=>records.set(op.id,structuredClone(op))),
-       put:op=>request(()=>records.set(op.id,structuredClone(op))),
+       add:op=>request(()=>records.set(op.id,structuredClone(op)),'add'),
+       put:op=>request(()=>records.set(op.id,structuredClone(op)),'put'),
        index:()=>({getAll:([familyId,actorUid])=>request(()=>
         [...records.values()].filter(row=>row.familyId===familyId&&row.actorUid===actorUid))})
       });
@@ -124,6 +127,31 @@ function fixture(){
   get generated(){return generated;}
  };
 }
+
+test('a rejected IndexedDB enqueue is distinguished and never sends a cloud write',async()=>{
+ const f=fixture();
+ const baseline=await f.client.read(A);
+ f.indexedDB.failNextWrite('add');
+ assert.deepEqual(await f.ops.queue({baseline,nextBody:body(51)}),{status:'QUEUE_WRITE_FAILED'});
+ assert.equal((await f.ops.pending()).pending,0);
+ assert.equal(f.calls.some(({name})=>name==='xb_put_maternal_health'),false);
+});
+
+test('a verified ACK survives local receipt-write failure and reopening checks the original ID',async()=>{
+ const f=fixture();
+ const baseline=await f.client.read(A);
+ const {requestId}=await f.ops.queue({baseline,nextBody:body(51)});
+ f.indexedDB.failNextWrite('put');
+ assert.deepEqual(await f.ops.send(),{status:'COMMITTED_QUEUE_UNVERIFIED',requestId,revision:1});
+ const reopened=f.make().ops;
+ assert.equal((await reopened.pending()).pending,1);
+ assert.deepEqual(await reopened.queue({baseline,nextBody:body(51)}),{status:'PENDING_REQUEST',requestId});
+ assert.equal((await reopened.send()).status,'COMMITTED');
+ assert.equal((await reopened.pending()).pending,0);
+ assert.equal(f.generated,1);
+ assert.deepEqual(f.calls.filter(call=>call.name==='xb_put_maternal_health')
+  .map(call=>call.args.p_request_id),[requestId]);
+});
 
 test('A and B share daily bowel edits and deletes with the same document CAS',async()=>{
  const {updateDocument,deleteDocument}=require('../preview/v1.3.0/maternal-constipation.js');

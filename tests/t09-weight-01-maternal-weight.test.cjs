@@ -90,6 +90,9 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  get('maternalWeightPeriods').querySelectorAll=()=>[...periods.values()];
  const handlers={};
  let confirm=true,outcome='COMMITTED',pending=0,sends=0,reads=0,request,storageReady=true;
+ let readPending=async()=>storageReady?{status:'QUEUE_VERIFIED',pending,retry:0}:{status:'QUEUE_UNVERIFIED'};
+ let readConflicts=async()=>({status:'CONFLICTS_VERIFIED',items:[]});
+ let enqueue=async()=>({status:'QUEUED'});
  let scope={app:{},familyId:'synthetic-family',actorUid:'synthetic-actor'};
  let snapshot={status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items,...extensions}};
  if(profile)snapshot.body.maternalProfile=profile;
@@ -107,19 +110,24 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
   clientFactory:{validConstipation:require('../sync/maternal-health-client.js').validConstipation,
    create:()=>({read:context=>{reads++;return read(context);}})},
   operationsFactory:{create:()=>({
-   pending:async()=>storageReady?{status:'QUEUE_VERIFIED',pending,retry:0}:{status:'QUEUE_UNVERIFIED'},
-   conflicts:async()=>({status:'CONFLICTS_VERIFIED',items:[]}),
+   pending:()=>readPending(),
+   conflicts:()=>readConflicts(),
    queue:async input=>{
-    queued.push(input);request={...input,requestId:'request-'+queued.length};pending=1;
-    return {status:'QUEUED',requestId:request.requestId};
+    queued.push(input);
+    const result=await enqueue();
+    if(result.status==='QUEUED'||result.requestId){
+     request={...input,requestId:result.requestId||'request-'+queued.length};pending=1;
+     return {...result,requestId:request.requestId};
+    }
+    return result;
    },
    send:async()=>{
     sends++;
-    if(outcome==='UNKNOWN')return {status:outcome};
+    if(['UNKNOWN','UNAVAILABLE','COMMITTED_QUEUE_UNVERIFIED'].includes(outcome))return {status:outcome,requestId:request?.requestId};
     pending=0;
     if(outcome==='REVISION_CONFLICT')return {status:outcome,requestId:request.requestId};
     snapshot={...snapshot,revision:snapshot.revision+1,body:request.nextBody};
-    return {status:'COMMITTED',requestId:request.requestId,document:snapshot};
+    return {status:outcome,requestId:request.requestId,document:snapshot};
    },
   })},
  });
@@ -139,6 +147,8 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
   remove:()=>rows.querySelectorAll('button').filter(button=>button.dataset.deleteWeight),
   setConfirm:value=>{confirm=value;},setOutcome:value=>{outcome=value;},
   setStorageReady:value=>{storageReady=value;},
+  setQueueChecks:(queue,conflicts)=>{readPending=queue;readConflicts=conflicts;},
+  setEnqueue:next=>{enqueue=next;},
   refresh,open:()=>handlers['maternal-health-open'](),setRead:next=>{read=next;},
   refreshCloudRecords:panel.refreshCloudRecords,canPullRefresh:panel.canPullRefresh,
   setBabyDates:panel.setBabyDates,
@@ -165,6 +175,7 @@ test('bowel Save follows the verified read, storage, pending receipt and account
  f.setRead(async()=>({status:'UNKNOWN'}));
  assert.equal(await f.open(),'failure');
  assertBlocked(/请先刷新云端记录/);
+ assert.match(f.status.textContent,/云端读取失败/);
  let finish;
  f.setRead(()=>new Promise(resolve=>{finish=resolve;}));
  const reading=f.refresh();
@@ -219,6 +230,96 @@ test('a stalled maternal read releases the disabled state for a fresh verified r
  assert.equal(f.get('maternalConstipationSave').disabled,false);
  lateRead({status:'UNKNOWN'});
  assert.equal(f.get('maternalConstipationSave').disabled,false);
+});
+
+const queueClear=()=>({status:'QUEUE_VERIFIED',pending:0,retry:0});
+const conflictsClear=()=>({status:'CONFLICTS_VERIFIED',items:[]});
+const nextTurn=()=>new Promise(resolve=>setImmediate(resolve));
+
+for(const stalled of ['pending','conflicts','both']){
+ test('local '+stalled+' read times out, and late responses cannot replace a verified retry',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const {mount}=require('../preview/v1.3.0/maternal-constipation.js');
+  const f=await mountedWeights([first],{autoRead:false,constipationFactory:mount});
+  const late=[];
+  const wait=response=>()=>new Promise(resolve=>late.push(()=>resolve(response)));
+  f.setQueueChecks(stalled==='conflicts'?queueClear:wait({status:'QUEUE_VERIFIED',pending:9,retry:0}),
+   stalled==='pending'?conflictsClear:wait({status:'CONFLICTS_VERIFIED',items:[{expectedRevision:0}]}));
+  const refresh=f.open();
+  await nextTurn();
+  assert.match(f.status.textContent,/正在核验本地保存队列/);
+  assert.equal(f.rows.children.length,1);
+  assert.equal(f.get('maternalConstipationSave').disabled,true);
+  t.mock.timers.tick(12000);
+  assert.equal(await refresh,'partial');
+  assert.equal(late.length,stalled==='both'?2:1);
+  assert.match(f.status.textContent,/部分刷新.*核验超时/);
+  for(const id of ['maternalWeightSave','maternalProfileSave','maternalConstipationSave'])
+   assert.equal(f.get(id).disabled,true);
+  assert.equal(f.get('maternalWeightRefresh').disabled,false);
+  f.setQueueChecks(queueClear,conflictsClear);
+  assert.equal(await f.refresh(),'success');
+  for(const resolve of late)resolve();
+  await nextTurn();
+  for(const id of ['maternalWeightSave','maternalProfileSave','maternalConstipationSave'])
+   assert.equal(f.get(id).disabled,false);
+  assert.equal(f.get('maternalWeightRecover').hidden,true);
+  assert.equal(f.get('maternalWeightArchive').hidden,true);
+ });
+}
+
+test('account changes discard in-flight queue results and keep V1.2 weight writes blocked until verification',async()=>{
+ const f=await mountedWeights([first],{autoRead:false,legacy:true});
+ let finish;
+ f.setQueueChecks(()=>new Promise(resolve=>{finish=resolve;}),conflictsClear);
+ const old=f.refresh();
+ await nextTurn();
+ f.switchScope('synthetic-b','another-family');
+ f.setQueueChecks(queueClear,()=>{throw Error('synthetic storage rejection');});
+ assert.equal(await f.refresh(),'partial');
+ assert.equal(f.get('maternalWeightSave').disabled,true);
+ assert.match(f.status.textContent,/检查浏览器存储/);
+ f.setQueueChecks(queueClear,conflictsClear);
+ assert.equal(await f.refresh(),'success');
+ finish({status:'QUEUE_VERIFIED',pending:1,retry:0});
+ await old;
+ assert.equal(f.get('maternalWeightRecover').hidden,true);
+ assert.equal(f.get('maternalWeightSave').disabled,false);
+});
+
+test('bowel save distinguishes enqueue rejection, unknown receipts, and post-ACK review failure',async()=>{
+ const {mount}=require('../preview/v1.3.0/maternal-constipation.js');
+ const f=await mountedWeights([],{constipationFactory:mount});
+ const b=name=>f.get('maternalConstipation'+name);
+ const submit=()=>b('Form').handlers.submit({preventDefault(){}});
+ b('DidDefecate').value='false';b('DidDefecate').handlers.change();
+ b('Difficulty').value='none';b('Bloating').value='none';b('Pain').value='false';
+ b('Note').value='保留的草稿';
+ f.setEnqueue(async()=>({status:'QUEUE_WRITE_FAILED'}));
+ await submit();
+ assert.match(b('Status').textContent,/本地入队失败/);
+ assert.equal(f.sends,0);
+ f.setEnqueue(async()=>({status:'QUEUE_UNVERIFIED',requestId:'ambiguous-original'}));
+ await submit();
+ assert.match(b('Status').textContent,/本地队列状态未确认/);
+ assert.equal(f.sends,0);
+ assert.equal(b('Note').value,'保留的草稿');
+ f.setOutcome('UNAVAILABLE');
+ await f.get('maternalWeightRecover').handlers.click();
+ assert.match(b('Status').textContent,/云端提交未完成/);
+ assert.equal(b('History').children.length,0);
+ f.setOutcome('UNKNOWN');
+ await f.get('maternalWeightRecover').handlers.click();
+ assert.match(b('Status').textContent,/保存结果未确认/);
+ assert.equal(b('Note').value,'保留的草稿');
+ await submit();
+ assert.equal(f.queued.length,2);
+ f.setOutcome('COMMITTED');
+ f.setQueueChecks(queueClear,()=>{throw Error('synthetic post-save storage rejection');});
+ await f.get('maternalWeightRecover').handlers.click();
+ assert.match(b('Status').textContent,/已保存至云端.*保存后的本地队列未确认/);
+ assert.equal(b('History').children.length,1);
+ assert.equal(b('Save').disabled,true);
 });
 
 test('an incomplete legacy bowel record can save a note and only upgrades after explicit completion',async()=>{
