@@ -116,7 +116,7 @@ const messages={
 };
 const same=(a,b)=>a&&b&&a.actorUid===b.actorUid&&a.familyId===b.familyId&&a.app===b.app;
 
-function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesEnabled=false}){
+function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyDates,cloudWritesEnabled=false}){
  const $=id=>doc.getElementById(id);
  const panel=$('maternal-health'),form=$('maternalWeightForm');
  if(!panel||!form)return;
@@ -247,7 +247,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   if(queue.status==='QUEUE_VERIFIED')pending=queue.pending+queue.retry>0;
   if(conflicts.status==='CONFLICTS_VERIFIED')conflict=conflicts.items[0]||null;
  }
- function refresh({background=false}={}){
+ function refresh({background=false,babyDates=false}={}){
   const quiet=background&&Boolean(snapshot);
   return run(quiet?null:'正在读取云端体重记录…',async started=>{
    if(profileStatus&&profileRead==='failed')profileStatus.textContent='';
@@ -255,6 +255,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
     profileRead='loading';
     if(profileStatus)profileStatus.textContent='正在读取妈妈健康档案…';
    }
+   const datesRead=babyDates&&refreshBabyDates&&host.navigator?.onLine!==false
+    ?Promise.resolve().then(()=>refreshBabyDates(started)).catch(()=>false):null;
    let result;
    try{
     result=host.navigator?.onLine===false?{status:'OFFLINE'}:await client?.read(started);
@@ -270,17 +272,24 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
      :'暂时无法读取妈妈健康档案，请点击「刷新云端记录」重试。';
    }
    await review(started);
+   const datesResult=await datesRead;
    if(!current(started))return;
    if(quiet&&canSave&&operations&&!pending&&!conflict){
     status.textContent='';
     return;
    }
-   status.textContent=!canSave
+   const healthMessage=!canSave
     ?messages[result?.status]||'暂时无法读取妈妈健康云端记录，请刷新重试。'
     :!operations?'体重记录已读取。浏览器持久化存储不可用，暂不能保存。'
     :pending?messages.PENDING_REQUEST
     :conflict?'云端已刷新。核对并重新编辑后可保存，也可明确放弃旧冲突请求。'
     :'云端体重记录已刷新。';
+   const datesMessage=datesResult===false?'宝宝日期刷新失败，保留上次已验证的日期。请重试。'
+    :datesResult===true?'宝宝日期已刷新。':'';
+   const partialRefresh=typeof datesResult==='boolean'&&canSave!==datesResult;
+   status.textContent=datesMessage
+    ?(partialRefresh?'部分刷新。':'')+healthMessage+' '+datesMessage
+    :healthMessage;
   });
  }
  async function send(started,feedback=status){
@@ -383,7 +392,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,cloudWritesE
   if(previous||profile.prePregnancyWeightKg!==null)nextBody.maternalProfile={...previous,...profile};
   return run('正在保存妈妈健康档案…',started=>saveDocument(started,nextBody,{profileSave:true}),profileStatus);
  });
- refreshButton.addEventListener('click',refresh);
+ refreshButton.addEventListener('click',()=>refresh({babyDates:true}));
  recover.addEventListener('click',()=>run('正在核验原保存请求…',send));
  cancel.addEventListener('click',()=>{resetForm();controls();});
  archive.addEventListener('click',()=>run('正在核验旧冲突请求…',async started=>{

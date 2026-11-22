@@ -206,7 +206,7 @@ test('V1.3.0 passes only verified family context and clears it across account ch
   assert.equal(resets, 3);
 });
 
-test('verified baby dates follow profile ACKs and another actor’s refresh, with no migrated-date fallback', async () => {
+test('verified baby dates follow profile ACKs and a scoped profile-only refresh without rerendering Settings', async () => {
   const nodes = new Map(), dates = [];
   const doc = {
     body: { dataset: {} }, addEventListener() {},
@@ -217,7 +217,9 @@ test('verified baby dates follow profile ACKs and another actor’s refresh, wit
   };
   const cloud = { auth: { getSession: async () => ({}) } };
   let ctx = { app: cloud, actorUid: 'a', familyId: 'family' };
-  let childId = 'primary', profileRevision = 0, callbacks;
+  let childId = 'primary', profileRevision = 0, callbacks, refreshDates;
+  let shows = 0, primaryReads = 0, selectedChild = childId;
+  const reads = [];
   let profile = { babyProfile: {}, dueDate: '2026-01-01', birthDate: '' };
   const kinds = ['reference', 'quotes', 'growth', 'profile', 'settings'];
   const document = kind => ({
@@ -226,20 +228,27 @@ test('verified baby dates follow profile ACKs and another actor’s refresh, wit
     body: { reference: { referenceOverrides: {} }, quotes: { items: [] },
       growth: { items: [] }, profile, settings: { target: {}, daily: {} } }[kind],
   });
+  let readDocument = async kind => document(kind);
   const app = formal.create({
     doc, host: { addEventListener() {}, navigator: { onLine: true } },
     loginController: { create: () => ({
       connect: async () => 'FORMAL_FAMILY_VERIFIED', verifiedContext: () => ctx,
     }) },
-    readModelFactory: () => ({ read: async () => childId ? {
-      status: 'PRIMARY_READ_ONLY_READY', source: 'cloudbase-primary-receipt-verified',
-      canWrite: false, actorUid: ctx.actorUid, familyId: ctx.familyId, childId,
-      inventory: {}, revisions: {},
-    } : { status: 'PRIMARY_NOT_READY' } }),
+    readModelFactory: () => ({ read: async () => {
+      primaryReads++;
+      return childId ? {
+        status: 'PRIMARY_READ_ONLY_READY', source: 'cloudbase-primary-receipt-verified',
+        canWrite: false, actorUid: ctx.actorUid, familyId: ctx.familyId, childId,
+        inventory: {}, revisions: {},
+      } : { status: 'PRIMARY_NOT_READY' };
+    } }),
     projection: { project: read => ({
       ...read, state: { inventory: {}, transactions: [], dueDate: '2025-01-01', birthDate: '2025-01-02' },
     }) },
-    primaryFactory: () => ({ activate: async () => ({ status: 'PRIMARY_OUTBOX_READ_ONLY_READY' }) }),
+    primaryFactory: () => ({
+      activate: async () => ({ status: 'PRIMARY_OUTBOX_READ_ONLY_READY' }),
+      selectedScope: () => ({ ...ctx, childId: selectedChild }),
+    }),
     commandsFactory: { create: () => ({}) },
     actionsFactory: { create(config) {
       callbacks = config;
@@ -248,15 +257,18 @@ test('verified baby dates follow profile ACKs and another actor’s refresh, wit
     documentsFactory: () => ({
       readAll: async () => ({ status: 'PRIMARY_DOCUMENTS_FULLY_READ',
         documents: Object.fromEntries(kinds.map(kind => [kind, document(kind)])) }),
-      read: async ({ kind }) => document(kind),
+      read: async request => { reads.push(request); return readDocument(request.kind); },
     }),
     documentsOverlay,
-    ui: { defaults: () => ({}), show() {}, clear() {} },
+    ui: { defaults: () => ({}), show() { shows++; }, clear() {} },
     scriptLoader: async () => {},
-    maternalWeightFactory: () => ({
-      setContext(current) { if (!current) dates.push(null); },
-      setBabyDates: value => dates.push(value),
-    }),
+    maternalWeightFactory: (_controller, refresh) => {
+      refreshDates = refresh;
+      return {
+        setContext(current) { if (!current) dates.push(null); },
+        setBabyDates: value => dates.push(value),
+      };
+    },
   });
   await app.start();
   await new Promise(resolve => setImmediate(resolve));
@@ -282,6 +294,60 @@ test('verified baby dates follow profile ACKs and another actor’s refresh, wit
   await app.restore({ requireComplete: true });
   assert.equal(dates[previousDateCount], null);
   assert.deepEqual(dates.at(-1), { dueDate: '2026-01-03', birthDate: '2026-01-02' });
+
+  let finishRead;
+  const oldProfile = document('profile');
+  readDocument = () => new Promise(resolve => { finishRead = resolve; });
+  const olderRefresh = refreshDates(ctx);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(await ack({ dueDate: '2026-01-04' }), 'ready');
+  finishRead(oldProfile);
+  assert.equal(await olderRefresh, false);
+  assert.deepEqual(dates.at(-1), { dueDate: '2026-01-04', birthDate: '2026-01-02' });
+
+  // Another device saved the profile. Only this profile is read on B;
+  // the other tabs still retain their rendered Settings revision.
+  profile = { ...profile, dueDate: '2026-01-05', birthDate: '' };
+  profileRevision++;
+  readDocument = async kind => document(kind);
+  const previousShows = shows, previousPrimaryReads = primaryReads, previousReads = reads.length;
+  assert.equal(await refreshDates(ctx), true);
+  assert.deepEqual(reads.slice(previousReads), [{
+    kind: 'profile', actorUid: 'b', familyId: 'family', readEnabled: true,
+  }]);
+  assert.deepEqual(dates.at(-1), { dueDate: '2026-01-05', birthDate: '' });
+  profile = { ...profile, birthDate: '2026-01-03' };
+  profileRevision++;
+  assert.equal(await refreshDates(ctx), true);
+  assert.deepEqual(dates.at(-1), { dueDate: '2026-01-05', birthDate: '2026-01-03' });
+  assert.equal(shows, previousShows);
+  assert.equal(primaryReads, previousPrimaryReads);
+  assert.equal(callbacks.readProfileBaseline().revision, profileRevision - 2);
+
+  const unchangedCount = dates.length;
+  for (const bad of [
+    { status: 'PRIMARY_DOCUMENT_READ_UNVERIFIED' },
+    { ...document('profile'), actorUid: 'wrong-actor' },
+    { ...document('profile'), childId: 'wrong-child' },
+    { ...document('profile'), body: { dueDate: '2026-01-01' } },
+  ]) {
+    readDocument = async () => bad;
+    assert.equal(await refreshDates(ctx), false);
+  }
+  assert.equal(dates.length, unchangedCount);
+
+  for (const change of [{ actorUid: 'c' }, { familyId: 'elsewhere' }, { childId: 'new-baby' }]) {
+    const before = ctx, childBefore = selectedChild, response = document('profile');
+    readDocument = () => new Promise(resolve => { finishRead = resolve; });
+    const request = refreshDates(ctx);
+    await new Promise(resolve => setImmediate(resolve));
+    if (change.childId) selectedChild = change.childId;
+    else ctx = { ...ctx, ...change };
+    finishRead(response);
+    assert.equal(await request, false);
+    assert.equal(dates.length, unchangedCount);
+    ctx = before; selectedChild = childBefore;
+  }
 
   childId = '';
   await app.restore();

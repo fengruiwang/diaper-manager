@@ -53,7 +53,7 @@ test('deletion removes only the matching weight ID and preserves the immutable s
  assert.deepEqual(body.items,[first,constipation,second,recovery]);
 });
 
-async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead=true}={}){
+async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead=true,refreshBabyDates}={}){
  const nodes=new Map();
  function element(tag){
   return {
@@ -96,6 +96,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  const panel=weight.mount({
   doc,host:{crypto:{randomUUID:()=> 'new-record'}},
   controller:{verifiedContext:()=>scope},cloudWritesEnabled:true,
+  refreshBabyDates,
   clientFactory:{create:()=>({read:context=>read(context)})},
   operationsFactory:{create:()=>({
    pending:async()=>({status:'QUEUE_VERIFIED',pending,retry:0}),
@@ -138,6 +139,45 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
 const first=measurement('first','2026-11-20',51.5);
 const second=measurement('second',today,52);
 const other={id:'other',kind:'constipation',date:today};
+
+test('manual refresh combines independent reads, preserves drafts, and reports partial failures',async()=>{
+ let datesReads=0,readDates;
+ const f=await mountedWeights([first],{autoRead:false,refreshBabyDates:()=>{
+  datesReads++;
+  return readDates();
+ }});
+ await f.open();
+ assert.equal(datesReads,0);
+ f.setBabyDates({dueDate:'2026-01-01',birthDate:''});
+ f.edit(0);f.jin.value='111.25';
+ f.get('maternalProfileJin').value='96.13';
+ f.get('maternalProfileForm').handlers.input();
+ readDates=async()=>{
+  f.setBabyDates({dueDate:'2026-01-02',birthDate:'2026-01-01'});
+  return true;
+ };
+ await f.refresh();
+ assert.equal(datesReads,1);
+ assert.equal(f.get('maternalProfileDue').textContent,'2026-01-02');
+ assert.equal(f.get('maternalProfileStage').textContent,'产后');
+ assert.match(f.status.textContent,/体重记录已刷新。.*宝宝日期已刷新/);
+ assert.deepEqual([f.jin.value,f.get('maternalProfileJin').value,f.rows.children.length],['111.25','96.13',1]);
+ assert.equal(f.get('maternalWeightCancel').hidden,false);
+
+ readDates=async()=>{throw Error('synthetic profile read failure');};
+ await f.refresh();
+ assert.match(f.status.textContent,/部分刷新。.*体重记录已刷新。.*保留上次已验证的日期/);
+ assert.equal(f.get('maternalProfileDue').textContent,'2026-01-02');
+
+ f.setRead(async()=>({status:'UNAVAILABLE'}));
+ readDates=async()=>{f.setBabyDates({dueDate:'2026-01-03',birthDate:''});return true;};
+ await f.refresh();
+ assert.equal(f.get('maternalProfileDue').textContent,'2026-01-03');
+ assert.equal(f.get('maternalProfileStage').textContent,'孕期');
+ assert.match(f.status.textContent,/部分刷新。.*妈妈健康云端服务.*宝宝日期已刷新/);
+ assert.deepEqual([f.jin.value,f.get('maternalProfileJin').value,f.rows.children.length],['111.25','96.13',1]);
+ assert.equal(f.queued.length,0);
+});
 
 test('first maternal read reports loading and failure independently of the baby stage',async()=>{
  const f=await mountedWeights([],{autoRead:false});

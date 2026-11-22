@@ -120,6 +120,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
  let familyContext=null,maternalWeight=null;
+ let maternalDatesRevision=null;
  let shownStock=null,localInventoryBaselineReady=false,cachedPreview=null;
  const BOOT_MESSAGE='正在进入小宝管家…';
  let otpSending=false,otpConfirming=false,otpExpiresAt=0,otpTimer=null,otpSentBefore=false,
@@ -434,6 +435,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    &&found.items.length>0);
  }
  function clear({keepFamily=false}={}){
+  maternalDatesRevision=null;
   if(keepFamily)maternalWeight?.setBabyDates?.(null);
   else setFamilyContext(null);
   stopInventoryPolling();
@@ -511,22 +513,34 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     inventory:Object.freeze(inventory),transactions:Object.freeze(transactions)}),
    revisions:Object.freeze(revisions),historyCount:transactions.length});
  }
- function showCloudView(data,ctx){
-  ui.show(data);
-  // A verified RPC response alone is not proof that the UI rendered it.
+ function showBabyDates(data,ctx){
   const scope=data?.cloudDocumentsActorScope;
   // The complete profile overlay is the editable baby profile from Settings.
   // A base-only view can contain the older migrated dates.
   const active=controller.verifiedContext();
+  const profileRevision=data?.documentRevisions?.profile;
   const verifiedBabyProfile=data?.status==='PRIMARY_READ_ONLY_READY'
    &&data.source==='cloudbase-primary-receipt-verified'&&data.synthetic!==true
    &&data.sharedBusinessDocumentsVerified===true
-   &&Number.isSafeInteger(data.documentRevisions?.profile)
+   &&Number.isSafeInteger(profileRevision)&&profileRevision>=0
    &&scope?.familyId===ctx.familyId&&data.familyId===ctx.familyId
    &&data.childId&&scope.childId===data.childId&&data.actorUid===ctx.actorUid&&data.state
    &&active?.app===ctx.app&&active?.actorUid===ctx.actorUid&&active.familyId===ctx.familyId;
-  maternalWeight?.setBabyDates?.(verifiedBabyProfile
-   ?{dueDate:data.state.dueDate,birthDate:data.state.birthDate}:null);
+  if(!verifiedBabyProfile)return false;
+  if(maternalDatesRevision===null||profileRevision>=maternalDatesRevision){
+   maternalDatesRevision=profileRevision;
+   maternalWeight?.setBabyDates?.({dueDate:data.state.dueDate,birthDate:data.state.birthDate});
+  }
+  return true;
+ }
+ function showCloudView(data,ctx){
+  ui.show(data);
+  if(!showBabyDates(data,ctx)){
+   maternalDatesRevision=null;
+   maternalWeight?.setBabyDates?.(null);
+  }
+  // A verified RPC response alone is not proof that the UI rendered it.
+  const scope=data?.cloudDocumentsActorScope;
   renderedReference=data?.sharedBusinessDocumentsVerified===true
    &&scope?.familyId===ctx.familyId
    &&scope?.childId===data.childId
@@ -541,6 +555,41 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
       ...data.state.referenceOverrides
      })})
     }):null;
+ }
+ async function refreshBabyDates(ctx){
+  if(!ctx||!sameFamilyContext(ctx))return false;
+  if(mode!=='ready'||!primaryViewBase?.childId)return undefined;
+  const {app,actorUid,familyId}=ctx;
+  const childId=primaryViewBase.childId,key=actorUid+'\x00'+familyId,epoch=documentEpoch;
+  const client=documentClientCache?.client;
+  function current(){
+   const active=controller.verifiedContext(),selected=primary?.selectedScope?.();
+   const cached=documentClientCache,base=primaryViewBase;
+   return mode==='ready'&&epoch===documentEpoch
+    &&active?.app===app&&active?.actorUid===actorUid&&active.familyId===familyId
+    &&base?.childId===childId&&base.actorUid===actorUid&&base.familyId===familyId
+    &&(!selected||(selected.childId===childId&&selected.actorUid===actorUid&&selected.familyId===familyId))
+    &&cached?.client===client&&cached?.app===app&&cached.actorUid===actorUid
+    &&cached.familyId===familyId&&cached.childId===childId
+    &&documentScope===key&&documentSnapshot?.status==='PRIMARY_DOCUMENTS_FULLY_READ';
+  }
+  if(!client||!current())return false;
+  try{
+   const fresh=await bounded(()=>client.read({familyId,actorUid,kind:'profile',readEnabled:true}),12000);
+   // SQL 026 does not echo the actor. The client binds the read to the
+   // verified actor above, and the active scope must still match on return.
+   if(!current()||fresh?.status!=='PRIMARY_DOCUMENT_READ_VERIFIED'
+     ||fresh.kind!=='profile'||fresh.familyId!==familyId||fresh.childId!==childId
+     ||(fresh.actorUid!==undefined&&fresh.actorUid!==actorUid)
+     ||!Number.isSafeInteger(fresh.revision)||fresh.revision<0
+     ||[fresh.body?.dueDate,fresh.body?.birthDate].some(date=>date!=null&&typeof date!=='string')
+     ||fresh.revision<documentSnapshot.documents.profile.revision
+     ||(maternalDatesRevision!==null&&fresh.revision<maternalDatesRevision))return false;
+   // Settings still displays its previous profile. Keep its CAS baseline
+   // attached to that display until the normal Settings/full refresh path.
+   const snapshot={...documentSnapshot,documents:{...documentSnapshot.documents,profile:fresh}};
+   return showBabyDates(documentsOverlay.apply(primaryViewBase,snapshot),ctx);
+  }catch(_){return false;}
  }
  function optionalRead(client,ctx,scopeKey,base,epoch){
   if(!client||typeof client.readAll!=='function')return Promise.resolve(false);
@@ -1972,7 +2021,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    host,storage:null,view:authView(),scriptLoader,
    deferChildReadToFormal:true
   });
-  maternalWeight=maternalWeightFactory?.(controller);
+  maternalWeight=maternalWeightFactory?.(controller,refreshBabyDates);
   restoreOtpCooldown();startOtpTicker();redrawConfirmButton();
   function on(id,fn){
    $(id)?.addEventListener('click',()=>{
@@ -2783,10 +2832,10 @@ function browserStart(){
   host:root,doc,scriptLoader:loader,
   purchaseOperatorApproved:()=>FORMAL_PURCHASE_ENABLED,
   loginController:root.XBM1PreviewModule,
-  maternalWeightFactory:controller=>root.XBMaternalWeight.mount({
+  maternalWeightFactory:(controller,refreshBabyDates)=>root.XBMaternalWeight.mount({
    doc,host:maternalBrowserHost(root),controller,
    clientFactory:root.XBMaternalHealthClient,operationsFactory:root.XBMaternalHealthOperations,
-   cloudWritesEnabled:true
+   cloudWritesEnabled:true,refreshBabyDates
   }),
   projection:root.XBPrimaryUIProjection,ui:root.XBM3UI,
   historyCache:root.XBPrimaryCloudReadModel.createHistoryCache(),
