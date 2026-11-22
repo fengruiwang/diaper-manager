@@ -179,8 +179,18 @@ test('V1.3.0 keeps the original inline logic outside the navigation and maternal
     .replace('宝宝资料保存结果待核验，原请求编号已保留，请勿重复提交。', '宝宝资料保存结果待核验，请勿重复提交');
   assert.deepEqual(current.map(withoutIntegration), scripts.map(withoutIntegration));
   for (const script of current) assert.doesNotThrow(() => new vm.Script(script));
+
+  const { version, channel, source_sha } = JSON.parse(read('version.json'));
+  let expected = stable;
+  if (version === '1.3.0') {
+    assert.equal(channel, 'stable');
+    assert.equal(source_sha, '734e8730cf8f263fd210cd8917c898db98b1d88b');
+    expected = file => read('release-candidate/pages-v1.3.0-final/' + file);
+  } else {
+    assert.equal(version, '1.2.0', `Unsupported root release version: ${version}`);
+  }
   for (const file of ['index.html', 'formal-controller.js', 'm1-controller.js', 'pwa.js', 'sw.js', 'manifest.webmanifest', 'version.json']) {
-    assert.equal(read(file), stable(file), file);
+    assert.equal(read(file), expected(file), file);
   }
 });
 
