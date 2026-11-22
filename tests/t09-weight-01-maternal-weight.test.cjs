@@ -90,7 +90,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  const doc={
   defaultView:{confirm(message){assert.equal(this,doc.defaultView);prompts.push(message);return confirm;}},
   getElementById:id=>legacy&&(id.startsWith('maternalProfile')||
-   ['maternalWeightTime','maternalWeightNote'].includes(id))?null:get(id),
+   ['maternalWeightTime','maternalWeightNote','maternalWeightPregnancy','maternalWeightPostpartum'].includes(id))?null:get(id),
   createElement:element,addEventListener(name,callback){handlers[name]=callback;},
  };
  const panel=weight.mount({
@@ -140,6 +140,74 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
 const first=measurement('first','2026-11-20',51.5);
 const second=measurement('second',today,52);
 const other={id:'other',kind:'constipation',date:today};
+
+test('verified birth date partitions chart and history without writes or loss of a selected stage',async()=>{
+ const previous={...first,time:'09:30',note:'历史备注'};
+ const birth={...second,time:'00:05'};
+ const later=measurement('later','2026-11-22',50.5);
+ const items=Object.freeze([previous,birth,later,other]);
+ const f=await mountedWeights(items,{profile:{prePregnancyWeightKg:48,deliveryDate:'2026-01-01'}});
+ const pregnancy=f.get('maternalWeightPregnancy'),postpartum=f.get('maternalWeightPostpartum');
+ const visibleIds=()=>f.remove().map(button=>button.dataset.deleteWeight);
+ const plotted=()=>[...f.chart.innerHTML.matchAll(/<title>([^<]+)<\/title>/g)].map(match=>match[1]);
+ assert.equal(pregnancy.attributes['aria-pressed'],'true');
+ assert.equal(postpartum.hidden,true);
+ postpartum.handlers.click();
+ assert.deepEqual(visibleIds(),['later','second','first']);
+ f.setBabyDates({dueDate:'2026-11-10',birthDate:'2026-02-30'});
+ assert.equal(postpartum.hidden,true);
+
+ f.setBabyDates({dueDate:'2026-11-10',birthDate:today});
+ assert.equal(postpartum.hidden,false);
+ assert.equal(postpartum.attributes['aria-pressed'],'true');
+ assert.deepEqual(visibleIds(),['later','second']);
+ assert.deepEqual(plotted(),['2026-11-21 · 104 斤','2026-11-22 · 101 斤']);
+ assert.match(f.chart.innerHTML,/孕前参考体重 · 96 斤/);
+ pregnancy.handlers.click();
+ assert.deepEqual(visibleIds(),['first']);
+ assert.deepEqual(plotted(),['2026-11-20 · 103 斤']);
+ assert.match(f.chart.innerHTML,/孕前参考体重 · 96 斤/);
+ assert.equal(f.rows.children[0].children[3].textContent,'历史备注');
+
+ f.setBabyDates({dueDate:'2026-11-29',birthDate:today});
+ assert.equal(pregnancy.attributes['aria-pressed'],'true');
+ assert.deepEqual(visibleIds(),['first']);
+ f.setBabyDates({dueDate:'2026-11-29',birthDate:'2026-11-22'});
+ assert.deepEqual(visibleIds(),['second','first']);
+ assert.equal(f.sends,0);
+ assert.deepEqual(f.queued,[]);
+ assert.deepEqual(items,[previous,birth,later,other]);
+ f.setBabyDates(null);
+ assert.equal(postpartum.hidden,true);
+ assert.deepEqual(visibleIds(),['later','second','first']);
+});
+
+test('saving, backfilling and deleting in a stage preserves the other stage and health data',async()=>{
+ const f=await mountedWeights([first,second,other],{extensions:{custom:'preserved'}});
+ f.setBabyDates({birthDate:today});
+ const pregnancy=f.get('maternalWeightPregnancy'),postpartum=f.get('maternalWeightPostpartum');
+ f.edit(0);
+ f.get('maternalWeightNote').value='产后回填';
+ await f.submit();
+ assert.equal(f.queued[0].baseline.revision,5);
+ assert.deepEqual(f.queued[0].nextBody,{schemaVersion:1,custom:'preserved',
+  items:[first,{...second,note:'产后回填'},other]});
+ pregnancy.handlers.click();
+ f.get('maternalWeightDate').value='2026-11-19';
+ f.jin.value='100';
+ await f.submit();
+ assert.equal(f.queued[1].baseline.revision,6);
+ assert.equal(f.queued[1].nextBody.items[3].id,'new-record');
+ assert.match(f.chart.innerHTML,/2026-11-19 · 100 斤/);
+ postpartum.handlers.click();
+ await f.remove()[0].handlers.click();
+ assert.equal(f.queued[2].nextBody.items.length,3);
+ assert.equal(f.history.hidden,true);
+ assert.equal(f.chart.textContent,'暂无产后体重记录');
+ pregnancy.handlers.click();
+ assert.deepEqual(f.remove().map(button=>button.dataset.deleteWeight),['first','new-record']);
+ assert.equal(f.queued[2].nextBody.items[1],other);
+});
 
 test('manual refresh combines independent reads, preserves drafts, and reports partial failures',async()=>{
  let datesReads=0,readDates;
@@ -518,12 +586,26 @@ test('trend SVG renders single and multiple measurements without Array.prototype
  const oldest=measurement('first','2026-11-11',51.5);
  for(const records of [[newest],[newest,oldest]]){
   legacy.recordsJSON=JSON.stringify(records);
-  const svg=vm.runInContext('module.exports.chart(JSON.parse(recordsJSON))',legacy);
-  assert.equal(svg,weight.chart(records));
+  const svg=vm.runInContext('module.exports.chart(JSON.parse(recordsJSON), 47.99)',legacy);
+  assert.equal(svg,weight.chart(records,47.99));
   assert.equal([...svg.matchAll(/<circle\b/g)].length,records.length);
   assert.equal(svg.includes('<polyline'),records.length>1);
   assert.match(svg,/>2026-11-21<\/text>/);
  }
+});
+
+test('confirmed pre-pregnancy weight adds a dashed reference without changing measurements',()=>{
+ const records=Object.freeze([Object.freeze(second),Object.freeze(first)]);
+ const plain=weight.chart(records);
+ const svg=weight.chart(records,47.99);
+ assert.doesNotMatch(plain,/孕前参考体重|stroke-dasharray/);
+ assert.equal(weight.chart(records,null),plain);
+ assert.match(svg,/孕前参考体重 · 95\.98 斤/);
+ assert.match(svg,/<path d="M 56 [\d.]+ H 716"[^>]*stroke-dasharray="7 5"/);
+ const titleText=chart=>[...chart.matchAll(/<title>([^<]+)<\/title>/g)].map(match=>match[1]);
+ assert.deepEqual(titleText(svg),titleText(plain));
+ assert.equal(records[0].weightKg,52);
+ assert.equal(records[1].weightKg,51.5);
 });
 
 test('health client distinguishes missing RPCs for the undeployed preview',async()=>{

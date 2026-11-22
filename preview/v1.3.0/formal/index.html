@@ -147,6 +147,11 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
 #maternal-health .maternal-status{margin:12px 0 0;padding:9px 11px;border-radius:9px;background:#f3f1fc;color:#4f4a71;font-size:13px}
 #maternal-health .maternal-status:empty{display:none}
 #maternal-health .maternal-card .btn{min-height:40px}
+#maternal-health .maternal-trend-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-bottom:12px}
+#maternal-health .maternal-trend-heading h3{margin:0}
+#maternal-health .maternal-stage-selector{display:flex;gap:4px;padding:4px;border-radius:12px;background:#f3f1fc}
+#maternal-health .maternal-stage-selector .btn{min-width:64px}
+#maternal-health .maternal-stage-selector .btn[aria-pressed="true"]{background:#fff;color:var(--deep);box-shadow:0 1px 4px #5147bb26}
 #maternalWeightChart .growth-chart{width:100%;height:auto;max-width:100%;max-height:none;display:block}
 #maternalWeightTable{overflow:visible}
 #maternalWeightTable .tbl{white-space:normal;table-layout:fixed}
@@ -173,6 +178,7 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
  #maternalWeightChart svg{overflow:visible}
  #maternalWeightChart svg text{font-size:21px;font-weight:600}
  #maternalWeightChart svg text[font-size="14"]{font-size:25px}
+ #maternalWeightChart svg .maternal-reference-label{font-size:26px}
  #maternalWeightTable .tbl,#maternalWeightTable tbody{display:block}
  #maternalWeightTable thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
  #maternalWeightTable tbody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);gap:4px 12px;
@@ -493,7 +499,13 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         </div>
       </div>
       <div class="card maternal-card maternal-wide-card">
-        <h3 class="section-title">体重趋势（斤）</h3>
+        <div class="maternal-trend-heading">
+          <h3 class="section-title">体重趋势（斤）</h3>
+          <div class="maternal-stage-selector" role="group" aria-label="趋势和历史记录的阶段">
+            <button id="maternalWeightPregnancy" class="btn ghost sm" type="button" aria-pressed="true">孕期</button>
+            <button id="maternalWeightPostpartum" class="btn ghost sm" type="button" aria-pressed="false" hidden>产后</button>
+          </div>
+        </div>
         <div id="maternalWeightChart" class="empty">尚未读取体重记录</div>
       </div>
       <div class="card maternal-card">

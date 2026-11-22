@@ -70,25 +70,36 @@ function deleteDocument(body,recordId){
  return {...body,items};
 }
 
-function chart(records){
+function chart(records,prePregnancyWeightKg){
  if(!records.length)return '';
+ const hasReference=Number.isFinite(prePregnancyWeightKg)&&prePregnancyWeightKg>0;
+ const reference=hasReference?Number(formatJin(prePregnancyWeightKg)):null;
  // The same grid, polyline and point pattern as the existing growth SVG.
- const w=740,h=255,left=56,right=24,top=22,bottom=39;
+ const w=740,h=255,left=56,right=24,top=hasReference?42:22,bottom=39;
  const width=w-left-right,height=h-top-bottom;
  const entries=records.slice().reverse();
  const dates=entries.map(item=>Date.parse(item.date+'T00:00:00Z'));
  const span=dates[dates.length-1]-dates[0];
  const values=entries.map(item=>Number(formatJin(item.weightKg)));
- const high=Math.max(...values)+1,low=Math.max(0,Math.min(...values)-1);
+ const scaleValues=hasReference?[...values,reference]:values;
+ const high=Math.max(...scaleValues)+1,low=Math.max(0,Math.min(...scaleValues)-1);
+ const yFor=value=>top+(high-value)/(high-low)*height;
  const xy=entries.map((item,i)=>({
   x:span?left+(dates[i]-dates[0])/span*width:left+width/2,
-  y:top+(high-values[i])/(high-low)*height,item
+  y:yFor(values[i]),item
  }));
  const grid=Array.from({length:5},(_,i)=>{
   const y=top+height*i/4,label=(high-(high-low)*i/4).toFixed(1);
   return '<line x1="'+left+'" x2="'+(w-right)+'" y1="'+y+'" y2="'+y+'" stroke="#e9eaf3"/>'
    +'<text x="'+(left-8)+'" y="'+(y+4)+'" font-size="13" text-anchor="end" fill="#657189">'+label+'</text>';
  }).join('');
+ const referenceLabel=hasReference?'孕前参考体重 · '+reference+' 斤':'';
+ const referenceLine=hasReference
+  ?'<path d="M '+left+' '+yFor(reference).toFixed(2)+' H '+(w-right)
+   +'" fill="none" stroke="#986331" stroke-width="2" stroke-dasharray="7 5"/>'
+   +'<path d="M '+left+' 18 h 26" fill="none" stroke="#986331" stroke-width="2" stroke-dasharray="7 5"/>'
+   +'<text class="maternal-reference-label" x="'+(left+34)+'" y="24" font-size="16" fill="#795027">'+referenceLabel+'</text>'
+  :'';
  const line=xy.length>1?'<polyline fill="none" stroke="#7167da" stroke-width="3" points="'
   +xy.map(point=>point.x.toFixed(2)+','+point.y.toFixed(2)).join(' ')+'"/>':'';
  const points=xy.map((point,i)=>'<circle cx="'+point.x.toFixed(2)+'" cy="'+point.y.toFixed(2)
@@ -99,7 +110,8 @@ function chart(records){
   +(span?'<text x="'+(w-right)+'" y="'+(h-9)+'" font-size="14" text-anchor="end" fill="#657189">'
    +entries[entries.length-1].date+'</text>':'');
  return '<svg class="growth-chart" role="img" aria-label="妈妈体重趋势，单位斤，共'+entries.length
-  +'个数据点" viewBox="0 0 '+w+' '+h+'">'+grid+line+points+labels+'</svg>';
+  +'个数据点'+(hasReference?'，'+referenceLabel:'')+'" viewBox="0 0 '+w+' '+h+'">'
+  +grid+referenceLine+line+points+labels+'</svg>';
 }
 
 const messages={
@@ -127,6 +139,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  const archive=$('maternalWeightArchive'),status=$('maternalWeightStatus');
  const chartNode=$('maternalWeightChart'),empty=$('maternalWeightEmpty');
  const table=$('maternalWeightTable'),rows=$('maternalWeightRows');
+ const pregnancyButton=$('maternalWeightPregnancy'),postpartumButton=$('maternalWeightPostpartum');
  const profileForm=$('maternalProfileForm'),profileJin=$('maternalProfileJin');
  const profileDue=$('maternalProfileDue'),profileDelivery=$('maternalProfileDelivery');
  const profileStage=$('maternalProfileStage'),profileSave=$('maternalProfileSave'),profileStatus=$('maternalProfileStatus');
@@ -139,6 +152,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  let weightDirty=false;
  let profileDirty=false,profileRequest=null;
  let profileRead='idle';
+ let birthDate='',stageView='pregnancy';
 
  function canWrite(){
   return Boolean(scope&&current(scope)&&!busy&&canSave&&!pending&&operations&&cloudWritesEnabled);
@@ -179,6 +193,11 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   profileStage.textContent=maternalStage(dates);
   profileDue.textContent=validDate(dates?.dueDate)?dates.dueDate:'未填写';
   profileDelivery.textContent=validDate(dates?.birthDate)?dates.birthDate:'未填写';
+  const nextBirthDate=postpartumButton&&validDate(dates?.birthDate)?dates.birthDate:'';
+  if(nextBirthDate===birthDate)return;
+  if(!birthDate||!nextBirthDate)stageView=nextBirthDate?'postpartum':'pregnancy';
+  birthDate=nextBirthDate;
+  renderRecords();
  }
  function renderProfile(){
   if(!profileForm||profileDirty)return;
@@ -187,8 +206,23 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  }
  function render(){
   renderProfile();
-  const records=history(snapshot?.body);
-  const caption=snapshot?'暂无体重记录':'尚未读取体重记录';
+  renderRecords();
+ }
+ function selectStage(stage){
+  if(stage===stageView||(stage==='postpartum'&&!birthDate))return;
+  stageView=stage;
+  renderRecords();
+ }
+ function renderRecords(){
+  pregnancyButton?.setAttribute('aria-pressed',String(stageView==='pregnancy'));
+  if(postpartumButton){
+   postpartumButton.hidden=!birthDate;
+   postpartumButton.setAttribute('aria-pressed',String(stageView==='postpartum'));
+  }
+  const records=history(snapshot?.body).filter(item=>!birthDate
+   ||(stageView==='postpartum'?item.date>=birthDate:item.date<birthDate));
+  const caption=!snapshot?'尚未读取体重记录'
+   :birthDate?(stageView==='postpartum'?'暂无产后体重记录':'暂无孕期体重记录'):'暂无体重记录';
   empty.hidden=records.length>0;
   empty.textContent=caption;
   table.hidden=!records.length;
@@ -223,7 +257,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    td.append(button,remove);tr.append(td);rows.append(tr);
   }
   chartNode.classList.toggle('empty',!records.length);
-  if(records.length)chartNode.innerHTML=chart(records);
+  if(records.length)chartNode.innerHTML=chart(records,snapshot.body.maternalProfile?.prePregnancyWeightKg);
   else chartNode.textContent=caption;
   controls();
  }
@@ -399,6 +433,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   return run('正在保存妈妈健康档案…',started=>saveDocument(started,nextBody,{profileSave:true}),profileStatus);
  });
  const refreshCloudRecords=()=>refresh({babyDates:true});
+ pregnancyButton?.addEventListener('click',()=>selectStage('pregnancy'));
+ postpartumButton?.addEventListener('click',()=>selectStage('postpartum'));
  refreshButton.addEventListener('click',refreshCloudRecords);
  recover.addEventListener('click',()=>run('正在核验原保存请求…',send));
  cancel.addEventListener('click',()=>{resetForm();controls();});
