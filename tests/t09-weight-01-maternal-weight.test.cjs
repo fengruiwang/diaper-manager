@@ -55,7 +55,7 @@ test('deletion removes only the matching weight ID and preserves the immutable s
 
 async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead=true,
  refreshBabyDates,constipationFactory,reopenedRequest=null,categoryTabs=false}={}){
- const nodes=new Map();
+ const nodes=new Map(),statusWrites=[];
  function element(tag){
   return {
    tag,children:[],dataset:{},handlers:{},attributes:{},
@@ -67,7 +67,10 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
    },
    setAttribute(name,value){this.attributes[name]=value;},
    getAttribute(name){return this.attributes[name]??null;},
-   set textContent(value){this.text=value;this.innerHTML='';},
+   set textContent(value){
+    this.text=value;this.innerHTML='';
+    if(tag==='maternalWeightStatus')statusWrites.push(value);
+   },
    get textContent(){return this.text;},
    addEventListener(name,callback){this.handlers[name]=callback;},
    focus(){},
@@ -90,28 +93,19 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  }));
  get('maternalWeightPeriods').querySelectorAll=()=>[...periods.values()];
  if(categoryTabs){
-  const tabs=[],shortcuts=[];
-  for(const [category,label,target] of [
-   ['weight','Weight','maternalWeightForm'],['bowel','Bowel','maternalConstipationForm']
-  ]){
+  const tabs=['Weight','Bowel'].map(label=>{
    const tab=get('maternal'+label+'Tab');
-   tab.dataset.maternalCategory=category;
    tab.setAttribute('aria-controls','maternal'+label+'Category');
-   tabs.push(tab);
-   const shortcut=get('shortcut-'+category);
-   shortcut.dataset.maternalEntry=category;
-   shortcut.setAttribute('href','#'+target);
-   shortcuts.push(shortcut);
-  }
+   return tab;
+  });
   get('maternalCategoryTabs').querySelectorAll=selector=>selector==='[data-maternal-category]'?tabs:[];
-  get('maternal-health').querySelectorAll=selector=>selector==='[data-maternal-entry]'?shortcuts:[];
  }
  const handlers={};
  let confirm=true,outcome='COMMITTED',pending=Number(Boolean(reopenedRequest)),sends=0,reads=0;
  let request=reopenedRequest,storageReady=true;
  let readPending=async()=>storageReady?{status:'QUEUE_VERIFIED',pending,retry:0}:{status:'QUEUE_UNVERIFIED'};
  let readConflicts=async()=>({status:'CONFLICTS_VERIFIED',items:[]});
- let enqueue=async()=>({status:'QUEUED'});
+ let enqueue=async()=>({status:'QUEUED'}),beforeSend;
  let scope={app:{},familyId:'synthetic-family',actorUid:'synthetic-actor'};
  let snapshot={status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items,...extensions}};
  if(profile)snapshot.body.maternalProfile=profile;
@@ -144,6 +138,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
    send:async()=>{
     sends++;
     sentIds.push(request?.requestId);
+    if(beforeSend)await beforeSend();
     if(['UNKNOWN','UNAVAILABLE','COMMITTED_QUEUE_UNVERIFIED'].includes(outcome))return {status:outcome,requestId:request?.requestId};
     pending=0;
     if(outcome==='REVISION_CONFLICT')return {status:outcome,requestId:request.requestId};
@@ -155,7 +150,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  panel.setContext(scope);
  const refresh=()=>get('maternalWeightRefresh').handlers.click();
  if(autoRead)await refresh();
- return {get,status,rows,chart,history,jin,prompts,queued,sentIds,
+ return {get,status,statusWrites,rows,chart,history,jin,prompts,queued,sentIds,
   get sends(){return sends;},
   get reads(){return reads;},get revision(){return snapshot.revision;},
   periods,selectPeriod:period=>periods.get(period).handlers.click(),
@@ -170,6 +165,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
   setStorageReady:value=>{storageReady=value;},
   setQueueChecks:(queue,conflicts)=>{readPending=queue;readConflicts=conflicts;},
   setEnqueue:next=>{enqueue=next;},
+  setBeforeSend:next=>{beforeSend=next;},
   refresh,open:()=>handlers['maternal-health-open'](),setRead:next=>{read=next;},
   refreshCloudRecords:panel.refreshCloudRecords,canPullRefresh:panel.canPullRefresh,
   setBabyDates:panel.setBabyDates,
@@ -724,26 +720,6 @@ test('R2-05: switching preserves bowel edit mode and saves against the original 
  assert.deepEqual(f.queued[0].nextBody.items,[{...recordedBowel,note:'synthetic edit draft'}]);
 });
 
-test('R2-05: quick entry activates the correct category before focusing and scrolling to its form',async()=>{
- const f=await mountedCategories();
- for(const [key,category,formId] of [
-  ['bowel','Bowel','maternalConstipationForm'],['weight','Weight','maternalWeightForm']
- ]){
-  const form=f.get(formId),steps=[];
-  form.focus=options=>{
-   assertCategory(f,category);
-   assert.deepEqual(options,{preventScroll:true});
-   steps.push('focus');
-  };
-  form.scrollIntoView=options=>{
-   assert.deepEqual(options,{block:'start'});
-   steps.push('scroll');
-  };
-  f.get('shortcut-'+key).handlers.click({preventDefault(){steps.push('prevent');}});
-  assert.deepEqual(steps,['prevent','focus','scroll']);
- }
-});
-
 test('R2-05: category switching leaves rendered nodes, cloud operations and revision untouched',async()=>{
  const f=await mountedCategories([first,recordedBowel]);
  const weightRows=f.rows.children;
@@ -783,6 +759,118 @@ test('R2-05: common refresh and receipt verification keep working in the bowel c
  assert.equal(f.sends,2);
  assert.equal(f.revision,6);
  assert.equal(recover.hidden,true);
+ assertCategory(f,'Bowel');
+});
+
+test('R2-06: weight status stays quiet while enqueue and receipt confirmation are in flight',async()=>{
+ const f=await mountedCategories();
+ const before=f.statusWrites.length;
+ let releaseQueue,enterSend,releaseSend;
+ const sending=new Promise(resolve=>{enterSend=resolve;});
+ f.setEnqueue(()=>new Promise(resolve=>{releaseQueue=resolve;}));
+ f.setBeforeSend(()=>new Promise(resolve=>{releaseSend=resolve;enterSend();}));
+ f.jin.value='103';
+ await f.submit();
+ assert.equal(f.queued.length,1);
+ assert.equal(f.sends,0);
+ assert.equal(f.status.textContent,'');
+ assert.equal(f.get('maternalWeightSave').disabled,true);
+ releaseQueue({status:'QUEUED'});
+ await sending;
+ assert.equal(f.sends,1);
+ assert.deepEqual(f.statusWrites.slice(before),['']);
+ assert.equal(f.get('maternalWeightSave').disabled,true);
+ releaseSend();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(f.statusWrites.slice(before),['','记录已保存至云端。']);
+ assert.equal(f.revision,6);
+ assert.equal(f.get('maternalWeightSave').disabled,false);
+});
+
+test('R2-06: weight queue failure, an uncertain receipt and confirmed recovery remain visible',async()=>{
+ const f=await mountedCategories();
+ f.jin.value='103';
+ f.setEnqueue(async()=>({status:'QUEUE_WRITE_FAILED'}));
+ await f.submit();
+ assert.match(f.status.textContent,/本地入队失败/);
+ assert.equal(f.jin.value,'103');
+ assert.equal(f.sends,0);
+ f.setEnqueue(async()=>({status:'QUEUED'}));
+ f.setOutcome('UNKNOWN');
+ await f.submit();
+ assert.match(f.status.textContent,/保存结果未确认/);
+ assert.equal(f.jin.value,'103');
+ const recover=f.get('maternalWeightRecover');
+ assert.equal(recover.hidden,false);
+ f.setOutcome('COMMITTED');
+ await recover.handlers.click();
+ assert.equal(f.status.textContent,'记录已保存至云端。');
+ assert.equal(f.queued.length,2);
+ assert.deepEqual(f.sentIds,['request-2','request-2']);
+});
+
+test('R2-06: weight save conflicts and post-save queue verification failures remain visible',async()=>{
+ const conflicted=await mountedCategories();
+ conflicted.jin.value='103';
+ conflicted.setOutcome('REVISION_CONFLICT');
+ await conflicted.submit();
+ assert.match(conflicted.status.textContent,/另一端已更新数据.*本次未保存/);
+ assert.equal(conflicted.jin.value,'103');
+ assert.equal(conflicted.revision,5);
+
+ const unverified=await mountedCategories();
+ unverified.jin.value='103';
+ unverified.setBeforeSend(()=>{
+  unverified.setStorageReady(false);
+ });
+ await unverified.submit();
+ assert.match(unverified.status.textContent,/已保存至云端.*保存后的本地队列未确认/);
+ assert.equal(unverified.revision,6);
+ assert.equal(unverified.get('maternalWeightSave').disabled,true);
+});
+
+test('R2-06: profile and bowel saves still report queue and receipt progress in their own status areas',async()=>{
+ for(const kind of ['Profile','Constipation']){
+  const f=await mountedCategories();
+  const status=f.get('maternal'+kind+'Status');
+  const form=f.get('maternal'+kind+'Form');
+  if(kind==='Profile')f.get('maternalProfileJin').value='96';
+  else{
+   const did=f.get('maternalConstipationDidDefecate');
+   did.value='false';
+   did.handlers.change();
+  }
+  let releaseQueue,enterSend,releaseSend;
+  const sending=new Promise(resolve=>{enterSend=resolve;});
+  f.setEnqueue(()=>new Promise(resolve=>{releaseQueue=resolve;}));
+  f.setBeforeSend(()=>new Promise(resolve=>{releaseSend=resolve;enterSend();}));
+  const saving=form.handlers.submit({preventDefault(){}});
+  assert.equal(status.textContent,'正在将保存请求写入本地队列…');
+  releaseQueue({status:'QUEUED'});
+  await sending;
+  assert.equal(status.textContent,'正在提交云端并核验保存回执…');
+  releaseSend();
+  await saving;
+  assert.match(status.textContent,/已保存至云端/);
+ }
+});
+
+test('R2-06: refresh still reports reading, queue verification and success in the shared status',async()=>{
+ const f=await mountedCategories();
+ f.get('maternalBowelTab').handlers.click();
+ let releaseRead,enterQueueCheck,releaseQueueCheck;
+ const checking=new Promise(resolve=>{enterQueueCheck=resolve;});
+ f.setRead(()=>new Promise(resolve=>{releaseRead=resolve;}));
+ f.setQueueChecks(()=>new Promise(resolve=>{releaseQueueCheck=resolve;enterQueueCheck();}),
+  async()=>({status:'CONFLICTS_VERIFIED',items:[]}));
+ const refreshing=f.refresh();
+ assert.equal(f.status.textContent,'正在读取云端体重记录…');
+ releaseRead({status:'READ_VERIFIED',revision:6,body:{schemaVersion:1,items:[]}});
+ await checking;
+ assert.equal(f.status.textContent,'正在核验本地保存队列…');
+ releaseQueueCheck({status:'QUEUE_VERIFIED',pending:0,retry:0});
+ assert.equal(await refreshing,'success');
+ assert.match(f.status.textContent,/云端体重记录已刷新/);
  assertCategory(f,'Bowel');
 });
 

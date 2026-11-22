@@ -120,11 +120,8 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
  body[data-formal-family-ready="true"] .tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%}
  body[data-formal-family-ready="true"] .tab{min-height:44px;padding:8px 4px}
 }
-#maternal-health .maternal-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 16px;margin:16px 0 12px}
+#maternal-health .maternal-heading{margin:16px 0 12px}
 #maternal-health .maternal-heading h2{margin:0;font-size:23px}
-#maternal-health .maternal-jumps{display:flex;flex-wrap:wrap;gap:8px}
-#maternal-health .maternal-jumps a{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:#fff;text-decoration:none;font-size:13px;font-weight:700}
-#maternalWeightForm,#maternalConstipationForm{scroll-margin-top:16px}
 #maternal-health .maternal-common{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:16px;margin-bottom:12px}
 #maternal-health .maternal-cloud-actions{min-width:0;border-left:1px solid var(--line);padding-left:16px}
 #maternal-health .maternal-category-tabs{display:flex;gap:4px;width:max-content;max-width:100%;overflow-x:auto;margin-bottom:12px;padding:4px;border-radius:12px;background:#eaeef5}
@@ -515,10 +512,6 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
       <div id="maternalPullFeedback" role="status" aria-live="polite" hidden></div>
       <header class="maternal-heading">
         <h2>妈妈健康</h2>
-        <nav class="maternal-jumps" aria-label="妈妈健康录入">
-          <a href="#maternalWeightForm" data-maternal-entry="weight">记录体重</a>
-          <a href="#maternalConstipationForm" data-maternal-entry="bowel">记录排便</a>
-        </nav>
       </header>
       <div id="maternalCommon" class="card maternal-card maternal-profile maternal-common">
         <div>
@@ -557,7 +550,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
       </div>
       <div id="maternalWeightCategory" role="tabpanel" aria-labelledby="maternalWeightTab">
         <div class="card maternal-card maternal-wide-card">
-          <form id="maternalWeightForm" aria-labelledby="maternalWeightHeading" tabindex="-1" novalidate>
+          <form id="maternalWeightForm" aria-labelledby="maternalWeightHeading" novalidate>
             <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
             <div class="maternal-fields">
               <label class="field">测量日期<input id="maternalWeightDate" type="date" required></label>
@@ -631,7 +624,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
           <p class="maternal-help maternal-bowel-chart-note">3+ 为 3 次及以上，– 为未记录，× 为同日多条，? 为次数未明确。</p>
         </div>
         <div class="maternal-bowel-layout">
-          <form id="maternalConstipationForm" class="card maternal-card" aria-labelledby="maternalConstipationHeading" tabindex="-1" novalidate>
+          <form id="maternalConstipationForm" class="card maternal-card" aria-labelledby="maternalConstipationHeading" novalidate>
             <h3 class="section-title" id="maternalConstipationHeading">每日排便记录</h3>
             <div class="maternal-bowel-fields">
               <label class="field maternal-bowel-date">日期<input id="maternalConstipationDate" type="date" disabled></label>

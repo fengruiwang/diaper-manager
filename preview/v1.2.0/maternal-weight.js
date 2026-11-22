@@ -176,7 +176,7 @@ async function readWithin(work){
  finally{clearTimeout(timer);}
 }
 
-function mountCategories(doc,panel){
+function mountCategories(doc){
  const tablist=doc.getElementById('maternalCategoryTabs');
  if(!tablist)return;
  const tabs=Array.from(tablist.querySelectorAll('[data-maternal-category]'));
@@ -202,17 +202,6 @@ function mountCategories(doc,panel){
    tabs[next].focus();
   });
  });
- for(const shortcut of panel.querySelectorAll('[data-maternal-entry]')){
-  const index=tabs.findIndex(tab=>tab.dataset.maternalCategory===shortcut.dataset.maternalEntry);
-  const target=doc.getElementById(shortcut.getAttribute('href').slice(1));
-  if(index<0||!target)continue;
-  shortcut.addEventListener('click',event=>{
-   event.preventDefault();
-   select(index);
-   target.focus({preventScroll:true});
-   target.scrollIntoView({block:'start'});
-  });
- }
  select(0);
 }
 
@@ -221,7 +210,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  const $=id=>doc.getElementById(id);
  const panel=$('maternal-health'),form=$('maternalWeightForm');
  if(!panel||!form)return;
- mountCategories(doc,panel);
+ mountCategories(doc);
  const date=$('maternalWeightDate'),jin=$('maternalWeightJin');
  const time=$('maternalWeightTime'),note=$('maternalWeightNote');
  const save=$('maternalWeightSave'),cancel=$('maternalWeightCancel');
@@ -533,7 +522,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  }
  async function saveDocument(started,nextBody,{deletedId,profileSave=false,bowelSave}={}){
   const feedback=bowelSave?.feedback||(profileSave?profileStatus:status);
-  feedback.textContent='正在将保存请求写入本地队列…';
+  const showProgress=Boolean(deletedId||profileSave||bowelSave);
+  if(showProgress)feedback.textContent='正在将保存请求写入本地队列…';
   let queued;
   try{queued=await operations.queue({baseline:snapshot,nextBody});}
   catch(_){queued={status:'QUEUE_UNVERIFIED'};}
@@ -546,7 +536,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    pending=true;
   }
   if(queued.status==='QUEUED'){
-   feedback.textContent='正在提交云端并核验保存回执…';
+   if(showProgress)feedback.textContent='正在提交云端并核验保存回执…';
    await send(started,feedback);
   }else{
    if(queued.status==='QUEUE_UNVERIFIED'||queued.status==='PENDING_REQUEST')pending=true;
@@ -585,9 +575,10 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   if(note)fields.note=note.value;
   if(existing&&formatJin(existing.weightKg)===formatJin(fields.weightKg))
    fields.weightKg=existing.weightKg;
-  void run('正在保存体重记录…',async started=>{
+  void run(null,async started=>{
    const nextBody=updateDocument(snapshot.body,{id:editId||host.crypto.randomUUID(),kind:'weight',...fields});
    if(!nextBody){status.textContent=messages.INVALID_INPUT;return;}
+   status.textContent='';
    await saveDocument(started,nextBody);
   });
  });
