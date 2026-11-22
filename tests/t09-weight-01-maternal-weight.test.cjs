@@ -81,8 +81,14 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  const history=get('maternalWeightTable');
  const jin=get('maternalWeightJin');
  const prompts=[],queued=[];
+ const periods=new Map(['day','week','month','all'].map(period=>{
+  const button=element('button');
+  button.dataset.period=period;
+  return [period,button];
+ }));
+ get('maternalWeightPeriods').querySelectorAll=()=>[...periods.values()];
  const handlers={};
- let confirm=true,outcome='COMMITTED',pending=0,sends=0,request;
+ let confirm=true,outcome='COMMITTED',pending=0,sends=0,reads=0,request;
  let scope={app:{},familyId:'synthetic-family',actorUid:'synthetic-actor'};
  let snapshot={status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items,...extensions}};
  if(profile)snapshot.body.maternalProfile=profile;
@@ -97,7 +103,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
   doc,host:{crypto:{randomUUID:()=> 'new-record'}},
   controller:{verifiedContext:()=>scope},cloudWritesEnabled:true,
   refreshBabyDates,
-  clientFactory:{create:()=>({read:context=>read(context)})},
+  clientFactory:{create:()=>({read:context=>{reads++;return read(context);}})},
   operationsFactory:{create:()=>({
    pending:async()=>({status:'QUEUE_VERIFIED',pending,retry:0}),
    conflicts:async()=>({status:'CONFLICTS_VERIFIED',items:[]}),
@@ -120,6 +126,8 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  if(autoRead)await refresh();
  return {get,status,rows,chart,history,jin,prompts,queued,
   get sends(){return sends;},
+  get reads(){return reads;},get revision(){return snapshot.revision;},
+  periods,selectPeriod:period=>periods.get(period).handlers.click(),
   async submit(){
    get('maternalWeightForm').handlers.submit({preventDefault(){}});
    await new Promise(resolve=>setImmediate(resolve));
@@ -161,11 +169,11 @@ test('verified birth date partitions chart and history without writes or loss of
  assert.equal(postpartum.hidden,false);
  assert.equal(postpartum.attributes['aria-pressed'],'true');
  assert.deepEqual(visibleIds(),['later','second']);
- assert.deepEqual(plotted(),['2026-11-21 · 104 斤','2026-11-22 · 101 斤']);
+ assert.deepEqual(plotted(),['2026-11-21 · 104 斤 · 00:05','2026-11-22 · 101 斤']);
  assert.match(f.chart.innerHTML,/孕前参考体重 · 96 斤/);
  pregnancy.handlers.click();
  assert.deepEqual(visibleIds(),['first']);
- assert.deepEqual(plotted(),['2026-11-20 · 103 斤']);
+ assert.deepEqual(plotted(),['2026-11-20 · 103 斤 · 09:30']);
  assert.match(f.chart.innerHTML,/孕前参考体重 · 96 斤/);
  assert.equal(f.rows.children[0].children[3].textContent,'历史备注');
 
@@ -180,6 +188,79 @@ test('verified birth date partitions chart and history without writes or loss of
  f.setBabyDates(null);
  assert.equal(postpartum.hidden,true);
  assert.deepEqual(visibleIds(),['later','second','first']);
+});
+
+test('day, Monday-based week and month take the latest measurement across calendar boundaries',()=>{
+ const item=(id,date,time)=>({...measurement(id,date,50),...(time?{time}:{})});
+ const items=[
+  item('dec29','2024-12-29'),item('dec30','2024-12-30'),item('dec31','2024-12-31'),
+  item('jan1','2025-01-01'),item('jan5-pm','2025-01-05','17:35'),
+  item('jan5-am','2025-01-05','08:00'),item('jan5-legacy','2025-01-05'),
+  item('jan6','2025-01-06'),
+  item('may27','2024-05-27'),item('may31','2024-05-31'),item('jun2','2024-06-02'),
+ ];
+ const records=weight.history({items});
+ const ids=period=>weight.trendRecords(records,period).map(record=>record.id);
+ assert.deepEqual(ids('day'),['jan6','jan5-pm','jan1','dec31','dec30','dec29','jun2','may31','may27']);
+ assert.deepEqual(ids('week'),['jan6','jan5-pm','dec29','jun2']);
+ assert.deepEqual(ids('month'),['jan6','dec31','jun2','may31']);
+ assert.deepEqual(ids('all'),records.map(record=>record.id));
+});
+
+test('period changes only the chart while comparison uses raw records from the selected stage',async()=>{
+ const early={...second,id:'early',time:'08:00',weightKg:51.75};
+ const late={...second,id:'late',time:'18:30',weightKg:52};
+ const f=await mountedWeights([early,first,late,other],{profile:{prePregnancyWeightKg:48}});
+ f.setBabyDates({birthDate:today});
+ const state=()=>['maternalWeightLatest','maternalWeightLatestDate','maternalWeightDelta','maternalWeightPreviousDate']
+  .map(id=>f.get(id).textContent);
+ const points=()=>[...f.chart.innerHTML.matchAll(/<circle cx="([^"]+)"/g)].map(match=>match[1]);
+ const expected=['104 斤','2026-11-21 · 18:30','+0.50 斤','上一条 · 2026-11-21'];
+ assert.equal(f.periods.get('all').attributes['aria-pressed'],'true');
+ assert.deepEqual(state(),expected);
+ assert.equal(new Set(points()).size,2);
+ const rows=[...f.rows.children];
+ for(const period of ['day','week','month','all']){
+  f.selectPeriod(period);
+  assert.equal(f.periods.get(period).attributes['aria-pressed'],'true');
+  assert.equal(points().length,period==='all'?2:1);
+  assert.match(f.chart.innerHTML,/孕前参考体重 · 96 斤/);
+  assert.deepEqual(state(),expected);
+  assert.deepEqual(f.rows.children,rows);
+  assert.equal(f.rows.children[0],rows[0]);
+ }
+ f.selectPeriod('week');
+ f.get('maternalWeightPregnancy').handlers.click();
+ assert.equal(f.periods.get('week').attributes['aria-pressed'],'true');
+ assert.deepEqual(state(),['103 斤','2026-11-20','暂无可比较记录','']);
+ assert.equal(f.get('maternalWeightPreviousDate').hidden,true);
+ assert.equal(points().length,1);
+ assert.equal(f.reads,1);
+ assert.equal(f.revision,5);
+ assert.equal(f.sends,0);
+ assert.deepEqual(f.queued,[]);
+});
+
+test('comparison shows precision, signed losses, zero and empty stages without borrowing records',async()=>{
+ const a={...first,weightKg:51.655};
+ const earlier={...first,id:'earlier',date:'2026-11-19',weightKg:51.805};
+ const f=await mountedWeights([earlier,a,{...second,weightKg:51.5}]);
+ f.setBabyDates({birthDate:today});
+ const delta=f.get('maternalWeightDelta');
+ assert.equal(delta.textContent,'暂无可比较记录');
+ f.get('maternalWeightPregnancy').handlers.click();
+ assert.equal(delta.textContent,'-0.30 斤');
+ assert.equal(f.get('maternalWeightPreviousDate').textContent,'上一条 · 2026-11-19');
+ f.setRead(async()=>({status:'READ_VERIFIED',revision:6,body:{schemaVersion:1,items:[
+  {...earlier,weightKg:a.weightKg},a
+ ]}}));
+ await f.refresh();
+ assert.equal(delta.textContent,'0.00 斤');
+ f.get('maternalWeightPostpartum').handlers.click();
+ assert.match(f.get('maternalWeightLatest').textContent,/暂无.*体重记录/);
+ assert.equal(delta.textContent,'暂无可比较记录');
+ assert.equal(f.chart.textContent,'暂无产后体重记录');
+ assert.equal(f.get('maternalWeightLatestDate').hidden,true);
 });
 
 test('saving, backfilling and deleting in a stage preserves the other stage and health data',async()=>{

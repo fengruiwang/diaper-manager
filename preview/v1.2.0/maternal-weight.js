@@ -53,6 +53,33 @@ function history(body){
   .sort((a,b)=>b.date.localeCompare(a.date)||recordTime(b).localeCompare(recordTime(a)));
 }
 
+function trendRecords(records,period){
+ if(period==='all')return records;
+ const seen=new Set();
+ // History is newest first, so the first record in a period wins.
+ return records.filter(({date})=>{
+  let key=date;
+  if(period==='month')key=date.slice(0,7);
+  else if(period==='week'){
+   // UTC arithmetic here represents calendar days, not local timestamps.
+   const monday=new Date(date+'T00:00:00Z');
+   monday.setUTCDate(monday.getUTCDate()-(monday.getUTCDay()+6)%7);
+   key=monday.getTime();
+  }
+  if(seen.has(key))return false;
+  seen.add(key);
+  return true;
+ });
+}
+
+function weightChange(latest,previous){
+ // Convert to hundredths of a jin and round the difference once.
+ const change=latest.weightKg*200-previous.weightKg*200;
+ const cents=Math.round(Math.abs(change));
+ const sign=cents===0?'':change<0?'-':'+';
+ return sign+(cents/100).toFixed(2)+' 斤';
+}
+
 function updateDocument(body,record){
  const index=body.items.findIndex(item=>item.id===record.id);
  if(index!==-1&&body.items[index].kind!=='weight')return null;
@@ -78,7 +105,7 @@ function chart(records,prePregnancyWeightKg){
  const w=740,h=255,left=56,right=24,top=hasReference?42:22,bottom=39;
  const width=w-left-right,height=h-top-bottom;
  const entries=records.slice().reverse();
- const dates=entries.map(item=>Date.parse(item.date+'T00:00:00Z'));
+ const dates=entries.map(item=>Date.parse(item.date+'T'+(recordTime(item)||'00:00')+':00Z'));
  const span=dates[dates.length-1]-dates[0];
  const values=entries.map(item=>Number(formatJin(item.weightKg)));
  const scaleValues=hasReference?[...values,reference]:values;
@@ -104,10 +131,12 @@ function chart(records,prePregnancyWeightKg){
   +xy.map(point=>point.x.toFixed(2)+','+point.y.toFixed(2)).join(' ')+'"/>':'';
  const points=xy.map((point,i)=>'<circle cx="'+point.x.toFixed(2)+'" cy="'+point.y.toFixed(2)
   +'" r="4.5" fill="#7167da" stroke="white" stroke-width="2"><title>'
-  +point.item.date+' · '+values[i]+' 斤</title></circle>').join('');
- const labels='<text x="'+(span?left:left+width/2)+'" y="'+(h-9)+'" font-size="14" fill="#657189"'
-  +(span?'':' text-anchor="middle"')+'>'+entries[0].date+'</text>'
-  +(span?'<text x="'+(w-right)+'" y="'+(h-9)+'" font-size="14" text-anchor="end" fill="#657189">'
+  +point.item.date+' · '+values[i]+' 斤'+(recordTime(point.item)?' · '+recordTime(point.item):'')
+  +'</title></circle>').join('');
+ const twoDates=entries[0].date!==entries[entries.length-1].date;
+ const labels='<text x="'+(twoDates?left:left+width/2)+'" y="'+(h-9)+'" font-size="14" fill="#657189"'
+  +(twoDates?'':' text-anchor="middle"')+'>'+entries[0].date+'</text>'
+  +(twoDates?'<text x="'+(w-right)+'" y="'+(h-9)+'" font-size="14" text-anchor="end" fill="#657189">'
    +entries[entries.length-1].date+'</text>':'');
  return '<svg class="growth-chart" role="img" aria-label="妈妈体重趋势，单位斤，共'+entries.length
   +'个数据点'+(hasReference?'，'+referenceLabel:'')+'" viewBox="0 0 '+w+' '+h+'">'
@@ -140,6 +169,9 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  const chartNode=$('maternalWeightChart'),empty=$('maternalWeightEmpty');
  const table=$('maternalWeightTable'),rows=$('maternalWeightRows');
  const pregnancyButton=$('maternalWeightPregnancy'),postpartumButton=$('maternalWeightPostpartum');
+ const periodButtons=Array.from($('maternalWeightPeriods')?.querySelectorAll('button[data-period]')||[]);
+ const latestWeight=$('maternalWeightLatest'),latestDate=$('maternalWeightLatestDate');
+ const deltaWeight=$('maternalWeightDelta'),previousDate=$('maternalWeightPreviousDate');
  const profileForm=$('maternalProfileForm'),profileJin=$('maternalProfileJin');
  const profileDue=$('maternalProfileDue'),profileDelivery=$('maternalProfileDelivery');
  const profileStage=$('maternalProfileStage'),profileSave=$('maternalProfileSave'),profileStatus=$('maternalProfileStatus');
@@ -152,7 +184,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  let weightDirty=false;
  let profileDirty=false,profileRequest=null;
  let profileRead='idle';
- let birthDate='',stageView='pregnancy';
+ let birthDate='',stageView='pregnancy',trendPeriod='all';
 
  function canWrite(){
   return Boolean(scope&&current(scope)&&!busy&&canSave&&!pending&&operations&&cloudWritesEnabled);
@@ -213,18 +245,40 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   stageView=stage;
   renderRecords();
  }
+ function stageRecords(){
+  return history(snapshot?.body).filter(item=>!birthDate
+   ||(stageView==='postpartum'?item.date>=birthDate:item.date<birthDate));
+ }
+ function emptyCaption(){
+  if(!snapshot)return '尚未读取体重记录';
+  return birthDate?(stageView==='postpartum'?'暂无产后体重记录':'暂无孕期体重记录'):'暂无体重记录';
+ }
+ function renderTrend(records){
+  for(const button of periodButtons)
+   button.setAttribute('aria-pressed',String(button.dataset.period===trendPeriod));
+  const points=trendRecords(records,trendPeriod);
+  chartNode.classList.toggle('empty',!points.length);
+  if(points.length)chartNode.innerHTML=chart(points,snapshot.body.maternalProfile?.prePregnancyWeightKg);
+  else chartNode.textContent=emptyCaption();
+ }
+ function renderStatistics([latest,previous]){
+  if(!latestWeight)return;
+  latestWeight.textContent=latest?formatJin(latest.weightKg)+' 斤':emptyCaption();
+  latestDate.textContent=latest?[latest.date,recordTime(latest)].filter(Boolean).join(' · '):'';
+  latestDate.hidden=!latest;
+  deltaWeight.textContent=previous?weightChange(latest,previous):'暂无可比较记录';
+  previousDate.textContent=previous?'上一条 · '+previous.date:'';
+  previousDate.hidden=!previous;
+ }
  function renderRecords(){
   pregnancyButton?.setAttribute('aria-pressed',String(stageView==='pregnancy'));
   if(postpartumButton){
    postpartumButton.hidden=!birthDate;
    postpartumButton.setAttribute('aria-pressed',String(stageView==='postpartum'));
   }
-  const records=history(snapshot?.body).filter(item=>!birthDate
-   ||(stageView==='postpartum'?item.date>=birthDate:item.date<birthDate));
-  const caption=!snapshot?'尚未读取体重记录'
-   :birthDate?(stageView==='postpartum'?'暂无产后体重记录':'暂无孕期体重记录'):'暂无体重记录';
+  const records=stageRecords();
   empty.hidden=records.length>0;
-  empty.textContent=caption;
+  empty.textContent=emptyCaption();
   table.hidden=!records.length;
   rows.replaceChildren();
   for(const item of records){
@@ -256,9 +310,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    remove.addEventListener('click',()=>deleteRecord(item));
    td.append(button,remove);tr.append(td);rows.append(tr);
   }
-  chartNode.classList.toggle('empty',!records.length);
-  if(records.length)chartNode.innerHTML=chart(records,snapshot.body.maternalProfile?.prePregnancyWeightKg);
-  else chartNode.textContent=caption;
+  renderStatistics(records);
+  renderTrend(records);
   controls();
  }
  function current(started){return scope===started&&same(started,controller.verifiedContext());}
@@ -435,6 +488,11 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  const refreshCloudRecords=()=>refresh({babyDates:true});
  pregnancyButton?.addEventListener('click',()=>selectStage('pregnancy'));
  postpartumButton?.addEventListener('click',()=>selectStage('postpartum'));
+ for(const button of periodButtons)button.addEventListener('click',()=>{
+  if(trendPeriod===button.dataset.period)return;
+  trendPeriod=button.dataset.period;
+  renderTrend(stageRecords());
+ });
  refreshButton.addEventListener('click',refreshCloudRecords);
  recover.addEventListener('click',()=>run('正在核验原保存请求…',send));
  cancel.addEventListener('click',()=>{resetForm();controls();});
@@ -451,6 +509,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  function setContext(next){
   if(!scope&&!next||same(scope,next))return;
   scope=next;snapshot=null;canSave=busy=pending=false;conflict=null;
+  trendPeriod='all';
   setBabyDates(null);
   deletionRequest=null;
   profileRead='idle';
@@ -465,7 +524,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   canPullRefresh:()=>Boolean(scope&&current(scope)&&!busy&&!editId&&!weightDirty&&!profileDirty)};
 }
 
-const api={mount,localDate,formatJin,weightInput,profileInput,maternalStage,history,updateDocument,deleteDocument,chart};
+const api={mount,localDate,formatJin,weightInput,profileInput,maternalStage,history,trendRecords,updateDocument,deleteDocument,chart};
 if(root)root.XBMaternalWeight=api;
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
