@@ -1,0 +1,2 @@
+# Keep the candidate byte-identical to its generated output on every checkout.
+release-candidate/pages-v1.3.0-rc1/** -text

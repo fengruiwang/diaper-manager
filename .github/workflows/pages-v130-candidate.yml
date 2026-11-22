@@ -1,0 +1,36 @@
+name: XiaoBao V1.3.0 RC1 candidate (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/v1.3.0
+    paths:
+      - 'release-candidate/pages-v1.3.0-rc1/**'
+      - 'scripts/build-pages-v130-candidate.cjs'
+      - 'tests/pages-v130-candidate.test.cjs'
+      - '.github/workflows/pages-v130-candidate.yml'
+      - '.gitattributes'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate:
+    if: github.ref == 'refs/heads/feature/v1.3.0'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify fixed-source candidate
+        run: node scripts/build-pages-v130-candidate.cjs --check
+      - name: Run candidate tests
+        run: node --test tests/pages-v130-candidate.test.cjs
+      - name: Archive verified candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: XiaoBao-V1.3.0-RC1-NO-DEPLOY
+          path: release-candidate/pages-v1.3.0-rc1/
+          include-hidden-files: true
+          if-no-files-found: error
