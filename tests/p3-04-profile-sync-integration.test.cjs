@@ -22,9 +22,20 @@ const fullEdit={dueDate:'2027-01-08',birthDate:'2026-10-20',
 const clone=value=>JSON.parse(JSON.stringify(value));
 const html=fs.readFileSync(path.join(__dirname,
  '../preview/v1.2.0/formal/index.html'),'utf8');
-function readOriginalProfileForm(overrides={}){
- const begin=html.indexOf('function formalDocumentAction(el){');
- const end=html.indexOf('\nwindow.XBFormalUIData=',begin);
+const preview=fs.readFileSync(path.join(__dirname,'../preview/v1.3.0/formal/index.html'),'utf8');
+const previewController=fs.readFileSync(path.join(__dirname,'../preview/v1.3.0/formal-controller.js'),'utf8');
+function previewModule(name){
+ const scripts=Array.from(preview.matchAll(/<script>([\s\S]*?)<\/script>/g),match=>match[1]);
+ const module={exports:{}};
+ vm.runInNewContext(scripts.find(script=>script.includes('root.'+name+'=api')),{module});
+ return module.exports;
+}
+const secureProfileUuid=vm.runInNewContext(
+ previewController.match(/function uuidFromRandomValues[\s\S]*?(?=function maternalBrowserHost)/)[0]
+  +'\nsecureProfileUuid');
+function readOriginalProfileForm(overrides={},page=html){
+ const begin=page.indexOf('function formalDocumentAction(el){');
+ const end=page.indexOf('\nwindow.XBFormalUIData=',begin);
  assert.ok(begin>0&&end>begin,'original formal editor must exist');
  const fields={
   dueDate:'2027-01-08',birthDate:'2026-10-20',
@@ -36,13 +47,15 @@ function readOriginalProfileForm(overrides={}){
  // Run the actual HTML function, including its regex and XBGrowth
  // validation. Never reimplement the validation in the test fixture.
  const output=vm.runInNewContext(
-  html.slice(begin,end)+'\nformalDocumentAction({id:"saveProfile",dataset:{}})',
+  page.slice(begin,end)+'\nformalDocumentAction({id:"saveProfile",dataset:{}})',
   {$:box,XBGrowth:Growth,localDate:()=> '2026-11-14'}
  );
  return output===null?null:clone(output);
 }
-function fixture({enabled=true,ackLost=false,unknownReceipt=0}={}){
+function fixture({enabled=true,ackLost=false,unknownReceipt=0,browserCrypto,previewSave=false,failQueue=false}={}){
  let revision=0,uuidCalls=0,putCalls=0,edited=clone(fullEdit);
+ let onNotify;
+ if(previewSave)edited=readOriginalProfileForm({},preview).record;
  let body=clone(oldProfile);
  const growth={items:[
   {id:'legacy-weight',date:'2026-11-12',time:'09:10',
@@ -112,8 +125,14 @@ function fixture({enabled=true,ackLost=false,unknownReceipt=0}={}){
   });
  }
  const documentClient=client('dad');
+ if(previewSave){
+  documentClient.acceptVerifiedPrimary({status:'PRIMARY_READ_ONLY_READY',
+   source:'cloudbase-primary-receipt-verified',canWrite:false,...scope,childId:C});
+  shown={...shown,status:'PRIMARY_DOCUMENT_READ_VERIFIED'};
+ }
  const store={
   async enqueue(op){
+   if(failQueue)throw Error('synthetic IndexedDB write error');
    assert.equal(op.type,'profile.patch');
    assert.equal(queued.has(op.id),false,'request UUID must be unique');
    queued.set(op.id,{...op});return{duplicate:false};
@@ -143,23 +162,31 @@ function fixture({enabled=true,ackLost=false,unknownReceipt=0}={}){
    outboxFactory:{create:()=>store},
    contract:require('../sync/outbox-contract.js'),
    cloudWritesEnabled:enabled,referenceAndQuotes:true,
-   allowGrowth:true,allowProfile:true
+   allowGrowth:true,allowProfile:true,fastProfileEnabled:previewSave
   });
  }
  const queue=makeQueue();
- const business=Business.create({client:documentClient,queue,
-  uuid:()=>UUIDS[uuidCalls++]||'unexpected-request'});
- const actions=Actions.create({
+ const commandsApi=previewSave?previewModule('XBPrimaryDocumentsBusinessCommands'):Business;
+ const actionsApi=previewSave?previewModule('XBPrimaryFormalUIActions'):Actions;
+ const business=commandsApi.create({client:documentClient,queue,
+  uuid:()=>{const index=uuidCalls++;return previewSave?secureProfileUuid(browserCrypto):UUIDS[index]||'unexpected-request';}});
+ const actions=actionsApi.create({
   commands:{submit:async(action,value)=>{
    primaryCommands.push({action,value});return{status:'UNEXPECTED_PRIMARY_WRITE'};}},
   primary:{read:async()=>{throw Error('inventory read forbidden for profile');}},
-  notify:()=>{},formalModeSelected:()=>true,
+  notify:answer=>onNotify?.(answer),formalModeSelected:()=>true,
   buildAllowsWrites:enabled,operatorApproved:()=>enabled,
   purchaseOnly:true,allowReference:true,allowQuotes:true,
   allowGrowth:true,allowProfile:true,
   documentCommands:business,documentQueue:queue,
   readProfileBaseline:()=>shown,
   readDocumentInput:()=>({kind:'profile',action:'patch',record:edited}),
+  onProfileAck:previewSave?async ack=>{
+   assert.equal(ack.revision,revision);
+   shown={...shown,revision:ack.revision,body:clone(ack.nextBody)};
+   rendered={...rendered,...clone(shown.body)};
+   return 'ready';
+  }:undefined,
   onProfileReadback:async({requestId,record,expectedRevision})=>{
    const receipt=await queue.checkSavedRequest(requestId);
    if(receipt.status!=='REQUEST_ACK_RECOVERED')return 'pending';
@@ -181,9 +208,25 @@ function fixture({enabled=true,ackLost=false,unknownReceipt=0}={}){
   readPurchase:()=>null,readQuote:()=>null,readTransaction:()=>null
  });
  const click=()=>actions.handle({id:'saveProfile',dataset:{}},{getElementById:()=>null});
+ async function clickPreview(){
+  let clickHandler;
+  const button={id:'saveProfile',dataset:{},textContent:'保存宝宝基本资料',
+   closest(){return this;},classList:{contains:()=>false}};
+  const feedback={textContent:''};
+  const binding=actions.attach({
+   addEventListener(type,callback){if(type==='click')clickHandler=callback;},
+   removeEventListener(){},
+   getElementById:id=>({saveProfile:button,profileActionFeedback:feedback})[id]||null,
+  });
+  try{
+   const result=new Promise(resolve=>{onNotify=resolve;});
+   clickHandler({target:button,preventDefault(){},stopImmediatePropagation(){}});
+   return {answer:await result,feedback:feedback.textContent,disabled:button.disabled};
+  }finally{binding.detach();onNotify=null;}
+ }
  const readAs=actor=>client(actor).read({familyId:F,actorUid:actor,
   kind:'profile',readEnabled:true});
- return {click,readAs,queue,business,makeQueue,actions,queued,receipts,rpc,
+ return {click,clickPreview,readAs,queue,business,makeQueue,actions,queued,receipts,rpc,
   inventory,purchases,audit,reference,growth,quotes,settings,primaryCommands,
   get body(){return body;},get rendered(){return rendered;},
   get shown(){return shown;},get revision(){return revision;},
@@ -194,6 +237,65 @@ function fixture({enabled=true,ackLost=false,unknownReceipt=0}={}){
    JSON.stringify({growth,quotes,reference,settings,inventory,purchases,audit}),before)
  };
 }
+test('V1.3.0 profile uses native UUID first and safely handles missing or malformed native output',()=>{
+ const native={randomUUID(){assert.equal(this,native);return UUIDS[0];},
+  getRandomValues:()=>assert.fail('native UUID must take precedence')};
+ assert.equal(secureProfileUuid(native),UUIDS[0]);
+ for(const crypto of [{},{randomUUID:()=> 'not-a-uuid'},
+  {randomUUID(){throw Error('synthetic native error');}}]){
+  crypto.getRandomValues=bytes=>bytes.fill(255);
+  assert.equal(secureProfileUuid(crypto),'ffffffff-ffff-4fff-bfff-ffffffffffff');
+ }
+ assert.throws(()=>secureProfileUuid(undefined),/PROFILE_REQUEST_ID_UNAVAILABLE/);
+ assert.throws(()=>secureProfileUuid({getRandomValues(){throw Error('synthetic');}}),/PROFILE_REQUEST_ID_UNAVAILABLE/);
+});
+
+test('V1.3.0 browser profile click queues, commits and applies verified ACK with native and legacy Web Crypto',async()=>{
+ const sources=[
+  [{randomUUID:()=>UUIDS[0]},UUIDS[0]],
+  [{getRandomValues:bytes=>bytes.fill(0xab)},'abababab-abab-4bab-abab-abababababab'],
+ ];
+ for(const [browserCrypto,id] of sources){
+  const f=fixture({previewSave:true,browserCrypto});
+  const {answer,feedback}=await f.clickPreview();
+  assert.equal(answer.status,'PROFILE_CLOUD_ACK_APPLIED');
+  assert.equal(answer.requestId,id);
+  assert.equal(f.uuidCalls,1);
+  assert.equal(f.putCount,1);
+  assert.equal(f.queued.get(id).expectedRevision,0);
+  assert.equal(f.queued.get(id).status,'acked');
+  assert.equal(f.rendered.babyProfile.name,'小宝');
+  assert.equal(feedback,'宝宝资料已保存');
+  f.unchanged();
+ }
+});
+
+test('V1.3.0 profile distinguishes safe UUID, durable queue and cloud ACK failures',async()=>{
+ const unavailable=fixture({previewSave:true,browserCrypto:{}});
+ const idFailure=await unavailable.clickPreview();
+ assert.equal(idFailure.answer.status,'PROFILE_REQUEST_ID_UNAVAILABLE');
+ assert.equal(idFailure.answer.requestId,undefined);
+ assert.match(idFailure.feedback,/无法生成安全请求编号.*未提交/);
+ assert.equal(idFailure.disabled,false);
+ assert.equal(unavailable.queued.size,0);
+ assert.equal(unavailable.rpc.length,0);
+
+ const browserCrypto={getRandomValues:bytes=>bytes.fill(42)};
+ const queueFailure=fixture({previewSave:true,browserCrypto,failQueue:true});
+ const local=await queueFailure.clickPreview();
+ assert.equal(local.answer.status,'DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID');
+ assert.match(local.feedback,/本机保存队列.*原请求编号已保留/);
+ assert.equal(queueFailure.putCount,0);
+ assert.equal(queueFailure.queued.size,0);
+
+ const cloudFailure=fixture({previewSave:true,browserCrypto,ackLost:true,unknownReceipt:5});
+ const uncertain=await cloudFailure.clickPreview();
+ assert.match(uncertain.feedback,/保存结果待核验.*原请求编号已保留.*勿重复提交/);
+ assert.equal(cloudFailure.putCount,1);
+ assert.equal(cloudFailure.queued.has(uncertain.answer.requestId),true);
+ assert.equal(uncertain.disabled,true);
+});
+
 test('P3-04 saves all original profile fields through one durable CAS request; A/B reads match',async()=>{
  const f=fixture();
  const r=await f.click();

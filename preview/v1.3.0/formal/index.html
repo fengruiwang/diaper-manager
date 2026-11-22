@@ -5251,7 +5251,7 @@ restoreActiveTab();
    queued:'正在保存宝宝资料…',
    submitting:'正在保存宝宝资料…',
    readback:'正在保存宝宝资料…',
-   pending:'宝宝资料保存结果待核验，请勿重复提交'
+   pending:'宝宝资料保存结果待核验，原请求编号已保留，请勿重复提交。'
   });
   const SETTINGS_STAGES=Object.freeze({
    checking:'正在保存设置…',queued:'正在保存设置…',
@@ -5283,6 +5283,9 @@ restoreActiveTab();
     if(feedback){
      const status=String(answer?.status||'');
      feedback.textContent=phase==='success'?'宝宝资料已保存'
+      :status==='PROFILE_REQUEST_ID_UNAVAILABLE'?'无法生成安全请求编号，本次未提交。'
+      :status==='DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID'
+       ?'本机保存队列写入未获确认，原请求编号已保留，请核验待确认操作，勿重复保存。'
       :phase==='working'||Object.prototype.hasOwnProperty.call(PROFILE_STAGES,phase)
        ?PROFILE_STAGES[phase]
       :phase==='idle'?'原宝宝资料请求已核验，可以继续操作。'
@@ -7299,7 +7302,12 @@ function create({client,queue,uuid,isOnline=()=>true}={}){
    if(expectedRevision!==null&&read.revision!==expectedRevision)
     return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
    const body=transform(kind,action,read.body,record);
-   const requestId=uuid();
+   let requestId;
+   try{requestId=uuid(kind);}
+   catch(error){
+    if(kind==='profile')return reply('PROFILE_REQUEST_ID_UNAVAILABLE');
+    throw error;
+   }
    const saved=await queue.queue({kind,nextBody:body,
     expectedRevision:read.revision,requestId,operatorApproved:true,
     action,verifiedBaseline:fastKind

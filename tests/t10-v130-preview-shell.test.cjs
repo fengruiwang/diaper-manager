@@ -69,7 +69,7 @@ test('V1.3.0 loads existing sync and weight scripts before its write-enabled for
   }
   const controller = read(files.at(-1).slice(1));
   assert.match(controller, /XBMaternalWeight\.mount\(\{[\s\S]*?clientFactory:root\.XBMaternalHealthClient,operationsFactory:root\.XBMaternalHealthOperations,\s*cloudWritesEnabled:true/);
-  const browserHost = controller.match(/function maternalBrowserHost[\s\S]*?(?=function browserStart)/)[0];
+  const browserHost = controller.match(/function uuidFromRandomValues[\s\S]*?(?=function browserStart)/)[0];
   const withUuid = vm.runInNewContext(browserHost + 'maternalBrowserHost');
   const oldChrome = { crypto: { getRandomValues: bytes => bytes.fill(0xab) } };
   assert.equal(withUuid(oldChrome).crypto.randomUUID(), 'abababab-abab-4bab-abab-abababababab');
@@ -91,7 +91,11 @@ test('V1.3.0 keeps the original inline logic outside the navigation and maternal
     .replace(/\$\('maternalHealthBack'\)\.addEventListener[\s\S]*?\n\}\);\n/, '')
     .replace(/^ openMaternalHealth:[\s\S]*?(?=^ show:projection)/m, '')
     .replace("||doc.getElementById('maternal-health')?.contains?.(el)", '')
-    .replace("||doc.getElementById('maternal-health')?.contains?.(event.target)", '');
+    .replace("||doc.getElementById('maternal-health')?.contains?.(event.target)", '')
+    .replace(/   let requestId;\n   try\{requestId=uuid\(kind\);\}[\s\S]*?(?=   const saved=await queue.queue)/,
+      '   const requestId=uuid();\n')
+    .replace(/      :status==='PROFILE_REQUEST_ID_UNAVAILABLE'[^\n]*\n      :status==='DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID'\n       \?[^\n]*\n/, '')
+    .replace('宝宝资料保存结果待核验，原请求编号已保留，请勿重复提交。', '宝宝资料保存结果待核验，请勿重复提交');
   assert.deepEqual(current.map(withoutIntegration), scripts.map(withoutIntegration));
   for (const script of current) assert.doesNotThrow(() => new vm.Script(script));
   for (const file of ['index.html', 'formal-controller.js', 'm1-controller.js', 'pwa.js', 'sw.js', 'manifest.webmanifest', 'version.json']) {
