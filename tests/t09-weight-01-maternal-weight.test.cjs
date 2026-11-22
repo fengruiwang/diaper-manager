@@ -54,7 +54,7 @@ test('deletion removes only the matching weight ID and preserves the immutable s
 });
 
 async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead=true,
- refreshBabyDates,constipationFactory}={}){
+ refreshBabyDates,constipationFactory,reopenedRequest=null}={}){
  const nodes=new Map();
  function element(tag){
   return {
@@ -81,7 +81,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  const chart=get('maternalWeightChart');
  const history=get('maternalWeightTable');
  const jin=get('maternalWeightJin');
- const prompts=[],queued=[];
+ const prompts=[],queued=[],sentIds=[];
  const periods=new Map(['day','week','month','all'].map(period=>{
   const button=element('button');
   button.dataset.period=period;
@@ -89,7 +89,8 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  }));
  get('maternalWeightPeriods').querySelectorAll=()=>[...periods.values()];
  const handlers={};
- let confirm=true,outcome='COMMITTED',pending=0,sends=0,reads=0,request,storageReady=true;
+ let confirm=true,outcome='COMMITTED',pending=Number(Boolean(reopenedRequest)),sends=0,reads=0;
+ let request=reopenedRequest,storageReady=true;
  let readPending=async()=>storageReady?{status:'QUEUE_VERIFIED',pending,retry:0}:{status:'QUEUE_UNVERIFIED'};
  let readConflicts=async()=>({status:'CONFLICTS_VERIFIED',items:[]});
  let enqueue=async()=>({status:'QUEUED'});
@@ -123,6 +124,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
    },
    send:async()=>{
     sends++;
+    sentIds.push(request?.requestId);
     if(['UNKNOWN','UNAVAILABLE','COMMITTED_QUEUE_UNVERIFIED'].includes(outcome))return {status:outcome,requestId:request?.requestId};
     pending=0;
     if(outcome==='REVISION_CONFLICT')return {status:outcome,requestId:request.requestId};
@@ -134,7 +136,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  panel.setContext(scope);
  const refresh=()=>get('maternalWeightRefresh').handlers.click();
  if(autoRead)await refresh();
- return {get,status,rows,chart,history,jin,prompts,queued,
+ return {get,status,rows,chart,history,jin,prompts,queued,sentIds,
   get sends(){return sends;},
   get reads(){return reads;},get revision(){return snapshot.revision;},
   periods,selectPeriod:period=>periods.get(period).handlers.click(),
@@ -235,6 +237,50 @@ test('a stalled maternal read releases the disabled state for a fresh verified r
 const queueClear=()=>({status:'QUEUE_VERIFIED',pending:0,retry:0});
 const conflictsClear=()=>({status:'CONFLICTS_VERIFIED',items:[]});
 const nextTurn=()=>new Promise(resolve=>setImmediate(resolve));
+
+const savedRequest={requestId:'persisted-original',nextBody:{schemaVersion:1,items:[first]}};
+for(const cloudRead of ['failure','timeout']){
+ test('reopened page verifies the original request after cloud read '+cloudRead,async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const {mount}=require('../preview/v1.3.0/maternal-constipation.js');
+  const f=await mountedWeights([],{autoRead:false,constipationFactory:mount,reopenedRequest:savedRequest});
+  f.setRead(cloudRead==='failure'?async()=>({status:'UNKNOWN'}):()=>new Promise(()=>{}));
+  const recover=f.get('maternalWeightRecover');
+  assert.equal(recover.hidden,true);
+  const refreshing=f.open();
+  if(cloudRead==='timeout')t.mock.timers.tick(12000);
+  assert.equal(await refreshing,'failure');
+  assert.match(f.status.textContent,/云端读取失败.*请先核验原请求/);
+  assert.equal(recover.hidden,false);
+  assert.equal(recover.disabled,false);
+  for(const id of ['maternalWeightSave','maternalProfileSave','maternalConstipationSave'])
+   assert.equal(f.get(id).disabled,true);
+  assert.equal(f.sends,0);
+  await recover.handlers.click();
+  assert.deepEqual(f.sentIds,[savedRequest.requestId]);
+  assert.deepEqual(f.queued,[]);
+  assert.equal(recover.hidden,true);
+  assert.equal(f.get('maternalWeightSave').disabled,false);
+ });
+}
+
+test('failure in both cloud and queue reads hides any stale recovery status and reports both reasons',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const f=await mountedWeights([],{reopenedRequest:savedRequest});
+ const recover=f.get('maternalWeightRecover');
+ assert.equal(recover.hidden,false);
+ f.setRead(async()=>({status:'UNKNOWN'}));
+ f.setQueueChecks(()=>new Promise(()=>{}),conflictsClear);
+ const refreshing=f.refresh();
+ await nextTurn();
+ t.mock.timers.tick(12000);
+ assert.equal(await refreshing,'failure');
+ assert.match(f.status.textContent,/云端读取失败.*本地保存队列核验超时/);
+ assert.equal(recover.hidden,true);
+ assert.equal(recover.disabled,true);
+ await recover.handlers.click();
+ assert.equal(f.sends,0);
+});
 
 for(const stalled of ['pending','conflicts','both']){
  test('local '+stalled+' read times out, and late responses cannot replace a verified retry',async t=>{

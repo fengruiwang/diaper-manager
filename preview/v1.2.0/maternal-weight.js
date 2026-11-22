@@ -229,6 +229,11 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    &&!pending&&operations&&cloudWritesEnabled);
  }
 
+ function canRecover(){
+  return Boolean(scope&&current(scope)&&!busy&&queueState==='verified'
+   &&pending&&operations&&cloudWritesEnabled);
+ }
+
  function controls(){
   const disabled=busy||!scope;
   const canWriteNow=canWrite();
@@ -241,8 +246,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   if(time)time.disabled=disabled;
   if(note)note.disabled=disabled;
   cancel.hidden=!editId;
-  recover.hidden=!pending;
-  recover.disabled=disabled;
+  recover.hidden=queueState!=='verified'||!pending;
+  recover.disabled=!canRecover();
   archive.hidden=queueState!=='verified'||!conflict||!canSave||!(snapshot.revision>conflict.expectedRevision);
   archive.disabled=disabled;
   for(const button of rows.querySelectorAll('button'))
@@ -419,21 +424,22 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
      ?'云端刷新失败，当前显示上次读取的数据。请点击「刷新云端记录」重试。'
      :'暂时无法读取妈妈健康档案，请点击「刷新云端记录」重试。';
    }
-   if(canSave)await review(started,{refreshing:true});
+   await review(started,{refreshing:true});
    const datesResult=await datesRead;
    if(!current(started))return;
-   const queueIssue=canSave?queueMessages[queueState]:'';
+   const queueIssue=queueMessages[queueState];
    const healthReady=canSave&&!queueIssue;
    const unavailable=['UNAVAILABLE','PERMISSION_DENIED'].includes(result?.status)?messages[result.status]+' ':'';
    const healthMessage=!canSave
-    ?unavailable+'云端读取失败，请重新刷新。'
+    ?unavailable+'云端读取失败，请重新刷新。'+(queueIssue?' '+queueIssue
+     :pending?' '+messages.PENDING_REQUEST:'')
     :queueIssue?'妈妈健康档案已读取。'+queueIssue
     :pending?messages.PENDING_REQUEST
     :conflict?'云端已刷新。核对并重新编辑后可保存，也可明确放弃旧冲突请求。'
     :'云端体重记录已刷新。'+(cloudWritesEnabled?'妈妈健康档案已读取，可以操作。':'');
    const datesMessage=datesResult===false?'宝宝日期刷新失败，保留上次已验证的日期。请重试。'
     :datesResult===true?'宝宝日期已刷新。':'';
-   const partialRefresh=Boolean(queueIssue)||(typeof datesResult==='boolean'&&healthReady!==datesResult);
+   const partialRefresh=Boolean(canSave&&queueIssue)||(typeof datesResult==='boolean'&&healthReady!==datesResult);
    status.textContent=(partialRefresh?'部分刷新。':'')+healthMessage+(datesMessage?' '+datesMessage:'');
    return partialRefresh?'partial':healthReady?'success':'failure';
   },status,'reading');
@@ -573,7 +579,9 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   renderTrend(stageRecords());
  });
  refreshButton.addEventListener('click',refreshCloudRecords);
- recover.addEventListener('click',()=>run('正在核验原保存请求…',send));
+ recover.addEventListener('click',()=>{
+  if(canRecover())return run('正在核验原保存请求…',send);
+ });
  cancel.addEventListener('click',()=>{resetForm();controls();});
  archive.addEventListener('click',()=>run('正在核验旧冲突请求…',async started=>{
   const result=await operations.abandonConflict({requestId:conflict.requestId,
