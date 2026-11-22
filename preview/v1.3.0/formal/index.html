@@ -120,20 +120,73 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
  body[data-formal-family-ready="true"] .tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%}
  body[data-formal-family-ready="true"] .tab{min-height:44px;padding:8px 4px}
 }
-#maternal-health .weight-card{margin-bottom:16px}
-#maternal-health .weight-actions{display:flex;flex-wrap:wrap;gap:8px}
-#maternal-health .weight-feedback{margin:12px 0;color:var(--muted)}
-#maternalWeightNote{min-width:0;width:100%;resize:vertical;font:inherit;color:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+#maternal-health .maternal-heading{margin:22px 0 14px}
+#maternal-health .maternal-heading h2{margin:0;font-size:23px}
+#maternal-health .maternal-columns{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);gap:16px;margin-bottom:16px}
+#maternal-health .maternal-card{min-width:0;padding:20px}
+#maternal-health .maternal-wide-card{margin-bottom:16px}
+#maternal-health .maternal-card h3{font-size:16px;margin:0 0 16px}
+#maternal-health .maternal-profile{background:#fbfaff}
+#maternal-health .maternal-stage{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin:0 0 14px;color:var(--muted);font-size:13px}
+#maternalProfileStage{padding:4px 10px;border-radius:999px;background:var(--soft);color:var(--deep);font-size:13px}
+#maternal-health .maternal-dates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}
+#maternal-health .maternal-dates div{padding:10px 12px;border-radius:12px;background:#fff;min-width:0}
+#maternal-health .maternal-dates dt{color:var(--muted);font-size:12px}
+#maternal-health .maternal-dates dd{margin:5px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:break-word}
+#maternal-health .maternal-note{margin:10px 0 16px;color:var(--muted)}
+#maternal-health .maternal-profile-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}
+#maternal-health .maternal-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+#maternal-health .maternal-field-wide{grid-column:1/-1}
+#maternal-health .maternal-card .field{min-width:0;font-size:13px;font-weight:650;color:var(--text)}
+#maternal-health .maternal-card input,#maternalWeightNote{min-width:0;width:100%;min-height:44px;background:#fff}
+#maternal-health .maternal-measure{position:relative;display:block;min-width:0}
+#maternal-health .maternal-measure input{padding-right:40px}
+#maternal-health .maternal-unit{position:absolute;top:50%;right:12px;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+#maternalWeightNote{resize:vertical;font:inherit;font-weight:400;color:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+#maternal-health .maternal-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px}
+#maternal-health .maternal-status{margin:12px 0 0;padding:9px 11px;border-radius:9px;background:#f3f1fc;color:#4f4a71;font-size:13px}
+#maternal-health .maternal-status:empty{display:none}
+#maternal-health .maternal-card .btn{min-height:40px}
+#maternalWeightChart .growth-chart{width:100%;height:auto;max-width:100%;max-height:none;display:block}
+#maternalWeightTable{overflow:visible}
 #maternalWeightTable .tbl{white-space:normal;table-layout:fixed}
-#maternalWeightTable th:nth-child(1),#maternalWeightTable th:nth-child(5){width:22%}
-#maternalWeightTable th:nth-child(2),#maternalWeightTable th:nth-child(3){width:15%}
+#maternalWeightTable th:nth-child(1){width:18%}
+#maternalWeightTable th:nth-child(2),#maternalWeightTable th:nth-child(3){width:12%}
+#maternalWeightTable th:nth-child(5){width:23%}
 #maternalWeightTable td{overflow-wrap:break-word}
 #maternalWeightTable td:nth-child(4){white-space:pre-wrap;overflow-wrap:anywhere}
+#maternalWeightTable td:last-child .btn{margin:3px 5px 3px 0}
+#maternalWeightTable [data-delete-weight]{color:var(--red)}
+@media(min-width:940px){
+ #maternal-health .maternal-fields{grid-template-columns:repeat(3,minmax(0,1fr))}
+ #maternal-health .maternal-weight-field{grid-column:auto}
+}
+@media(max-width:840px){
+ #maternal-health .maternal-columns{grid-template-columns:minmax(0,1fr);gap:12px;margin-bottom:12px}
+ #maternal-health .maternal-wide-card{margin-bottom:12px}
+}
 @media(max-width:600px){
- #maternalWeightTable th,#maternalWeightTable td{padding:8px 2px}
- #maternalWeightTable th:nth-child(1){width:28%}
- #maternalWeightTable th:nth-child(5){width:18%}
- #maternalWeightTable .btn{display:block;margin:2px 0;padding:5px 3px;max-width:100%;white-space:normal}
+ #maternal-health .maternal-card{padding:16px}
+ #maternal-health .maternal-card .btn{min-height:44px}
+ #maternal-health .maternal-primary-actions{flex-wrap:nowrap}
+ #maternalWeightSave{flex:1 1 auto}
+ #maternalWeightChart svg{overflow:visible}
+ #maternalWeightChart svg text{font-size:21px;font-weight:600}
+ #maternalWeightChart svg text[font-size="14"]{font-size:25px}
+ #maternalWeightTable .tbl,#maternalWeightTable tbody{display:block}
+ #maternalWeightTable thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+ #maternalWeightTable tbody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);gap:4px 12px;
+  padding:12px;margin-bottom:8px;background:#f8f9fc;border-radius:12px}
+ #maternalWeightTable tbody tr:last-child{margin-bottom:0}
+ #maternalWeightTable td{min-width:0;padding:0;border:0}
+ #maternalWeightTable td:nth-child(1){grid-column:1;grid-row:1;font-size:14px;font-weight:750}
+ #maternalWeightTable td:nth-child(2){grid-column:1;grid-row:2;color:var(--muted)}
+ #maternalWeightTable td:nth-child(3){grid-column:2;grid-row:1/3;align-self:center;font-size:18px;font-weight:800;color:var(--deep)}
+ #maternalWeightTable td:nth-child(3)::after{content:" 斤";font-size:12px;font-weight:650}
+ #maternalWeightTable td:nth-child(4){grid-column:1/-1;margin-top:4px;color:var(--muted)}
+ #maternalWeightTable td:nth-child(4):empty{display:none}
+ #maternalWeightTable td:last-child{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:6px}
+ #maternalWeightTable td:last-child .btn{margin:0;background:#fff}
 }
 /* Android Chrome/Edge/PWA: prefer the in-app top pull to browser reload.
    Native desktop scrolling and editing containers are unaffected. */
@@ -394,54 +447,60 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
     </section>
     <section class="panel" id="maternal-health" role="tabpanel" aria-labelledby="tabMaternalHealth">
       <div id="maternalPullFeedback" role="status" aria-live="polite" hidden></div>
-      <div class="head"><h2>妈妈健康</h2></div>
-      <div class="card weight-card">
-        <h3 class="section-title">妈妈健康档案</h3>
-        <p>当前阶段：<strong id="maternalProfileStage" aria-live="polite">未关联宝宝资料</strong></p>
-        <div class="form-grid">
-          <div class="field"><span>预产期</span><strong id="maternalProfileDue">未填写</strong></div>
-          <div class="field"><span>实际分娩日期</span><strong id="maternalProfileDelivery">未填写</strong></div>
+      <header class="maternal-heading"><h2>妈妈健康</h2></header>
+      <div class="maternal-columns">
+        <div class="card maternal-card maternal-profile">
+          <h3 class="section-title">妈妈健康档案</h3>
+          <p class="maternal-stage"><span>当前阶段</span><strong id="maternalProfileStage" aria-live="polite">未关联宝宝资料</strong></p>
+          <dl class="maternal-dates">
+            <div><dt>预产期</dt><dd><strong id="maternalProfileDue">未填写</strong></dd></div>
+            <div><dt>实际分娩日期</dt><dd><strong id="maternalProfileDelivery">未填写</strong></dd></div>
+          </dl>
+          <p class="fine maternal-note">日期在「个性设置 → 宝宝基本资料」中维护。</p>
+          <form id="maternalProfileForm" class="maternal-profile-form" novalidate>
+            <label class="field">孕前体重<span class="maternal-measure">
+              <input id="maternalProfileJin" type="number" inputmode="decimal" step="0.01" min="0.01" aria-label="孕前体重（斤）" disabled>
+              <span class="maternal-unit" aria-hidden="true">斤</span>
+            </span></label>
+            <button id="maternalProfileSave" class="btn secondary" type="submit" disabled>保存档案</button>
+          </form>
+          <p class="maternal-status" id="maternalProfileStatus" role="status" aria-live="polite">尚未读取妈妈健康档案。</p>
         </div>
-        <p class="fine">日期统一在「个性设置 → 宝宝基本资料」中维护，妈妈健康仅引用。</p>
-        <form id="maternalProfileForm" novalidate>
-          <div class="form-grid">
-            <label class="field">孕前体重（斤）<input id="maternalProfileJin" type="number" inputmode="decimal" step="0.01" min="0.01" disabled></label>
+        <div class="card maternal-card">
+          <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
+          <form id="maternalWeightForm" novalidate>
+            <div class="maternal-fields">
+              <label class="field">测量日期<input id="maternalWeightDate" type="date" required></label>
+              <label class="field">测量时间<input id="maternalWeightTime" type="time" step="60"></label>
+              <label class="field maternal-field-wide maternal-weight-field">体重<span class="maternal-measure">
+                <input id="maternalWeightJin" type="number" inputmode="decimal" step="0.01" min="0.01" aria-label="体重（斤）" required>
+                <span class="maternal-unit" aria-hidden="true">斤</span>
+              </span></label>
+              <label class="field maternal-field-wide">备注（可选）<textarea id="maternalWeightNote" rows="2"></textarea></label>
+            </div>
+            <div class="maternal-actions maternal-primary-actions">
+              <button id="maternalWeightSave" class="btn" type="submit" disabled>保存体重记录</button>
+              <button id="maternalWeightCancel" class="btn ghost" type="button" hidden>取消编辑</button>
+            </div>
+          </form>
+          <p class="maternal-status" id="maternalWeightStatus" role="status" aria-live="polite">尚未读取云端体重记录。</p>
+          <div class="maternal-actions">
+            <button id="maternalWeightRefresh" class="btn secondary sm" type="button">刷新云端记录</button>
+            <button id="maternalWeightRecover" class="btn secondary sm" type="button" hidden>核验待确认保存</button>
+            <button id="maternalWeightArchive" class="btn ghost sm" type="button" hidden>放弃旧冲突请求</button>
+            <button id="maternalHealthBack" class="btn ghost sm" type="button">查看宝宝业务状态</button>
           </div>
-          <div class="action-row"><button id="maternalProfileSave" class="btn" type="submit" disabled>保存档案</button></div>
-        </form>
-        <p class="fine" id="maternalProfileStatus" role="status" aria-live="polite">尚未读取妈妈健康档案。</p>
-      </div>
-      <div class="card weight-card">
-        <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
-        <form id="maternalWeightForm" novalidate>
-          <div class="form-grid">
-            <label class="field">测量日期<input id="maternalWeightDate" type="date" required></label>
-            <label class="field">测量时间<input id="maternalWeightTime" type="time" step="60"></label>
-            <label class="field">体重（斤）<input id="maternalWeightJin" type="number" inputmode="decimal" step="0.01" min="0.01" required></label>
-            <label class="field wide">备注（可选）<textarea id="maternalWeightNote" rows="2"></textarea></label>
-          </div>
-          <div class="action-row">
-            <button id="maternalWeightSave" class="btn" type="submit" disabled>保存体重记录</button>
-            <button id="maternalWeightCancel" class="btn ghost" type="button" hidden>取消编辑</button>
-          </div>
-        </form>
-        <p class="weight-feedback" id="maternalWeightStatus" role="status" aria-live="polite">尚未读取云端体重记录。</p>
-        <div class="weight-actions">
-          <button id="maternalWeightRefresh" class="btn secondary sm" type="button">刷新云端记录</button>
-          <button id="maternalWeightRecover" class="btn secondary sm" type="button" hidden>核验待确认保存</button>
-          <button id="maternalWeightArchive" class="btn ghost sm" type="button" hidden>放弃旧冲突请求</button>
-          <button id="maternalHealthBack" class="btn ghost sm" type="button">查看宝宝业务状态</button>
         </div>
       </div>
-      <div class="card weight-card">
+      <div class="card maternal-card maternal-wide-card">
         <h3 class="section-title">体重趋势（斤）</h3>
         <div id="maternalWeightChart" class="empty">尚未读取体重记录</div>
       </div>
-      <div class="card">
+      <div class="card maternal-card">
         <h3 class="section-title">历史记录</h3>
         <div id="maternalWeightEmpty" class="empty">尚未读取体重记录</div>
         <div id="maternalWeightTable" class="table-wrap" hidden>
-          <table class="tbl">
+          <table class="tbl" role="table">
             <thead><tr><th scope="col">测量日期</th><th scope="col">时间</th><th scope="col">体重（斤）</th><th scope="col">备注</th><th scope="col">操作</th></tr></thead>
             <tbody id="maternalWeightRows"></tbody>
           </table>

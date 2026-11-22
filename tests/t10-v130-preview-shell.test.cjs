@@ -58,6 +58,26 @@ test('V1.3.0 local preview adds maternal health to the five intact stable busine
   assert.doesNotMatch(tags, /:has\([^)]*maternal/);
 });
 
+test('maternal layout keeps the profile and weight controls wired to their original forms', () => {
+  const tags = markup(preview);
+  const form = id => tags.match(new RegExp('<form id="' + id + '"[^>]*>[\\s\\S]*?</form>'))?.[0] ?? '';
+  const profileForm = form('maternalProfileForm');
+  const weightForm = form('maternalWeightForm');
+  assert.match(profileForm, /<input id="maternalProfileJin"[^>]*aria-label="孕前体重（斤）"/);
+  assert.match(profileForm, /<button id="maternalProfileSave"[^>]*type="submit"/);
+  assert.match(weightForm, /<input id="maternalWeightDate" type="date"/);
+  assert.match(weightForm, /<input id="maternalWeightTime" type="time"/);
+  assert.match(weightForm, /<input id="maternalWeightJin"[^>]*aria-label="体重（斤）"/);
+  assert.match(weightForm, /<textarea id="maternalWeightNote"/);
+  assert.match(weightForm, /<button id="maternalWeightSave"[^>]*type="submit"/);
+  assert.match(weightForm, /<button id="maternalWeightCancel"[^>]*type="button"/);
+  assert.match(tags, /<button id="maternalWeightRefresh"[^>]*type="button"/);
+  for (const id of ['maternalWeightStatus', 'maternalProfileStatus']) {
+    assert.match(tags, new RegExp('id="' + id + '" role="status" aria-live="polite"'));
+  }
+  assert.match(tags, /<table class="tbl" role="table">[\s\S]*?<tbody id="maternalWeightRows">/);
+});
+
 test('V1.3.0 loads existing sync and weight scripts before its write-enabled formal controller', () => {
   const pageUrl = new URL('/' + entry.replace(/index\.html$/, ''), 'http://localhost:8000');
   const files = [
