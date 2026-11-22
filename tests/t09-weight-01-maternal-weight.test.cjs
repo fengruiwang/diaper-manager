@@ -182,7 +182,8 @@ async function mountedBowel(items=[]){
  const values=()=>Object.fromEntries(Object.keys(bowelDefaults).map(name=>[name,b(name).value]));
  const submit=()=>b('Form').handlers.submit({preventDefault(){}});
  const edit=index=>b('History').children[index].querySelectorAll('button')[0].handlers.click();
- return {b,change,values,submit,edit,get:f.get,queued:f.queued,setOutcome:f.setOutcome};
+ return {b,change,values,submit,edit,get:f.get,queued:f.queued,setOutcome:f.setOutcome,
+  refresh:f.refresh,setRead:f.setRead,switchScope:f.switchScope};
 }
 
 test('R2-02: a new bowel form starts today with symptom defaults and explicit bowel choices',async()=>{
@@ -418,6 +419,201 @@ test('R2-03: editing a no-bowel legacy day clears an inapplicable historical Bri
  f.b('Note').value='synthetic correction';
  await f.submit();
  assert.deepEqual(f.queued[0].nextBody.items,[{...entry,stoolType:null,note:'synthetic correction'}]);
+});
+
+const {bowelStatistics}=require('../preview/v1.3.0/maternal-constipation.js');
+const bowelDay=(date,count,id=date)=>({...recordedBowel,id,date,
+ didDefecate:count>0,defecationCount:count,stoolType:null});
+const statistics=(...items)=>bowelStatistics({items},new Date(2026,0,4,1,30),weight.localDate);
+
+test('R2-04: an explicit zero today starts a one-day streak',()=>{
+ const stats=statistics(bowelDay('2026-01-04',0));
+ assert.equal(stats.streak,1);
+ assert.equal(stats.throughYesterday,false);
+});
+
+test('R2-04: three consecutive explicit zero days count as three',()=>{
+ const stats=statistics(...['2026-01-02','2026-01-03','2026-01-04'].map(date=>bowelDay(date,0)));
+ assert.equal(stats.streak,3);
+});
+
+test('R2-04: a bowel movement ends the earlier streak and yields zero on that day',()=>{
+ const items=[bowelDay('2026-01-02',0),bowelDay('2026-01-03',1)];
+ assert.equal(statistics(...items,bowelDay('2026-01-04',0)).streak,1);
+ assert.equal(statistics(bowelDay('2026-01-03',0),bowelDay('2026-01-04',1)).streak,0);
+});
+
+test('R2-04: a missing today can show a zero-day streak through yesterday',()=>{
+ const stats=statistics(bowelDay('2026-01-02',0),bowelDay('2026-01-03',0));
+ assert.equal(stats.today.state,'missing');
+ assert.equal(stats.throughYesterday,true);
+ assert.equal(stats.streak,2);
+});
+
+test('R2-04: a gap or incomplete history stops counting consecutive zero days',()=>{
+ assert.equal(statistics(bowelDay('2026-01-02',0)).streak,null);
+ assert.equal(statistics(bowelDay('2026-01-02',0),bowelDay('2026-01-04',0)).streak,1);
+ const incomplete={...other,date:'2026-01-03',didDefecate:false};
+ assert.equal(statistics(bowelDay('2026-01-02',0),incomplete).streak,null);
+});
+
+test('R2-04: weekly totals use seven natural dates including today across a year boundary',()=>{
+ const stats=statistics(bowelDay('2025-12-28',2),bowelDay('2025-12-29',1),
+  bowelDay('2026-01-04',2),bowelDay('2026-01-05',3),measurement('weight','2026-01-01',52));
+ assert.deepEqual(stats.week,{total:3,atLeast:false,covered:2,duplicates:0});
+});
+
+test('R2-04: confirmed zero counts toward weekly coverage and missing or invalid data does not',()=>{
+ const incomplete={...other,date:'2026-01-03',didDefecate:true,defecationCount:0};
+ const stats=statistics(bowelDay('2026-01-02',0),incomplete);
+ assert.deepEqual(stats.week,{total:0,atLeast:false,covered:1,duplicates:0});
+ assert.equal(stats.trend[28].state,'incomplete');
+ assert.equal(stats.today.state,'missing');
+});
+
+test('R2-04: a capped day makes the weekly sum a lower bound',()=>{
+ const stats=statistics(bowelDay('2026-01-03',3),bowelDay('2026-01-04',2));
+ assert.deepEqual(stats.week,{total:5,atLeast:true,covered:2,duplicates:0});
+});
+
+test('R2-04: 30 trend points are ordered by local date across month and DST boundaries',()=>{
+ const {trend}=bowelStatistics({items:[]},new Date(2026,2,9,0,15),weight.localDate);
+ assert.equal(trend.length,30);
+ assert.equal(new Set(trend.map(day=>day.date)).size,30);
+ assert.deepEqual(trend.map(day=>day.date),trend.map(day=>day.date).sort());
+ assert.equal(trend[0].date,'2026-02-08');
+ assert.equal(trend[29].date,'2026-03-09');
+});
+
+test('R2-04: dates outside the trend stay off the chart without truncating a longer streak',()=>{
+ const items=Array.from({length:32},(_,index)=>{
+  const date=new Date(2026,0,4-index,12);
+  return bowelDay(weight.localDate(date),0);
+ });
+ const stats=statistics(...items,bowelDay('2026-01-05',3));
+ assert.equal(stats.streak,32);
+ assert.equal(stats.trend[0].date,'2025-12-06');
+ assert.equal(stats.trend[29].date,'2026-01-04');
+ assert.equal(stats.trend.filter(day=>day.count===0).length,30);
+});
+
+test('R2-04: duplicate dates count once as anomalies and do not extend the streak',()=>{
+ const items=[bowelDay('2026-01-03',0,'first'),bowelDay('2026-01-03',3,'second')];
+ const stats=statistics(...items,bowelDay('2026-01-04',0));
+ assert.deepEqual(stats.week,{total:0,atLeast:false,covered:1,duplicates:1});
+ assert.equal(stats.trend[28].state,'duplicate');
+ assert.equal(stats.streak,1);
+ const duplicateToday=statistics(bowelDay('2026-01-04',0,'a'),bowelDay('2026-01-04',0,'b'));
+ assert.equal(duplicateToday.today.state,'duplicate');
+ assert.equal(duplicateToday.streak,null);
+});
+
+function recentBowelDay(offset,count,id){
+ const date=new Date();
+ date.setDate(date.getDate()+offset);
+ return bowelDay(weight.localDate(date),count,id);
+}
+
+test('R2-04: chart distinguishes zero, missing and duplicate days and exposes every date',async()=>{
+ const zero=recentBowelDay(-1,0);
+ const f=await mountedBowel([zero,recentBowelDay(-2,3,'a'),recentBowelDay(-2,1,'b')]);
+ const points=f.b('Trend').children;
+ assert.equal(points.length,30);
+ const [duplicate,recorded,missing]=points.slice(-3);
+ assert.equal(duplicate.dataset.state,'duplicate');
+ assert.equal(duplicate.children[0].textContent,'×');
+ assert.equal(recorded.dataset.count,'0');
+ assert.equal(recorded.children[0].textContent,'0');
+ assert.equal(missing.dataset.state,'missing');
+ assert.equal(missing.children[0].textContent,'–');
+ assert.equal(new Set(points.map(point=>point.attributes['aria-label'])).size,30);
+ recorded.handlers.click();
+ assert.equal(f.b('TrendDetail').textContent,zero.date+' · 0 次');
+ assert.equal(recorded.attributes['aria-pressed'],'true');
+ assert.equal(missing.attributes['aria-pressed'],'false');
+ assert.match(f.b('WeekWarning').textContent,/排除同日多条记录的 1 天/);
+ assert.match(f.b('Warning').textContent,/同日多条历史记录/);
+});
+
+test('R2-04: the entry shortcut preserves a historical draft and otherwise opens today',async()=>{
+ const f=await mountedBowel([recentBowelDay(-1,0)]);
+ assert.equal(f.b('TodayStatus').textContent,'今日尚未记录');
+ assert.equal(f.b('Streak').textContent,'1 天');
+ assert.equal(f.b('StreakNote').textContent,'截至昨日连续未排便');
+ assert.equal(f.b('TodayEntry').hidden,false);
+ f.edit(0);
+ const draftDate=f.b('Date').value;
+ f.b('Note').value='synthetic draft';
+ f.b('TodayEntry').handlers.click();
+ assert.equal(f.b('Date').value,draftDate);
+ assert.equal(f.b('Note').value,'synthetic draft');
+ assert.match(f.b('Status').textContent,/请先保存或取消/);
+ f.b('Cancel').handlers.click();
+ f.b('Date').value=draftDate;
+ f.b('TodayEntry').handlers.click();
+ assert.equal(f.b('Date').value,weight.localDate(new Date()));
+ assert.equal(f.queued.length,0);
+});
+
+test('R2-04: a new record updates statistics only after receipt confirmation',async()=>{
+ const f=await mountedBowel();
+ assert.equal(f.b('TodayStatus').textContent,'今日尚未记录');
+ assert.equal(f.b('WeekNote').textContent,'已记录 0/7 天');
+ assert.equal(f.b('WeekTotal').textContent,'—');
+ f.change('DidDefecate','false');
+ f.setOutcome('UNKNOWN');
+ await f.submit();
+ assert.equal(f.b('TodayStatus').textContent,'今日尚未记录');
+ assert.equal(f.b('Trend').children[29].dataset.state,'missing');
+ assert.equal(f.b('TodayEntry').disabled,true);
+ f.setOutcome('COMMITTED');
+ await f.get('maternalWeightRecover').handlers.click();
+ assert.equal(f.b('TodayStatus').textContent,'今日已记录 · 未排便');
+ assert.equal(f.b('TodayEntry').hidden,true);
+ assert.equal(f.b('WeekTotal').textContent,'0 次');
+ assert.equal(f.b('WeekNote').textContent,'已记录 1/7 天');
+ assert.equal(f.b('Streak').textContent,'1 天');
+});
+
+test('R2-04: a confirmed edit updates today, streak, trend and the weekly lower bound',async()=>{
+ const f=await mountedBowel([recentBowelDay(0,0),recentBowelDay(-1,2)]);
+ f.edit(0);
+ f.change('Count','3');
+ await f.submit();
+ assert.equal(f.b('TodayStatus').textContent,'今日已记录 · 3 次及以上');
+ assert.equal(f.b('Streak').textContent,'0 天');
+ assert.equal(f.b('WeekTotal').textContent,'≥5 次');
+ assert.equal(f.b('WeekNote').textContent,'已记录 2/7 天');
+ assert.equal(f.b('Trend').children[29].children[0].textContent,'3+');
+});
+
+test('R2-04: a confirmed deletion removes the day from statistics and reveals the shortcut',async()=>{
+ const f=await mountedBowel([recentBowelDay(0,2)]);
+ assert.equal(f.b('TodayStatus').textContent,'今日已记录 · 2 次');
+ await f.b('History').querySelectorAll('button')[1].handlers.click();
+ assert.equal(f.b('Trend').children[29].dataset.state,'missing');
+ assert.equal(f.b('Streak').textContent,'—');
+ assert.equal(f.b('StreakNote').textContent,'记录不连续');
+ assert.equal(f.b('TodayEntry').hidden,false);
+});
+
+test('R2-04: refresh and account switching use only the current verified snapshot',async()=>{
+ const f=await mountedBowel([recentBowelDay(0,1)]);
+ f.setRead(async()=>({status:'READ_VERIFIED',revision:6,body:{schemaVersion:1,
+  items:[recentBowelDay(0,1,'a'),recentBowelDay(0,2,'b')]}}));
+ await f.refresh();
+ assert.equal(f.b('TodayStatus').textContent,'今日有多条记录');
+ assert.equal(f.b('Trend').children[29].dataset.state,'duplicate');
+ assert.equal(f.b('TodayEntry').hidden,true);
+ f.switchScope('synthetic-other','synthetic-other-family');
+ assert.equal(f.b('TodayStatus').textContent,'尚未读取云端排便记录。');
+ assert.equal(f.b('Trend').hidden,true);
+ assert.equal(f.b('Trend').children.length,0);
+ f.setRead(async()=>({status:'READ_VERIFIED',revision:1,body:{schemaVersion:1,items:[recentBowelDay(0,2)]}}));
+ await f.refresh();
+ assert.equal(f.b('TodayStatus').textContent,'今日已记录 · 2 次');
+ assert.equal(f.b('Trend').children[29].dataset.count,'2');
+ assert.equal(f.b('WeekWarning').textContent,'');
 });
 
 test('bowel Save follows the verified read, storage, pending receipt and account state',async()=>{

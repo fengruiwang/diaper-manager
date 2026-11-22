@@ -180,6 +180,28 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
 #maternalWeightTable td:nth-child(4){white-space:pre-wrap;overflow-wrap:anywhere}
 #maternalWeightTable td:last-child .btn{margin:2px 6px 2px 0}
 #maternalWeightTable [data-delete-weight]{color:var(--red)}
+#maternal-health .maternal-bowel-stats{margin-top:14px}
+#maternal-health .maternal-bowel-stats-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin-bottom:8px}
+#maternal-health .maternal-bowel-stats-heading h3{margin:0}
+#maternal-health .maternal-bowel-today{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
+#maternalConstipationTodayStatus{margin:0;font-weight:650}
+#maternal-health .maternal-bowel-stats .maternal-trend-stats{margin-bottom:10px}
+#maternal-health .maternal-bowel-stat-note:empty,#maternalConstipationTrend[hidden]~.maternal-bowel-chart-note{display:none}
+#maternalConstipationWeekWarning{color:#79480f}
+#maternal-health .maternal-bowel-stats h4{margin:0 0 4px;font-size:14px}
+#maternalConstipationTrend{display:grid;grid-template-columns:repeat(30,minmax(0,1fr));gap:4px 1px}
+#maternal-health .maternal-bowel-point{display:grid;grid-template-rows:42px 15px;align-items:end;gap:2px;min-width:0;padding:3px 0 0;border:1px solid transparent;border-radius:7px;background:#f6f7fb;color:var(--text);font-size:10px;font-variant-numeric:tabular-nums}
+#maternal-health .maternal-bowel-point:is(:hover,[aria-pressed="true"]){border-color:#b9b1ef;background:var(--soft)}
+#maternal-health .maternal-bowel-point-date{align-self:start;line-height:1.2}
+#maternal-health .maternal-bowel-mark{justify-self:center;display:grid;align-items:end;justify-items:center;width:calc(100% - 6px);max-width:26px;border-radius:4px;min-height:14px;color:#58637a;font-weight:750}
+#maternal-health [data-count="1"] .maternal-bowel-mark,#maternal-health [data-count="2"] .maternal-bowel-mark,#maternal-health [data-count="3"] .maternal-bowel-mark{background:var(--deep);color:#fff}
+#maternal-health [data-count="1"] .maternal-bowel-mark{height:18px}
+#maternal-health [data-count="2"] .maternal-bowel-mark{height:29px}
+#maternal-health [data-count="3"] .maternal-bowel-mark{height:40px}
+#maternal-health [data-count="0"] .maternal-bowel-mark{border:1px solid #8177d6;background:#fff;color:var(--deep)}
+#maternal-health [data-state="duplicate"] .maternal-bowel-mark{background:var(--orange-bg);color:#79480f}
+#maternal-health .maternal-bowel-chart-note{margin:5px 0 0}
+#maternalConstipationTrendDetail{font-size:13px;font-weight:700}
 #maternal-health .maternal-bowel-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start;gap:14px;margin-top:14px}
 #maternal-health .maternal-bowel-history{background:#fafbfe}
 #maternal-health #maternalConstipationWarning{margin:0 0 8px;background:var(--orange-bg);color:#79480f}
@@ -193,6 +215,7 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
 #maternalConstipationHistory .maternal-bowel-actions{justify-content:flex-end;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
 #maternalConstipationHistory .btn:last-child{color:var(--red)}
 @media(max-width:900px){
+ #maternalConstipationTrend{grid-template-columns:repeat(10,minmax(0,1fr))}
  #maternal-health .maternal-bowel-layout{grid-template-columns:minmax(0,1fr)}
 }
 @media(max-width:720px){
@@ -571,6 +594,26 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
             <tbody id="maternalWeightRows"></tbody>
           </table>
         </div>
+      </div>
+      <div class="card maternal-card maternal-bowel-stats">
+        <div class="maternal-bowel-stats-heading">
+          <h3 class="section-title">排便统计</h3>
+          <div class="maternal-bowel-today">
+            <p id="maternalConstipationTodayStatus" role="status">尚未读取云端排便记录。</p>
+            <button id="maternalConstipationTodayEntry" class="btn secondary sm" type="button" hidden>录入今日排便</button>
+          </div>
+        </div>
+        <dl class="maternal-trend-stats">
+          <div><dt>连续未排便</dt><dd id="maternalConstipationStreak" class="maternal-trend-value">—</dd>
+            <dd id="maternalConstipationStreakNote" class="fine maternal-bowel-stat-note"></dd></div>
+          <div><dt>最近 7 天排便次数</dt><dd id="maternalConstipationWeekTotal" class="maternal-trend-value">—</dd>
+            <dd id="maternalConstipationWeekNote" class="fine maternal-bowel-stat-note"></dd>
+            <dd id="maternalConstipationWeekWarning" class="fine maternal-bowel-stat-note"></dd></div>
+        </dl>
+        <h4>最近 30 天排便趋势</h4>
+        <div id="maternalConstipationTrend" role="group" aria-label="每日排便次数，按日期从早到晚" hidden></div>
+        <p id="maternalConstipationTrendDetail" class="maternal-bowel-chart-note" role="status"></p>
+        <p class="maternal-help maternal-bowel-chart-note">3+ 为 3 次及以上，– 为未记录，× 为同日多条，? 为次数未明确。</p>
       </div>
       <div class="maternal-bowel-layout">
         <form id="maternalConstipationForm" class="card maternal-card" aria-labelledby="maternalConstipationHeading" novalidate>

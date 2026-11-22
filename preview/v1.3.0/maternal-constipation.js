@@ -15,15 +15,51 @@ const fields={
 const ownLabel=(labels,key)=>Object.prototype.hasOwnProperty.call(labels,key)?labels[key]:'未记录';
 const yesNo=value=>value===true?'有':value===false?'无':'未记录';
 const wholeBetween=(value,min,max)=>Number.isInteger(value)&&value>=min&&value<=max;
+const countLabel=count=>count===3?'3 次及以上':count+' 次';
 
 function history(body){
  return (body?.items||[]).filter(item=>item.kind===kind).sort((a,b)=>b.date.localeCompare(a.date));
 }
+
+function bowelStatistics(body,now,localDate){
+ const days=new Map();
+ for(const item of body.items){
+  if(item.kind!==kind)continue;
+  const {date,didDefecate,defecationCount:count}=item;
+  const valid=didDefecate===false&&count===0||didDefecate===true&&wholeBetween(count,1,3);
+  days.set(date,days.has(date)?{date,state:'duplicate'}:
+   valid?{date,state:'recorded',count}:{date,state:'incomplete'});
+ }
+ function dayAt(offset){
+  const day=new Date(now);
+  day.setHours(12,0,0,0);
+  day.setDate(day.getDate()+offset);
+  const date=localDate(day);
+  return days.get(date)||{date,state:'missing'};
+ }
+ const trend=Array.from({length:30},(_,index)=>dayAt(index-29));
+ const today=trend[29];
+ const recent=trend.slice(-7);
+ const recorded=recent.filter(day=>day.state==='recorded');
+ const week={
+  total:recorded.reduce((total,day)=>total+day.count,0),
+  atLeast:recorded.some(day=>day.count===3),
+  covered:recorded.length,
+  duplicates:recent.filter(day=>day.state==='duplicate').length
+ };
+ const throughYesterday=today.state==='missing'&&dayAt(-1).count===0;
+ let streak=today.state==='recorded'||throughYesterday?0:null;
+ if(streak!==null){
+  for(let offset=throughYesterday?-1:0;dayAt(offset).count===0;offset--)streak++;
+ }
+ return {today,streak,throughYesterday,week,trend};
+}
+
 function valuesForDisplay(item){
  return [
   ['是否排便',item.didDefecate===true?'是':item.didDefecate===false?'否':'未记录'],
   ['排便次数',wholeBetween(item.defecationCount,0,3)
-   ?(item.defecationCount===3?'3 次及以上':item.defecationCount+' 次'):'未记录'],
+   ?countLabel(item.defecationCount):'未记录'],
   ['Bristol 性状',item.didDefecate===false?'不适用'
    :wholeBetween(item.stoolType,1,7)?item.stoolType+' 型':'未记录'],
   ['排便困难',ownLabel(levels,item.difficulty)],['腹胀',ownLabel(levels,item.bloating)],
@@ -67,6 +103,10 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
  const heading=byName('Heading'),status=byName('Status'),saveButton=byName('Save');
  const cancel=byName('Cancel'),empty=byName('Empty'),list=byName('History'),warning=byName('Warning');
  const blocker=byName('Blocker');
+ const todayStatus=byName('TodayStatus'),todayEntry=byName('TodayEntry'),trend=byName('Trend');
+ const streakValue=byName('Streak'),streakNote=byName('StreakNote');
+ const weekTotal=byName('WeekTotal'),weekNote=byName('WeekNote'),weekWarning=byName('WeekWarning');
+ const trendDetail=byName('TrendDetail');
  const inputs=Object.fromEntries(Object.keys(fields).map(name=>[name,byName(name)]));
  const {Date:date,DidDefecate:did,Count:count,StoolType:stool}=inputs;
  let editId=null,originalValues=null,dirty=false,blocked='waiting-context';
@@ -88,6 +128,7 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
   if(noBowelMovement)stool.value='';
   stool.disabled=!writable||noBowelMovement;
   saveButton.disabled=!writable;
+  if(todayEntry)todayEntry.disabled=!writable;
   cancel.hidden=!dirty&&!editId;
   cancel.disabled=!writable;
   for(const button of list.querySelectorAll('button'))button.disabled=!writable;
@@ -160,6 +201,53 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
   }
   card.append(title,data,actions);list.append(card);
  }
+ function renderStatistics(body){
+  if(!trend)return;
+  const stats=body?bowelStatistics(body,new Date(),localDate):null;
+  const {today,streak,throughYesterday,week}=stats||{};
+  const dayLabels={missing:'未记录',duplicate:'同日多条记录',incomplete:'次数未明确'};
+  todayStatus.textContent=!today?'尚未读取云端排便记录。':today.state==='missing'?'今日尚未记录'
+   :today.state==='recorded'?'今日已记录 · '+(today.count===0?'未排便':countLabel(today.count))
+   :today.state==='duplicate'?'今日有多条记录':'今日记录次数未明确';
+  todayEntry.hidden=today?.state!=='missing';
+  streakValue.textContent=streak==null?'—':streak+' 天';
+  streakNote.textContent=!stats?'':throughYesterday?'截至昨日连续未排便':streak===null?'记录不连续':'';
+  weekTotal.textContent=week?.covered?(week.atLeast?'≥':'')+week.total+' 次':'—';
+  weekNote.textContent=week?'已记录 '+week.covered+'/7 天':'';
+  weekWarning.textContent=week?.duplicates?'排除同日多条记录的 '+week.duplicates+' 天':'';
+  trend.hidden=!stats;
+  trend.replaceChildren();
+  trendDetail.textContent='';
+  let selected;
+  for(const [index,day] of (stats?.trend||[]).entries()){
+   const point=doc.createElement('button'),mark=doc.createElement('span'),label=doc.createElement('span');
+   const description=day.date+' · '+(day.state==='recorded'?countLabel(day.count):dayLabels[day.state]);
+   point.type='button';
+   point.className='maternal-bowel-point';
+   point.dataset.state=day.state;
+   if(day.state==='recorded')point.dataset.count=String(day.count);
+   point.setAttribute('aria-label',description);
+   point.title=description;
+   point.setAttribute('aria-pressed',String(day===today));
+   mark.className='maternal-bowel-mark';
+   mark.textContent=day.state==='recorded'?(day.count===3?'3+':String(day.count)):
+    {missing:'–',duplicate:'×',incomplete:'?'}[day.state];
+   label.className='maternal-bowel-point-date';
+   if(index%5===0||day===today)label.textContent=day.date.slice(5).replace('-','/');
+   point.append(mark,label);
+   point.addEventListener('click',()=>{
+    selected.setAttribute('aria-pressed','false');
+    selected=point;
+    point.setAttribute('aria-pressed','true');
+    trendDetail.textContent=description;
+   });
+   if(day===today){
+    selected=point;
+    trendDetail.textContent=description;
+   }
+   trend.append(point);
+  }
+ }
  function render(){
   const body=getBody(),records=history(body);
   const duplicateDates=new Set(),seenDates=new Set();
@@ -174,9 +262,20 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
    ?'发现同日多条历史记录（'+[...duplicateDates].join('、')+'），已保留，请逐条核对。':'';
   empty.hidden=records.length>0;
   empty.textContent=body?'暂无排便记录。':'尚未读取云端排便记录。';
+  renderStatistics(body);
   controls();
  }
 
+ todayEntry?.addEventListener('click',()=>{
+  if(blocked)return;
+  const today=localDate(new Date());
+  if(date.value!==today&&(dirty||editId)){
+   status.textContent='请先保存或取消当前排便记录，再录入今天。';
+  }else{
+   date.max=date.value=today;
+  }
+  date.focus();
+ });
  form.addEventListener('input',()=>{if(!blocked){dirty=true;controls();}});
  date.addEventListener('change',()=>{
   if(blocked)return;
@@ -232,7 +331,7 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
  return {controls,render,reset,hasDraft:()=>dirty||Boolean(editId)};
 }
 
-const api={mount,history,valuesForDisplay,updateDocument,deleteDocument};
+const api={mount,history,bowelStatistics,valuesForDisplay,updateDocument,deleteDocument};
 if(root)root.XBMaternalConstipation=api;
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
