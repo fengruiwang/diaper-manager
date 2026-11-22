@@ -46,6 +46,8 @@ function deleteDocument(body,id){
 }
 const booleanValue=value=>value==='true'?true:value==='false'?false:null;
 const numericValue=value=>value===''?null:Number(value);
+const sameDateMessage='该日期已有记录，已切换为编辑模式。';
+const duplicateDateMessage='这一天有多条历史记录，请在下方选择要编辑的记录。';
 const blockedMessages={
  'waiting-context':'等待家庭账号验证完成。',
  reading:'正在读取妈妈健康档案…',
@@ -77,9 +79,10 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
    blocker.textContent=blockedMessages[blocked]||'';
   }
   for(const input of Object.values(inputs))input.disabled=!writable;
-  for(const name of ['DidDefecate','Count','Difficulty','Bloating','Pain']){
+  for(const name of ['DidDefecate','Count','Difficulty','Bloating','Pain','StoolType','Water']){
    const placeholder=inputs[name].options?.[0];
-   if(placeholder)placeholder.textContent=editId?'未记录':'未选择';
+   const optional=name==='StoolType'||name==='Water';
+   if(placeholder)placeholder.textContent=editId?'未记录':optional?'不记录':'未选择';
   }
   stool.disabled=!writable||did.value!=='true';
   saveButton.disabled=!writable;
@@ -91,8 +94,9 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
   editId=null;originalValues=null;dirty=false;
   date.max=date.value=localDate(new Date());
   did.value=count.value=stool.value='';
-  inputs.Difficulty.value=inputs.Bloating.value='';
-  inputs.Pain.value=inputs.Water.value=inputs.Note.value='';
+  inputs.Difficulty.value=inputs.Bloating.value='none';
+  inputs.Pain.value='false';
+  inputs.Water.value=inputs.Note.value='';
   heading.textContent='每日排便记录';
   saveButton.textContent='保存排便记录';
   status.textContent='';
@@ -105,7 +109,6 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
    const value=item[key];
    inputs[name].value=value==null?'':String(value);
   }
-  if(did.value==='false')stool.value='';
   originalValues=Object.fromEntries(Object.entries(inputs).map(([name,input])=>[name,input.value]));
   heading.textContent='编辑排便记录';
   saveButton.textContent='保存修改';
@@ -113,11 +116,19 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
   controls();
  }
  function selectDate(){
-  const matching=history(getBody()).filter(item=>item.date===date.value);
-  if(matching.length===1){edit(matching[0]);return;}
-  dirty=true;
-  if(matching.length>1)status.textContent='这一天有多条历史记录，请在下方选择要编辑的记录。';
-  controls();
+  if(originalValues?.Date===date.value)return false;
+  const matching=(getBody()?.items||[]).filter(item=>item.kind===kind&&item.date===date.value);
+  if(matching.length===1){
+   edit(matching[0]);
+   status.textContent=sameDateMessage;
+   return true;
+  }
+  if(matching.length>1){
+   status.textContent=duplicateDateMessage;
+   dirty=true;controls();
+   return true;
+  }
+  return false;
  }
  function deleteRecord(item){
   if(blocked||!doc.defaultView.confirm('确定删除 '+item.date+' 的排便记录？删除后无法撤销。'))return;
@@ -165,7 +176,11 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
  }
 
  form.addEventListener('input',()=>{if(!blocked){dirty=true;controls();}});
- date.addEventListener('change',()=>{if(!blocked)selectDate();});
+ date.addEventListener('change',()=>{
+  if(blocked)return;
+  status.textContent='';
+  if(!selectDate()){dirty=true;controls();}
+ });
  did.addEventListener('change',()=>{
   if(blocked)return;
   count.value=did.value==='true'?'1':did.value==='false'?'0':'';
@@ -182,7 +197,7 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
  form.addEventListener('submit',event=>{
   event.preventDefault();
   if(blocked)return;
-  if(!editId&&history(getBody()).some(item=>item.date===date.value)){selectDate();return;}
+  if(selectDate())return;
   const today=localDate(new Date());
   const values={date:date.value,didDefecate:booleanValue(did.value),
    defecationCount:numericValue(count.value),stoolType:numericValue(stool.value),

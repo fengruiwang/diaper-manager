@@ -163,6 +163,171 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
 const first=measurement('first','2026-11-20',51.5);
 const second=measurement('second',today,52);
 const other={id:'other',kind:'constipation',date:today};
+const bowelDefaults={Date:weight.localDate(new Date()),DidDefecate:'',Count:'',StoolType:'',
+ Difficulty:'none',Bloating:'none',Pain:'false',Water:'',Note:''};
+const recordedBowel={...other,entryVersion:1,didDefecate:true,defecationCount:2,
+ stoolType:4,difficulty:'mild',bloating:'moderate',abdominalPain:true,
+ waterIntakeRange:'500_999',note:'synthetic note',details:[{id:'synthetic-detail'}],
+ extension:{keep:true}};
+
+async function mountedBowel(items=[]){
+ const {mount}=require('../preview/v1.3.0/maternal-constipation.js');
+ const selects=['DidDefecate','Count','StoolType','Difficulty','Bloating','Pain','Water'];
+ const f=await mountedWeights(items,{constipationFactory:options=>{
+  for(const name of selects)options.doc.getElementById('maternalConstipation'+name).options=[{}];
+  return mount(options);
+ }});
+ const b=name=>f.get('maternalConstipation'+name);
+ const change=(name,value)=>{b(name).value=value;b(name).handlers.change();};
+ const values=()=>Object.fromEntries(Object.keys(bowelDefaults).map(name=>[name,b(name).value]));
+ const submit=()=>b('Form').handlers.submit({preventDefault(){}});
+ const edit=index=>b('History').children[index].querySelectorAll('button')[0].handlers.click();
+ return {b,change,values,submit,edit,get:f.get,queued:f.queued,setOutcome:f.setOutcome};
+}
+
+test('R2-02: a new bowel form starts today with symptom defaults and explicit bowel choices',async()=>{
+ const f=await mountedBowel();
+ assert.deepEqual(f.values(),bowelDefaults);
+ assert.equal(f.b('DidDefecate').options[0].textContent,'未选择');
+ assert.equal(f.b('Count').options[0].textContent,'未选择');
+ assert.equal(f.b('StoolType').options[0].textContent,'不记录');
+ assert.equal(f.b('Water').options[0].textContent,'不记录');
+ await f.submit();
+ assert.equal(f.queued.length,0);
+});
+
+test('R2-02: bowel choice and manual count stay in sync without selecting a Bristol type',async()=>{
+ const f=await mountedBowel();
+ f.change('DidDefecate','true');
+ assert.equal(f.b('Count').value,'1');
+ assert.equal(f.b('StoolType').value,'');
+ f.b('StoolType').value='4';
+ f.change('DidDefecate','false');
+ assert.equal(f.b('Count').value,'0');
+ assert.equal(f.b('StoolType').value,'');
+ f.change('Count','2');
+ assert.equal(f.b('DidDefecate').value,'true');
+ assert.equal(f.b('StoolType').value,'');
+ f.change('Count','0');
+ assert.equal(f.b('DidDefecate').value,'false');
+ f.change('Count','');
+ assert.equal(f.b('DidDefecate').value,'');
+});
+
+test('R2-02: historical missing values display as unrecorded in edit mode',async()=>{
+ const f=await mountedBowel([other]);
+ f.edit(0);
+ for(const name of ['DidDefecate','Count','StoolType','Difficulty','Bloating','Pain','Water']){
+  assert.equal(f.b(name).value,'',name);
+  assert.equal(f.b(name).options[0].textContent,'未记录',name);
+ }
+});
+
+test('R2-02: a legacy note-only edit preserves missing values, details and extensions',async()=>{
+ const entry={...other,difficulty:null,details:[{id:'synthetic-detail'}],extension:{keep:true}};
+ const f=await mountedBowel([entry]);
+ f.edit(0);
+ f.b('Note').value='synthetic correction';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[{...entry,note:'synthetic correction'}]);
+});
+
+test('R2-02: a confirmed new bowel save resets to the new form defaults',async()=>{
+ const f=await mountedBowel();
+ f.change('Date','2026-01-01');
+ f.change('DidDefecate','false');
+ f.b('Note').value='synthetic draft';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[{
+  id:'new-record',kind:'constipation',entryVersion:1,date:'2026-01-01',
+  didDefecate:false,defecationCount:0,stoolType:null,difficulty:'none',bloating:'none',
+  abdominalPain:false,waterIntakeRange:null,note:'synthetic draft',details:[]
+ }]);
+ assert.deepEqual(f.values(),bowelDefaults);
+ assert.equal(f.b('Heading').textContent,'每日排便记录');
+});
+
+test('R2-02: cancelling a bowel edit restores the new form defaults',async()=>{
+ const f=await mountedBowel([recordedBowel]);
+ f.edit(0);
+ f.b('Cancel').handlers.click();
+ assert.deepEqual(f.values(),bowelDefaults);
+ assert.equal(f.b('Heading').textContent,'每日排便记录');
+ assert.equal(f.b('Cancel').hidden,true);
+ assert.equal(f.queued.length,0);
+});
+
+test('R2-02: an uncertain bowel save keeps every form value until confirmation',async()=>{
+ const f=await mountedBowel([recordedBowel]);
+ f.edit(0);
+ f.b('Note').value='synthetic draft';
+ const draft=f.values();
+ f.setOutcome('UNKNOWN');
+ await f.submit();
+ assert.deepEqual(f.values(),draft);
+ assert.equal(f.b('Heading').textContent,'编辑排便记录');
+ assert.match(f.b('Status').textContent,/保存结果未确认/);
+ f.setOutcome('COMMITTED');
+ await f.get('maternalWeightRecover').handlers.click();
+ assert.deepEqual(f.values(),bowelDefaults);
+});
+
+test('R2-02: selecting a recorded date opens its full record and shows the edit notice',async()=>{
+ const f=await mountedBowel([recordedBowel]);
+ f.change('Date',today);
+ assert.equal(f.b('Heading').textContent,'编辑排便记录');
+ assert.equal(f.b('Status').textContent,'该日期已有记录，已切换为编辑模式。');
+ assert.deepEqual(f.values(),{Date:today,DidDefecate:'true',Count:'2',StoolType:'4',
+  Difficulty:'mild',Bloating:'moderate',Pain:'true',Water:'500_999',Note:'synthetic note'});
+ assert.equal(f.queued.length,0);
+});
+
+test('R2-02: submitting on an existing date enters edit mode before queueing a save',async()=>{
+ const f=await mountedBowel([{...recordedBowel,date:bowelDefaults.Date}]);
+ await f.submit();
+ assert.equal(f.b('Heading').textContent,'编辑排便记录');
+ assert.equal(f.b('Status').textContent,'该日期已有记录，已切换为编辑模式。');
+ assert.equal(f.b('Note').value,recordedBowel.note);
+ assert.equal(f.queued.length,0);
+});
+
+test('R2-02: saving after automatic edit selection updates the original ID and preserves other data',async()=>{
+ const f=await mountedBowel([second,recordedBowel]);
+ f.change('Date',today);
+ f.b('Note').value='synthetic correction';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[second,{...recordedBowel,note:'synthetic correction'}]);
+ assert.equal(f.b('History').children.length,1);
+ assert.deepEqual(f.values(),bowelDefaults);
+});
+
+test('R2-02: duplicate bowel dates require selecting a specific historical record',async()=>{
+ const duplicate={...recordedBowel,id:'synthetic-duplicate'};
+ const f=await mountedBowel([recordedBowel,duplicate]);
+ f.change('Date',today);
+ assert.match(f.b('Warning').textContent,/同日多条/);
+ assert.match(f.b('Status').textContent,/选择要编辑/);
+ assert.equal(f.b('Heading').textContent,'每日排便记录');
+ await f.submit();
+ assert.equal(f.queued.length,0);
+ f.edit(1);
+ f.b('Note').value='synthetic correction';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[recordedBowel,{...duplicate,note:'synthetic correction'}]);
+ assert.equal(f.b('History').children.length,2);
+ assert.equal(f.b('Warning').hidden,false);
+});
+
+test('R2-02: a weight can still be added on a day with both weight and bowel records',async()=>{
+ const f=await mountedWeights([second,recordedBowel],{constipationFactory:
+  require('../preview/v1.3.0/maternal-constipation.js').mount});
+ f.get('maternalWeightDate').value=today;
+ f.jin.value='105';
+ await f.submit();
+ const items=f.queued[0].nextBody.items;
+ assert.deepEqual(items.slice(0,2),[second,recordedBowel]);
+ assert.deepEqual(items.filter(item=>item.kind==='weight').map(item=>item.date),[today,today]);
+});
 
 test('bowel Save follows the verified read, storage, pending receipt and account state',async()=>{
  const {mount}=require('../preview/v1.3.0/maternal-constipation.js');
@@ -186,8 +351,8 @@ test('bowel Save follows the verified read, storage, pending receipt and account
  assert.equal(await reading,'success');
  assert.equal(b('Save').disabled,false);
  assert.equal(b('Blocker').hidden,true);
- for(const name of ['DidDefecate','Count','StoolType','Difficulty','Bloating','Pain','Water','Note'])
-  assert.equal(b(name).value,'',name);
+ for(const [name,value] of Object.entries(bowelDefaults))
+  assert.equal(b(name).value,value,name);
  await submit();
  assert.match(b('Status').textContent,/明确选择/);
  assert.equal(f.queued.length,0);
