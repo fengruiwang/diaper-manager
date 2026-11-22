@@ -83,7 +83,8 @@ test('V1.3.0 loads existing sync and weight scripts before its write-enabled for
   const files = [
     '/m1-controller.js', '/sync/outbox-contract.js', '/sync/idb-outbox.js',
     '/sync/maternal-health-client.js', '/sync/maternal-health-operations.js',
-    '/preview/v1.2.0/maternal-weight.js', '/preview/v1.3.0/formal-controller.js',
+    '/preview/v1.2.0/maternal-weight.js', '/preview/v1.3.0/maternal-constipation.js',
+    '/preview/v1.3.0/formal-controller.js',
   ];
   assert.deepEqual(externalScripts(preview).map(src => new URL(src, pageUrl).pathname), files);
   for (const file of files) {

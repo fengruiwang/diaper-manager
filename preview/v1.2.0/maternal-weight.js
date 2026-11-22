@@ -157,7 +157,8 @@ const messages={
 };
 const same=(a,b)=>a&&b&&a.actorUid===b.actorUid&&a.familyId===b.familyId&&a.app===b.app;
 
-function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyDates,cloudWritesEnabled=false}){
+function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyDates,
+ constipationFactory,cloudWritesEnabled=false}){
  const $=id=>doc.getElementById(id);
  const panel=$('maternal-health'),form=$('maternalWeightForm');
  if(!panel||!form)return;
@@ -183,8 +184,22 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  let editId=null,draftRequest=null,deletionRequest=null;
  let weightDirty=false;
  let profileDirty=false,profileRequest=null;
+ let constipationRequest=null;
  let profileRead='idle';
  let birthDate='',stageView='pregnancy',trendPeriod='all';
+ const constipation=constipationFactory?.({
+  doc,localDate,validRecord:clientFactory?.validConstipation,
+  getBody:()=>scope&&current(scope)?snapshot?.body:null,
+  newId:()=>host.crypto.randomUUID(),
+  save:(update,{feedback,onCommit,successMessage})=>{
+   if(!canWrite())return;
+   return run('正在保存排便记录…',started=>{
+    const nextBody=update(snapshot.body);
+    if(!nextBody)return;
+    return saveDocument(started,nextBody,{bowelSave:{feedback,onCommit,successMessage}});
+   },feedback);
+  }
+ });
 
  function canWrite(){
   return Boolean(scope&&current(scope)&&!busy&&canSave&&!pending&&operations&&cloudWritesEnabled);
@@ -208,6 +223,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   archive.disabled=disabled;
   for(const button of rows.querySelectorAll('button'))
    button.disabled=button.dataset.deleteWeight?!canWriteNow:disabled||!canSave;
+  constipation?.controls(canWriteNow);
  }
  function resetForm(){
   editId=draftRequest=null;
@@ -239,6 +255,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  function render(){
   renderProfile();
   renderRecords();
+  constipation?.render();
  }
  function selectStage(stage){
   if(stage===stageView||(stage==='postpartum'&&!birthDate))return;
@@ -388,11 +405,13 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   const deletedId=deletionRequest&&result.requestId===deletionRequest.requestId
    ?deletionRequest.recordId:null;
   const savedProfile=profileRequest&&result.requestId===profileRequest;
+  const savedBowel=constipationRequest?.requestId===result.requestId?constipationRequest:null;
   const committed=result.status==='COMMITTED'||result.status==='COMMITTED_NEEDS_REFRESH';
   if(committed){
    const editRemoved=editId&&result.status==='COMMITTED'
     &&!result.document.body.items.some(item=>item.id===editId&&item.kind==='weight');
    if(savedProfile){profileDirty=false;profileRequest=null;}
+   else if(savedBowel){savedBowel.onCommit();constipationRequest=null;}
    else if(result.requestId===draftRequest||(deletedId&&editId===deletedId)||editRemoved)resetForm();
    if(deletedId)deletionRequest=null;
   }
@@ -409,19 +428,22 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   await review(started);
   if(!current(started))return;
   const message=result.status==='COMMITTED'
-   ?(savedProfile?'妈妈健康档案已保存至云端。':deletedId?'体重记录已从云端删除。':'记录已保存至云端。')
+   ?(savedBowel?.successMessage||(savedProfile?'妈妈健康档案已保存至云端。'
+    :deletedId?'体重记录已从云端删除。':'记录已保存至云端。'))
    :result.status==='EMPTY'?'没有待确认的保存请求。'
    :messages[result.status]||'本次保存未确认，请刷新记录或核验原请求。';
   feedback.textContent=message;
   if(savedProfile)profileStatus.textContent=message;
+  if(savedBowel)savedBowel.feedback.textContent=message;
  }
- async function saveDocument(started,nextBody,{deletedId,profileSave=false}={}){
-  const feedback=profileSave?profileStatus:status;
+ async function saveDocument(started,nextBody,{deletedId,profileSave=false,bowelSave}={}){
+  const feedback=bowelSave?.feedback||(profileSave?profileStatus:status);
   const queued=await operations.queue({baseline:snapshot,nextBody});
   if(!current(started))return;
   if(queued.status==='QUEUED'){
    if(deletedId)deletionRequest={requestId:queued.requestId,recordId:deletedId};
    else if(profileSave)profileRequest=queued.requestId;
+   else if(bowelSave)constipationRequest={requestId:queued.requestId,...bowelSave};
    else draftRequest=queued.requestId;
    pending=true;
    await send(started,feedback);
@@ -512,6 +534,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   trendPeriod='all';
   setBabyDates(null);
   deletionRequest=null;
+  constipationRequest=null;
+  constipation?.reset();
   profileRead='idle';
   profileDirty=false;profileRequest=null;
   if(profileStatus)profileStatus.textContent='尚未读取妈妈健康档案。';
@@ -521,7 +545,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  }
  setBabyDates(null);resetForm();render();
  return {setContext,setBabyDates,refreshCloudRecords,
-  canPullRefresh:()=>Boolean(scope&&current(scope)&&!busy&&!editId&&!weightDirty&&!profileDirty)};
+  canPullRefresh:()=>Boolean(scope&&current(scope)&&!busy&&!editId&&!weightDirty&&!profileDirty
+    &&!constipation?.hasDraft())};
 }
 
 const api={mount,localDate,formatJin,weightInput,profileInput,maternalStage,history,trendRecords,updateDocument,deleteDocument,chart};

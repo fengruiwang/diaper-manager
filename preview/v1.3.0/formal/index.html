@@ -169,6 +169,22 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
 #maternalWeightTable td:nth-child(4){white-space:pre-wrap;overflow-wrap:anywhere}
 #maternalWeightTable td:last-child .btn{margin:3px 5px 3px 0}
 #maternalWeightTable [data-delete-weight]{color:var(--red)}
+#maternal-health .maternal-bowel-card{margin-top:16px}
+#maternal-health .maternal-bowel-fields{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
+#maternal-health .maternal-bowel-fields .field{min-width:0}
+#maternal-health .maternal-bowel-fields input,#maternal-health .maternal-bowel-fields select,
+#maternal-health .maternal-bowel-fields textarea{box-sizing:border-box;width:100%;min-width:0;min-height:44px}
+#maternal-health .maternal-bowel-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+#maternalConstipationHistory{list-style:none;padding:0;margin:0;display:grid;gap:10px}
+#maternalConstipationHistory li{padding:12px;background:#f8f9fc;border-radius:12px;min-width:0}
+#maternalConstipationHistory h4{margin:0}
+#maternalConstipationHistory dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0}
+#maternalConstipationHistory dt{font-size:13px;color:var(--muted)}
+#maternalConstipationHistory dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+#maternalConstipationHistory dl div:last-child{grid-column:1/-1}
+@media(min-width:840px){
+ #maternal-health .maternal-bowel-fields,#maternalConstipationHistory dl{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
 @media(min-width:940px){
  #maternal-health .maternal-fields{grid-template-columns:repeat(3,minmax(0,1fr))}
  #maternal-health .maternal-weight-field{grid-column:auto}
@@ -536,6 +552,46 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
             <tbody id="maternalWeightRows"></tbody>
           </table>
         </div>
+      </div>
+      <div class="card maternal-card maternal-bowel-card">
+        <h3 class="section-title" id="maternalConstipationHeading">每日排便记录</h3>
+        <form id="maternalConstipationForm" novalidate>
+          <p class="fine">每天记录一条汇总。Bristol 性状选当天最有代表性的一型，排便困难和腹胀记录当天最明显的程度。</p>
+          <div class="maternal-bowel-fields">
+            <label class="field">日期<input id="maternalConstipationDate" type="date" disabled></label>
+            <label class="field">是否排便
+              <select id="maternalConstipationDidDefecate" disabled><option value="">未记录</option><option value="true">是</option><option value="false">否</option></select>
+            </label>
+            <label class="field">排便次数
+              <select id="maternalConstipationCount" disabled><option value="">未记录</option><option value="0">0 次</option><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次及以上</option></select>
+            </label>
+            <label class="field">Bristol 大便性状
+              <select id="maternalConstipationStoolType" disabled><option value="">不记录</option><option value="1">1 型</option><option value="2">2 型</option><option value="3">3 型</option><option value="4">4 型</option><option value="5">5 型</option><option value="6">6 型</option><option value="7">7 型</option></select>
+            </label>
+            <label class="field">排便困难
+              <select id="maternalConstipationDifficulty" disabled><option value="">未记录</option><option value="none">无</option><option value="mild">轻微</option><option value="moderate">中度</option><option value="severe">严重</option></select>
+            </label>
+            <label class="field">腹胀
+              <select id="maternalConstipationBloating" disabled><option value="">未记录</option><option value="none">无</option><option value="mild">轻微</option><option value="moderate">中度</option><option value="severe">严重</option></select>
+            </label>
+            <label class="field">腹痛
+              <select id="maternalConstipationPain" disabled><option value="">未记录</option><option value="false">无</option><option value="true">有</option></select>
+            </label>
+            <label class="field">饮水情况（可选）
+              <select id="maternalConstipationWater" disabled><option value="">不记录</option><option value="lt_500">少于 500 ml</option><option value="500_999">500～999 ml</option><option value="1000_1499">1000～1499 ml</option><option value="1500_1999">1500～1999 ml</option><option value="2000_plus">2000 ml 及以上</option></select>
+            </label>
+            <label class="field maternal-field-wide">备注（可选）<textarea id="maternalConstipationNote" rows="2" disabled></textarea></label>
+          </div>
+          <div class="maternal-bowel-actions">
+            <button id="maternalConstipationSave" class="btn primary" type="submit" disabled>保存排便记录</button>
+            <button id="maternalConstipationCancel" class="btn ghost" type="button" hidden>取消编辑</button>
+          </div>
+          <p id="maternalConstipationStatus" class="maternal-status" role="status" aria-live="polite"></p>
+        </form>
+        <h3 class="section-title">排便历史记录</h3>
+        <p id="maternalConstipationWarning" class="maternal-status" role="status" hidden></p>
+        <div id="maternalConstipationEmpty" class="empty">尚未读取云端排便记录。</div>
+        <ul id="maternalConstipationHistory" aria-label="排便历史记录"></ul>
       </div>
     </section>
   </main>
@@ -7653,6 +7709,7 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
 <script src="../../../sync/maternal-health-client.js" defer></script>
 <script src="../../../sync/maternal-health-operations.js" defer></script>
 <script src="../../v1.2.0/maternal-weight.js" defer></script>
+<script src="../maternal-constipation.js" defer></script>
 <script src="../formal-controller.js" defer></script>
 
 </body>

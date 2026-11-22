@@ -2143,6 +2143,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     ?String(Boolean(field.checked)):String(field?.value??'');
    const groupOf=field=>{
     const id=String(field?.id||'');
+    if(id.startsWith('maternalConstipation'))return null;
     if(['growthRange','refBrand','refSize','refSearch','formalEmail',
        'formalOtp','maternalWeightDate','maternalWeightTime','maternalWeightJin','maternalWeightNote',
        'maternalProfileJin'].includes(id))return null;
@@ -2892,7 +2893,7 @@ function browserStart(){
   maternalWeightFactory:(controller,refreshBabyDates)=>root.XBMaternalWeight.mount({
    doc,host:maternalBrowserHost(root),controller,
    clientFactory:root.XBMaternalHealthClient,operationsFactory:root.XBMaternalHealthOperations,
-   cloudWritesEnabled:true,refreshBabyDates
+   cloudWritesEnabled:true,refreshBabyDates,constipationFactory:root.XBMaternalConstipation?.mount
   }),
   projection:root.XBPrimaryUIProjection,ui:root.XBM3UI,
   historyCache:root.XBPrimaryCloudReadModel.createHistoryCache(),

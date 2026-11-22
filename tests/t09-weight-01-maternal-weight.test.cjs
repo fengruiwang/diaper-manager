@@ -53,7 +53,8 @@ test('deletion removes only the matching weight ID and preserves the immutable s
  assert.deepEqual(body.items,[first,constipation,second,recovery]);
 });
 
-async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead=true,refreshBabyDates}={}){
+async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead=true,
+ refreshBabyDates,constipationFactory}={}){
  const nodes=new Map();
  function element(tag){
   return {
@@ -102,8 +103,9 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  const panel=weight.mount({
   doc,host:{crypto:{randomUUID:()=> 'new-record'}},
   controller:{verifiedContext:()=>scope},cloudWritesEnabled:true,
-  refreshBabyDates,
-  clientFactory:{create:()=>({read:context=>{reads++;return read(context);}})},
+  refreshBabyDates,constipationFactory,
+  clientFactory:{validConstipation:require('../sync/maternal-health-client.js').validConstipation,
+   create:()=>({read:context=>{reads++;return read(context);}})},
   operationsFactory:{create:()=>({
    pending:async()=>({status:'QUEUE_VERIFIED',pending,retry:0}),
    conflicts:async()=>({status:'CONFLICTS_VERIFIED',items:[]}),
@@ -148,6 +150,95 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
 const first=measurement('first','2026-11-20',51.5);
 const second=measurement('second',today,52);
 const other={id:'other',kind:'constipation',date:today};
+
+test('bowel summary shares revision, protects both drafts and only acknowledges confirmed saves',async()=>{
+ const {mount}=require('../preview/v1.3.0/maternal-constipation.js');
+ const f=await mountedWeights([first],{constipationFactory:mount,
+  profile:{prePregnancyWeightKg:48},extensions:{tag:'keep'}});
+ const b=name=>f.get('maternalConstipation'+name);
+ const submit=()=>b('Form').handlers.submit({preventDefault(){}});
+ assert.equal(f.canPullRefresh(),true);
+ f.edit(0);
+ f.jin.value='105';
+ f.get('maternalProfileJin').value='97';
+ f.get('maternalProfileForm').handlers.input();
+ b('DidDefecate').value='true';b('DidDefecate').handlers.change();
+ assert.equal(b('Count').value,'1');
+ b('Count').value='0';b('Count').handlers.change();
+ assert.equal(b('DidDefecate').value,'false');
+ assert.equal(b('StoolType').disabled,true);
+ b('Count').value='3';b('Count').handlers.change();
+ assert.equal(b('DidDefecate').value,'true');
+ b('StoolType').value='7';
+ b('Date').value='9999-12-31';
+ await submit();
+ assert.equal(f.queued.length,0);
+ b('Date').value='2026-01-01';b('Date').handlers.change();
+ b('Note').value='补录';
+ f.setOutcome('UNKNOWN');
+ await submit();
+ assert.doesNotMatch(b('Status').textContent,/已保存至云端/);
+ assert.equal(b('History').children.length,0);
+ assert.equal(b('Save').disabled,true);
+ f.setOutcome('COMMITTED');
+ await f.get('maternalWeightRecover').handlers.click();
+ assert.equal(f.queued.length,1);
+ assert.equal(f.revision,6);
+ assert.equal(b('History').children.length,1);
+ assert.match(b('Status').textContent,/已保存至云端/);
+ assert.equal(f.jin.value,'105');
+ assert.equal(f.get('maternalProfileJin').value,'97');
+ assert.equal(f.queued[0].nextBody.tag,'keep');
+ assert.deepEqual(f.queued[0].nextBody.items[0],first);
+ assert.equal(f.queued[0].nextBody.maternalProfile.prePregnancyWeightKg,48);
+ const summary=f.queued[0].nextBody.items[1];
+ assert.equal(summary.defecationCount,3);
+ b('Date').value=summary.date;b('Date').handlers.change();
+ assert.equal(b('Note').value,'补录');
+ b('Note').value='未保存的排便草稿';b('Form').handlers.input();
+ await f.submit();
+ assert.equal(b('Note').value,'未保存的排便草稿');
+ assert.deepEqual(f.queued[1].nextBody.items.find(item=>item.kind==='constipation'),summary);
+ await f.refreshCloudRecords();
+ assert.equal(b('Note').value,'未保存的排便草稿');
+ f.switchScope('other-actor','other-family');
+ assert.equal(b('Note').value,'');
+ assert.equal(b('History').children.length,0);
+ assert.equal(b('Save').disabled,true);
+});
+
+test('bowel editing blocks pull refresh, and duplicate legacy days stay visible until explicitly removed',async()=>{
+ const {mount}=require('../preview/v1.3.0/maternal-constipation.js');
+ const f=await mountedWeights([first,other,{...other,id:'legacy-duplicate'}],{constipationFactory:mount});
+ const b=name=>f.get('maternalConstipation'+name);
+ assert.equal(f.canPullRefresh(),true);
+ assert.match(b('Warning').textContent,/同日多条/);
+ assert.equal(b('History').children.length,2);
+ b('Date').value=today;b('Date').handlers.change();
+ assert.match(b('Status').textContent,/选择要编辑/);
+ await b('Form').handlers.submit({preventDefault(){}});
+ assert.equal(f.queued.length,0);
+ assert.equal(f.canPullRefresh(),false);
+ const [edit,remove]=b('History').children[1].querySelectorAll('button');
+ edit.handlers.click();
+ assert.equal(b('Difficulty').value,'');
+ assert.equal(b('Pain').value,'');
+ f.setConfirm(false);
+ await remove.handlers.click();
+ assert.equal(f.queued.length,0);
+ f.setConfirm(true);
+ await remove.handlers.click();
+ assert.deepEqual(f.queued[0].nextBody.items,[first,other]);
+ assert.match(b('Status').textContent,/已从云端删除/);
+ assert.equal(b('Warning').hidden,true);
+ assert.equal(b('History').children.length,1);
+ assert.equal(f.canPullRefresh(),true);
+ f.setRead(async()=>({status:'READ_VERIFIED',revision:f.revision+1,
+  body:{schemaVersion:1,items:[first,second,other,{...other,id:'new-bowel',date:'2026-01-01'}]}}));
+ assert.equal(await f.refreshCloudRecords(),'success');
+ assert.equal(f.rows.children.length,2);
+ assert.equal(b('History').children.length,2);
+});
 
 test('verified birth date partitions chart and history without writes or loss of a selected stage',async()=>{
  const previous={...first,time:'09:30',note:'历史备注'};

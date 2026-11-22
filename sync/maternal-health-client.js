@@ -6,6 +6,8 @@ const isUuid=value=>typeof value==='string'&&UUID.test(value);
 const isObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const validRevision=value=>Number.isSafeInteger(value)&&value>=0;
 const kinds=new Set(['weight','constipation','postpartum_recovery']);
+const symptomLevels=new Set(['none','mild','moderate','severe']);
+const waterRanges=new Set(['lt_500','500_999','1000_1499','1500_1999','2000_plus']);
 const outcome=(status,fields={})=>Object.freeze({status,...fields});
 
 function validDate(value){
@@ -19,6 +21,17 @@ function validProfile(profile){
  return (prePregnancyWeightKg==null||(Number.isFinite(prePregnancyWeightKg)&&prePregnancyWeightKg>0))
   &&(dueDate==null||validDate(dueDate))&&(deliveryDate==null||validDate(deliveryDate));
 }
+function validConstipation(item){
+ const {date,didDefecate,defecationCount,stoolType,difficulty,bloating,
+  abdominalPain,waterIntakeRange,note,details}=item;
+ return validDate(date)&&typeof didDefecate==='boolean'
+  &&Number.isInteger(defecationCount)&&defecationCount>=0&&defecationCount<=3
+  &&didDefecate===(defecationCount>0)
+  &&(stoolType===null||(didDefecate&&Number.isInteger(stoolType)&&stoolType>=1&&stoolType<=7))
+  &&symptomLevels.has(difficulty)&&symptomLevels.has(bloating)&&typeof abdominalPain==='boolean'
+  &&(waterIntakeRange===null||waterRanges.has(waterIntakeRange))
+  &&typeof note==='string'&&Array.isArray(details);
+}
 function validBody(body){
  if(!isObject(body)||body.schemaVersion!==1||!Array.isArray(body.items))return false;
  if(body.maternalProfile!==undefined&&!validProfile(body.maternalProfile))return false;
@@ -28,6 +41,8 @@ function validBody(body){
     ||ids.has(item.id)||!kinds.has(item.kind)||!validDate(item.date))
    return false;
   if(item.kind==='weight'&&(!Number.isFinite(item.weightKg)||item.weightKg<=0))return false;
+  if(item.kind==='constipation'&&item.entryVersion!==undefined
+    &&(item.entryVersion!==1||!validConstipation(item)))return false;
   ids.add(item.id);
  }
  return true;
@@ -116,7 +131,7 @@ function create({controller,cloudWritesEnabled=false}={}){
  return Object.freeze({read,put,checkRequest,cloudWritesEnabled:writesEnabled});
 }
 
-const api=Object.freeze({create,isUuid,validBody});
+const api=Object.freeze({create,isUuid,validBody,validConstipation});
 if(root)root.XBMaternalHealthClient=api;
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);

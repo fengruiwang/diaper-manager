@@ -125,6 +125,38 @@ function fixture(){
  };
 }
 
+test('A and B share daily bowel edits and deletes with the same document CAS',async()=>{
+ const {updateDocument,deleteDocument}=require('../preview/v1.3.0/maternal-constipation.js');
+ const f=fixture();
+ const weight={id:'synthetic-weight',kind:'weight',date:'2026-11-21',weightKg:50};
+ const summary={id:'synthetic-bowel',kind:'constipation',entryVersion:1,date:weight.date,
+  didDefecate:true,defecationCount:1,stoolType:4,difficulty:'mild',bloating:'none',
+  abdominalPain:false,waterIntakeRange:null,note:'A 新增',details:[]};
+ const body={schemaVersion:1,items:[weight],maternalProfile:{prePregnancyWeightKg:48},
+  otherMetadata:{keep:true}};
+ const original=await f.client.read(A);
+ assert.equal((await f.ops.queue({baseline:original,nextBody:updateDocument(body,summary)})).status,'QUEUED');
+ assert.equal((await f.ops.send()).status,'COMMITTED');
+ f.actAs(B);
+ const fromA=await f.client.read(B);
+ assert.equal(fromA.revision,1);
+ assert.deepEqual(fromA.body.items,[weight,summary]);
+ const edited={...summary,note:'B 修改'};
+ assert.equal((await f.ops.queue({baseline:fromA,
+  nextBody:updateDocument(fromA.body,edited,{editing:true})})).status,'QUEUED');
+ assert.equal((await f.ops.send()).status,'COMMITTED');
+ f.actAs(A);
+ const fromB=await f.client.read(A);
+ assert.equal(fromB.revision,2);
+ assert.deepEqual(fromB.body,{...body,items:[weight,edited]});
+ assert.equal((await f.ops.queue({baseline:fromB,nextBody:deleteDocument(fromB.body,summary.id)})).status,'QUEUED');
+ assert.equal((await f.ops.send()).status,'COMMITTED');
+ f.actAs(B);
+ const afterDelete=await f.client.read(B);
+ assert.equal(afterDelete.revision,3);
+ assert.deepEqual(afterDelete.body,body);
+});
+
 test('family-only RPC read verifies the empty baseline and does not require child infrastructure',async()=>{
  const f=fixture();
  assert.deepEqual(await f.client.read(A),{status:'READ_VERIFIED',...A,revision:0,body:EMPTY});
