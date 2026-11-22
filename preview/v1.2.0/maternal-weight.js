@@ -176,11 +176,52 @@ async function readWithin(work){
  finally{clearTimeout(timer);}
 }
 
+function mountCategories(doc,panel){
+ const tablist=doc.getElementById('maternalCategoryTabs');
+ if(!tablist)return;
+ const tabs=Array.from(tablist.querySelectorAll('[data-maternal-category]'));
+ if(!tabs.length)return;
+ const categories=tabs.map(tab=>doc.getElementById(tab.getAttribute('aria-controls')));
+ function select(index){
+  tabs.forEach((tab,i)=>{
+   const selected=i===index;
+   tab.setAttribute('aria-selected',String(selected));
+   tab.tabIndex=selected?0:-1;
+   categories[i].hidden=!selected;
+  });
+ }
+ tabs.forEach((tab,index)=>{
+  tab.addEventListener('click',()=>select(index));
+  tab.addEventListener('keydown',event=>{
+   if(event.altKey||event.ctrlKey||event.metaKey)return;
+   const step=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:0;
+   if(!step)return;
+   event.preventDefault();
+   const next=(index+step+tabs.length)%tabs.length;
+   select(next);
+   tabs[next].focus();
+  });
+ });
+ for(const shortcut of panel.querySelectorAll('[data-maternal-entry]')){
+  const index=tabs.findIndex(tab=>tab.dataset.maternalCategory===shortcut.dataset.maternalEntry);
+  const target=doc.getElementById(shortcut.getAttribute('href').slice(1));
+  if(index<0||!target)continue;
+  shortcut.addEventListener('click',event=>{
+   event.preventDefault();
+   select(index);
+   target.focus({preventScroll:true});
+   target.scrollIntoView({block:'start'});
+  });
+ }
+ select(0);
+}
+
 function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyDates,
  constipationFactory,cloudWritesEnabled=false}){
  const $=id=>doc.getElementById(id);
  const panel=$('maternal-health'),form=$('maternalWeightForm');
  if(!panel||!form)return;
+ mountCategories(doc,panel);
  const date=$('maternalWeightDate'),jin=$('maternalWeightJin');
  const time=$('maternalWeightTime'),note=$('maternalWeightNote');
  const save=$('maternalWeightSave'),cancel=$('maternalWeightCancel');

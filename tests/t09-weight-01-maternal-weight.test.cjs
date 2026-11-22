@@ -54,7 +54,7 @@ test('deletion removes only the matching weight ID and preserves the immutable s
 });
 
 async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead=true,
- refreshBabyDates,constipationFactory,reopenedRequest=null}={}){
+ refreshBabyDates,constipationFactory,reopenedRequest=null,categoryTabs=false}={}){
  const nodes=new Map();
  function element(tag){
   return {
@@ -66,6 +66,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
     return this.children.flatMap(child=>child.tag===selector?[child]:child.querySelectorAll(selector));
    },
    setAttribute(name,value){this.attributes[name]=value;},
+   getAttribute(name){return this.attributes[name]??null;},
    set textContent(value){this.text=value;this.innerHTML='';},
    get textContent(){return this.text;},
    addEventListener(name,callback){this.handlers[name]=callback;},
@@ -88,6 +89,23 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
   return [period,button];
  }));
  get('maternalWeightPeriods').querySelectorAll=()=>[...periods.values()];
+ if(categoryTabs){
+  const tabs=[],shortcuts=[];
+  for(const [category,label,target] of [
+   ['weight','Weight','maternalWeightForm'],['bowel','Bowel','maternalConstipationForm']
+  ]){
+   const tab=get('maternal'+label+'Tab');
+   tab.dataset.maternalCategory=category;
+   tab.setAttribute('aria-controls','maternal'+label+'Category');
+   tabs.push(tab);
+   const shortcut=get('shortcut-'+category);
+   shortcut.dataset.maternalEntry=category;
+   shortcut.setAttribute('href','#'+target);
+   shortcuts.push(shortcut);
+  }
+  get('maternalCategoryTabs').querySelectorAll=selector=>selector==='[data-maternal-category]'?tabs:[];
+  get('maternal-health').querySelectorAll=selector=>selector==='[data-maternal-entry]'?shortcuts:[];
+ }
  const handlers={};
  let confirm=true,outcome='COMMITTED',pending=Number(Boolean(reopenedRequest)),sends=0,reads=0;
  let request=reopenedRequest,storageReady=true;
@@ -100,8 +118,9 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
  let read=async()=>snapshot;
  const doc={
   defaultView:{confirm(message){assert.equal(this,doc.defaultView);prompts.push(message);return confirm;}},
-  getElementById:id=>legacy&&(id.startsWith('maternalProfile')||
-   ['maternalWeightTime','maternalWeightNote','maternalWeightPregnancy','maternalWeightPostpartum'].includes(id))?null:get(id),
+  getElementById:id=>(!categoryTabs&&id==='maternalCategoryTabs')||
+   (legacy&&(id.startsWith('maternalProfile')||
+   ['maternalWeightTime','maternalWeightNote','maternalWeightPregnancy','maternalWeightPostpartum'].includes(id)))?null:get(id),
   createElement:element,addEventListener(name,callback){handlers[name]=callback;},
  };
  const panel=weight.mount({
@@ -614,6 +633,157 @@ test('R2-04: refresh and account switching use only the current verified snapsho
  assert.equal(f.b('TodayStatus').textContent,'今日已记录 · 2 次');
  assert.equal(f.b('Trend').children[29].dataset.count,'2');
  assert.equal(f.b('WeekWarning').textContent,'');
+});
+
+const mountedCategories=(items=[],options)=>mountedWeights(items,{
+ categoryTabs:true,constipationFactory:require('../preview/v1.3.0/maternal-constipation.js').mount,...options
+});
+function assertCategory(f,active){
+ for(const name of ['Weight','Bowel']){
+  const selected=name===active;
+  const tab=f.get('maternal'+name+'Tab');
+  assert.equal(tab.getAttribute('aria-selected'),String(selected));
+  assert.equal(tab.tabIndex,selected?0:-1);
+  assert.equal(f.get('maternal'+name+'Category').hidden,!selected);
+ }
+}
+
+test('R2-05: categories initialize to weight and clicks update visibility and ARIA both ways',async()=>{
+ const f=await mountedCategories();
+ assertCategory(f,'Weight');
+ f.get('maternalBowelTab').handlers.click();
+ assertCategory(f,'Bowel');
+ f.get('maternalWeightTab').handlers.click();
+ assertCategory(f,'Weight');
+});
+
+test('R2-05: left and right arrow keys move focus and select with wraparound',async()=>{
+ const f=await mountedCategories();
+ const weightTab=f.get('maternalWeightTab'),bowelTab=f.get('maternalBowelTab');
+ let focused,prevented=0;
+ weightTab.focus=()=>{focused=weightTab;};
+ bowelTab.focus=()=>{focused=bowelTab;};
+ const key=(tab,name)=>tab.handlers.keydown({key:name,preventDefault(){prevented++;}});
+ key(weightTab,'ArrowRight');
+ assert.equal(focused,bowelTab);
+ assertCategory(f,'Bowel');
+ key(bowelTab,'ArrowRight');
+ assert.equal(focused,weightTab);
+ assertCategory(f,'Weight');
+ key(weightTab,'ArrowLeft');
+ assert.equal(focused,bowelTab);
+ assertCategory(f,'Bowel');
+ key(bowelTab,'ArrowLeft');
+ assert.equal(focused,weightTab);
+ assertCategory(f,'Weight');
+ assert.equal(prevented,4);
+});
+
+test('R2-05: switching categories preserves all four unsaved weight fields',async()=>{
+ const f=await mountedCategories([first]);
+ const draft={Date:'2026-11-19',Time:'09:05',Jin:'103',Note:'synthetic weight draft'};
+ for(const [name,value] of Object.entries(draft))f.get('maternalWeight'+name).value=value;
+ f.get('maternalWeightForm').handlers.input();
+ f.get('maternalBowelTab').handlers.click();
+ f.get('maternalWeightTab').handlers.click();
+ for(const [name,value] of Object.entries(draft))assert.equal(f.get('maternalWeight'+name).value,value);
+ assert.equal(f.canPullRefresh(),false);
+});
+
+test('R2-05: switching preserves a new bowel draft and its Bristol selection',async()=>{
+ const f=await mountedCategories();
+ const b=name=>f.get('maternalConstipation'+name);
+ f.get('maternalBowelTab').handlers.click();
+ b('DidDefecate').value='true';
+ b('DidDefecate').handlers.change();
+ b('StoolType').value='5';
+ b('Note').value='synthetic bowel draft';
+ b('Form').handlers.input();
+ f.get('maternalWeightTab').handlers.click();
+ f.get('maternalBowelTab').handlers.click();
+ assert.equal(b('Heading').textContent,'每日排便记录');
+ assert.equal(b('Count').value,'1');
+ assert.equal(b('StoolType').value,'5');
+ assert.equal(b('Note').value,'synthetic bowel draft');
+ assert.equal(f.canPullRefresh(),false);
+});
+
+test('R2-05: switching preserves bowel edit mode and saves against the original ID',async()=>{
+ const f=await mountedCategories([recordedBowel]);
+ const b=name=>f.get('maternalConstipation'+name);
+ f.get('maternalBowelTab').handlers.click();
+ b('History').querySelectorAll('button')[0].handlers.click();
+ b('Note').value='synthetic edit draft';
+ f.get('maternalWeightTab').handlers.click();
+ f.get('maternalBowelTab').handlers.click();
+ assert.equal(b('Heading').textContent,'编辑排便记录');
+ assert.equal(b('Save').textContent,'保存修改');
+ assert.equal(b('Cancel').hidden,false);
+ assert.equal(b('Note').value,'synthetic edit draft');
+ await b('Form').handlers.submit({preventDefault(){}});
+ assert.deepEqual(f.queued[0].nextBody.items,[{...recordedBowel,note:'synthetic edit draft'}]);
+});
+
+test('R2-05: quick entry activates the correct category before focusing and scrolling to its form',async()=>{
+ const f=await mountedCategories();
+ for(const [key,category,formId] of [
+  ['bowel','Bowel','maternalConstipationForm'],['weight','Weight','maternalWeightForm']
+ ]){
+  const form=f.get(formId),steps=[];
+  form.focus=options=>{
+   assertCategory(f,category);
+   assert.deepEqual(options,{preventScroll:true});
+   steps.push('focus');
+  };
+  form.scrollIntoView=options=>{
+   assert.deepEqual(options,{block:'start'});
+   steps.push('scroll');
+  };
+  f.get('shortcut-'+key).handlers.click({preventDefault(){steps.push('prevent');}});
+  assert.deepEqual(steps,['prevent','focus','scroll']);
+ }
+});
+
+test('R2-05: category switching leaves rendered nodes, cloud operations and revision untouched',async()=>{
+ const f=await mountedCategories([first,recordedBowel]);
+ const weightRows=f.rows.children;
+ const bowelHistory=f.get('maternalConstipationHistory').children;
+ const bowelTrend=f.get('maternalConstipationTrend').children;
+ const {reads,sends,revision}=f;
+ f.get('maternalBowelTab').handlers.click();
+ f.get('maternalWeightTab').handlers.click();
+ assert.equal(f.rows.children,weightRows);
+ assert.equal(f.get('maternalConstipationHistory').children,bowelHistory);
+ assert.equal(f.get('maternalConstipationTrend').children,bowelTrend);
+ assert.equal(f.reads,reads);
+ assert.equal(f.sends,sends);
+ assert.equal(f.revision,revision);
+ assert.equal(f.queued.length,0);
+});
+
+test('R2-05: common refresh and receipt verification keep working in the bowel category',async()=>{
+ const f=await mountedCategories([],{profile:{prePregnancyWeightKg:48}});
+ const {reads}=f;
+ f.get('maternalBowelTab').handlers.click();
+ await f.refresh();
+ assert.equal(f.reads,reads+1);
+ assert.equal(f.get('maternalProfileJin').value,'96');
+ assertCategory(f,'Bowel');
+ f.get('maternalWeightTab').handlers.click();
+ f.jin.value='103';
+ f.setOutcome('UNKNOWN');
+ await f.submit();
+ const recover=f.get('maternalWeightRecover');
+ assert.equal(recover.hidden,false);
+ f.get('maternalBowelTab').handlers.click();
+ assert.equal(recover.hidden,false);
+ f.setOutcome('COMMITTED');
+ await recover.handlers.click();
+ assert.equal(f.queued.length,1);
+ assert.equal(f.sends,2);
+ assert.equal(f.revision,6);
+ assert.equal(recover.hidden,true);
+ assertCategory(f,'Bowel');
 });
 
 test('bowel Save follows the verified read, storage, pending receipt and account state',async()=>{

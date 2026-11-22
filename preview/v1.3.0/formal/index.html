@@ -125,7 +125,12 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
 #maternal-health .maternal-jumps{display:flex;flex-wrap:wrap;gap:8px}
 #maternal-health .maternal-jumps a{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:#fff;text-decoration:none;font-size:13px;font-weight:700}
 #maternalWeightForm,#maternalConstipationForm{scroll-margin-top:16px}
-#maternal-health .maternal-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.65fr);align-items:start;gap:14px;margin-bottom:14px}
+#maternal-health .maternal-common{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:16px;margin-bottom:12px}
+#maternal-health .maternal-cloud-actions{min-width:0;border-left:1px solid var(--line);padding-left:16px}
+#maternal-health .maternal-category-tabs{display:flex;gap:4px;width:max-content;max-width:100%;overflow-x:auto;margin-bottom:12px;padding:4px;border-radius:12px;background:#eaeef5}
+#maternal-health .maternal-category-tab{flex:0 0 auto;padding:8px 16px;min-width:112px;min-height:44px;border:0;border-radius:9px;background:transparent;color:#515c71;font:inherit;font-weight:750;white-space:nowrap}
+#maternal-health .maternal-category-tab[aria-selected="true"]{background:var(--deep);color:#fff}
+#maternal-health .maternal-category-tab:focus-visible{outline-offset:-3px;outline-color:currentColor}
 #maternal-health .maternal-card{min-width:0;padding:18px}
 #maternal-health .maternal-wide-card{margin-bottom:14px}
 #maternal-health .maternal-card h3{font-size:16px;margin:0 0 12px}
@@ -180,7 +185,6 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
 #maternalWeightTable td:nth-child(4){white-space:pre-wrap;overflow-wrap:anywhere}
 #maternalWeightTable td:last-child .btn{margin:2px 6px 2px 0}
 #maternalWeightTable [data-delete-weight]{color:var(--red)}
-#maternal-health .maternal-bowel-stats{margin-top:14px}
 #maternal-health .maternal-bowel-stats-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin-bottom:8px}
 #maternal-health .maternal-bowel-stats-heading h3{margin:0}
 #maternal-health .maternal-bowel-today{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
@@ -219,7 +223,8 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
  #maternal-health .maternal-bowel-layout{grid-template-columns:minmax(0,1fr)}
 }
 @media(max-width:720px){
- #maternal-health .maternal-columns{grid-template-columns:minmax(0,1fr);gap:12px;margin-bottom:12px}
+ #maternal-health .maternal-common{grid-template-columns:minmax(0,1fr);gap:12px}
+ #maternal-health .maternal-cloud-actions{border-left:0;border-top:1px solid var(--line);padding:10px 0 0}
  #maternal-health .maternal-wide-card{margin-bottom:12px}
 }
 @media(max-width:600px){
@@ -511,12 +516,12 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
       <header class="maternal-heading">
         <h2>妈妈健康</h2>
         <nav class="maternal-jumps" aria-label="妈妈健康录入">
-          <a href="#maternalWeightForm">记录体重</a>
-          <a href="#maternalConstipationForm">记录排便</a>
+          <a href="#maternalWeightForm" data-maternal-entry="weight">记录体重</a>
+          <a href="#maternalConstipationForm" data-maternal-entry="bowel">记录排便</a>
         </nav>
       </header>
-      <div class="maternal-columns">
-        <div class="card maternal-card maternal-profile">
+      <div id="maternalCommon" class="card maternal-card maternal-profile maternal-common">
+        <div>
           <div class="maternal-profile-heading">
             <h3 class="section-title">妈妈健康档案</h3>
             <strong id="maternalProfileStage" aria-live="polite">未关联宝宝资料</strong>
@@ -535,8 +540,24 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
           </form>
           <p class="maternal-status" id="maternalProfileStatus" role="status" aria-live="polite">尚未读取妈妈健康档案。</p>
         </div>
-        <div class="card maternal-card">
-          <form id="maternalWeightForm" aria-labelledby="maternalWeightHeading" novalidate>
+        <div class="maternal-cloud-actions">
+          <h3 class="section-title">云端同步</h3>
+          <p class="maternal-status" id="maternalWeightStatus" role="status" aria-live="polite">尚未读取云端体重记录。</p>
+          <div class="maternal-actions">
+            <button id="maternalWeightRefresh" class="btn secondary sm" type="button">刷新云端记录</button>
+            <button id="maternalWeightRecover" class="btn secondary sm" type="button" hidden>核验待确认保存</button>
+            <button id="maternalWeightArchive" class="btn ghost sm" type="button" hidden>放弃旧冲突请求</button>
+            <button id="maternalHealthBack" class="btn ghost sm" type="button">查看宝宝业务状态</button>
+          </div>
+        </div>
+      </div>
+      <div id="maternalCategoryTabs" class="maternal-category-tabs" role="tablist" aria-label="妈妈健康分类">
+        <button id="maternalWeightTab" class="maternal-category-tab" type="button" role="tab" data-maternal-category="weight" aria-controls="maternalWeightCategory" aria-selected="true" tabindex="0">体重记录</button>
+        <button id="maternalBowelTab" class="maternal-category-tab" type="button" role="tab" data-maternal-category="bowel" aria-controls="maternalBowelCategory" aria-selected="false" tabindex="-1">排便记录</button>
+      </div>
+      <div id="maternalWeightCategory" role="tabpanel" aria-labelledby="maternalWeightTab">
+        <div class="card maternal-card maternal-wide-card">
+          <form id="maternalWeightForm" aria-labelledby="maternalWeightHeading" tabindex="-1" novalidate>
             <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
             <div class="maternal-fields">
               <label class="field">测量日期<input id="maternalWeightDate" type="date" required></label>
@@ -552,111 +573,106 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
               <button id="maternalWeightCancel" class="btn ghost" type="button" hidden>取消编辑</button>
             </div>
           </form>
-          <p class="maternal-status" id="maternalWeightStatus" role="status" aria-live="polite">尚未读取云端体重记录。</p>
-          <div class="maternal-actions">
-            <button id="maternalWeightRefresh" class="btn secondary sm" type="button">刷新云端记录</button>
-            <button id="maternalWeightRecover" class="btn secondary sm" type="button" hidden>核验待确认保存</button>
-            <button id="maternalWeightArchive" class="btn ghost sm" type="button" hidden>放弃旧冲突请求</button>
-            <button id="maternalHealthBack" class="btn ghost sm" type="button">查看宝宝业务状态</button>
-          </div>
         </div>
-      </div>
-      <div class="card maternal-card maternal-wide-card">
-        <div class="maternal-trend-heading">
-          <h3 class="section-title">体重趋势（斤）</h3>
-          <div class="maternal-trend-controls">
-            <div class="maternal-stage-selector" role="group" aria-label="趋势和历史记录的阶段">
-              <button id="maternalWeightPregnancy" class="btn ghost sm" type="button" aria-pressed="true">孕期</button>
-              <button id="maternalWeightPostpartum" class="btn ghost sm" type="button" aria-pressed="false" hidden>产后</button>
-            </div>
-            <div id="maternalWeightPeriods" class="maternal-stage-selector" role="group" aria-label="趋势周期">
-              <button class="btn ghost sm" type="button" data-period="day" aria-pressed="false">日</button>
-              <button class="btn ghost sm" type="button" data-period="week" aria-pressed="false">周</button>
-              <button class="btn ghost sm" type="button" data-period="month" aria-pressed="false">月</button>
-              <button class="btn ghost sm" type="button" data-period="all" aria-pressed="true">全部</button>
+        <div class="card maternal-card maternal-wide-card">
+          <div class="maternal-trend-heading">
+            <h3 class="section-title">体重趋势（斤）</h3>
+            <div class="maternal-trend-controls">
+              <div class="maternal-stage-selector" role="group" aria-label="趋势和历史记录的阶段">
+                <button id="maternalWeightPregnancy" class="btn ghost sm" type="button" aria-pressed="true">孕期</button>
+                <button id="maternalWeightPostpartum" class="btn ghost sm" type="button" aria-pressed="false" hidden>产后</button>
+              </div>
+              <div id="maternalWeightPeriods" class="maternal-stage-selector" role="group" aria-label="趋势周期">
+                <button class="btn ghost sm" type="button" data-period="day" aria-pressed="false">日</button>
+                <button class="btn ghost sm" type="button" data-period="week" aria-pressed="false">周</button>
+                <button class="btn ghost sm" type="button" data-period="month" aria-pressed="false">月</button>
+                <button class="btn ghost sm" type="button" data-period="all" aria-pressed="true">全部</button>
+              </div>
             </div>
           </div>
+          <dl class="maternal-trend-stats">
+            <div><dt>最新体重</dt><dd class="maternal-trend-value" id="maternalWeightLatest">尚未读取体重记录</dd>
+              <dd class="fine" id="maternalWeightLatestDate" hidden></dd></div>
+            <div><dt>较上一条</dt><dd class="maternal-trend-value" id="maternalWeightDelta">暂无可比较记录</dd>
+              <dd class="fine" id="maternalWeightPreviousDate" hidden></dd></div>
+          </dl>
+          <div id="maternalWeightChart" class="empty">尚未读取体重记录</div>
         </div>
-        <dl class="maternal-trend-stats">
-          <div><dt>最新体重</dt><dd class="maternal-trend-value" id="maternalWeightLatest">尚未读取体重记录</dd>
-            <dd class="fine" id="maternalWeightLatestDate" hidden></dd></div>
-          <div><dt>较上一条</dt><dd class="maternal-trend-value" id="maternalWeightDelta">暂无可比较记录</dd>
-            <dd class="fine" id="maternalWeightPreviousDate" hidden></dd></div>
-        </dl>
-        <div id="maternalWeightChart" class="empty">尚未读取体重记录</div>
-      </div>
-      <div class="card maternal-card">
-        <h3 class="section-title">体重历史记录</h3>
-        <div id="maternalWeightEmpty" class="empty">尚未读取体重记录</div>
-        <div id="maternalWeightTable" class="table-wrap" hidden>
-          <table class="tbl" role="table">
-            <thead><tr><th scope="col">测量日期</th><th scope="col">时间</th><th scope="col">体重（斤）</th><th scope="col">备注</th><th scope="col">操作</th></tr></thead>
-            <tbody id="maternalWeightRows"></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="card maternal-card maternal-bowel-stats">
-        <div class="maternal-bowel-stats-heading">
-          <h3 class="section-title">排便统计</h3>
-          <div class="maternal-bowel-today">
-            <p id="maternalConstipationTodayStatus" role="status">尚未读取云端排便记录。</p>
-            <button id="maternalConstipationTodayEntry" class="btn secondary sm" type="button" hidden>录入今日排便</button>
+        <div class="card maternal-card">
+          <h3 class="section-title">体重历史记录</h3>
+          <div id="maternalWeightEmpty" class="empty">尚未读取体重记录</div>
+          <div id="maternalWeightTable" class="table-wrap" hidden>
+            <table class="tbl" role="table">
+              <thead><tr><th scope="col">测量日期</th><th scope="col">时间</th><th scope="col">体重（斤）</th><th scope="col">备注</th><th scope="col">操作</th></tr></thead>
+              <tbody id="maternalWeightRows"></tbody>
+            </table>
           </div>
         </div>
-        <dl class="maternal-trend-stats">
-          <div><dt>连续未排便</dt><dd id="maternalConstipationStreak" class="maternal-trend-value">—</dd>
-            <dd id="maternalConstipationStreakNote" class="fine maternal-bowel-stat-note"></dd></div>
-          <div><dt>最近 7 天排便次数</dt><dd id="maternalConstipationWeekTotal" class="maternal-trend-value">—</dd>
-            <dd id="maternalConstipationWeekNote" class="fine maternal-bowel-stat-note"></dd>
-            <dd id="maternalConstipationWeekWarning" class="fine maternal-bowel-stat-note"></dd></div>
-        </dl>
-        <h4>最近 30 天排便趋势</h4>
-        <div id="maternalConstipationTrend" role="group" aria-label="每日排便次数，按日期从早到晚" hidden></div>
-        <p id="maternalConstipationTrendDetail" class="maternal-bowel-chart-note" role="status"></p>
-        <p class="maternal-help maternal-bowel-chart-note">3+ 为 3 次及以上，– 为未记录，× 为同日多条，? 为次数未明确。</p>
       </div>
-      <div class="maternal-bowel-layout">
-        <form id="maternalConstipationForm" class="card maternal-card" aria-labelledby="maternalConstipationHeading" novalidate>
-          <h3 class="section-title" id="maternalConstipationHeading">每日排便记录</h3>
-          <div class="maternal-bowel-fields">
-            <label class="field maternal-bowel-date">日期<input id="maternalConstipationDate" type="date" disabled></label>
-            <label class="field">是否排便
-              <select id="maternalConstipationDidDefecate" disabled><option value="">未记录</option><option value="true">是</option><option value="false">否</option></select>
-            </label>
-            <label class="field">排便次数
-              <select id="maternalConstipationCount" disabled><option value="">未记录</option><option value="0">0 次</option><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次及以上</option></select>
-            </label>
-            <div class="field maternal-field-wide">
-              <label for="maternalConstipationStoolType">Bristol 大便性状（可选）</label>
-              <select id="maternalConstipationStoolType" aria-describedby="maternalConstipationStoolHelp" disabled><option value="">不记录</option><option value="1">1 型</option><option value="2">2 型</option><option value="3">3 型</option><option value="4">4 型</option><option value="5">5 型</option><option value="6">6 型</option><option value="7">7 型</option></select>
-              <span id="maternalConstipationStoolHelp" class="maternal-help">记录当天最有代表性的大便性状，不填写也不影响保存。</span>
+      <div id="maternalBowelCategory" role="tabpanel" aria-labelledby="maternalBowelTab" hidden>
+        <div class="card maternal-card maternal-bowel-stats">
+          <div class="maternal-bowel-stats-heading">
+            <h3 class="section-title">排便统计</h3>
+            <div class="maternal-bowel-today">
+              <p id="maternalConstipationTodayStatus" role="status">尚未读取云端排便记录。</p>
+              <button id="maternalConstipationTodayEntry" class="btn secondary sm" type="button" hidden>录入今日排便</button>
             </div>
-            <label class="field">排便困难
-              <select id="maternalConstipationDifficulty" disabled><option value="">未记录</option><option value="none">无</option><option value="mild">轻微</option><option value="moderate">中度</option><option value="severe">严重</option></select>
-            </label>
-            <label class="field">腹胀
-              <select id="maternalConstipationBloating" disabled><option value="">未记录</option><option value="none">无</option><option value="mild">轻微</option><option value="moderate">中度</option><option value="severe">严重</option></select>
-            </label>
-            <label class="field">腹痛
-              <select id="maternalConstipationPain" disabled><option value="">未记录</option><option value="false">无</option><option value="true">有</option></select>
-            </label>
-            <label class="field">饮水情况（可选）
-              <select id="maternalConstipationWater" disabled><option value="">不记录</option><option value="lt_500">少于 500 ml</option><option value="500_999">500～999 ml</option><option value="1000_1499">1000～1499 ml</option><option value="1500_1999">1500～1999 ml</option><option value="2000_plus">2000 ml 及以上</option></select>
-            </label>
-            <label class="field maternal-bowel-note">备注（可选）<textarea id="maternalConstipationNote" rows="2" disabled></textarea></label>
           </div>
-          <div class="maternal-actions maternal-primary-actions">
-            <button id="maternalConstipationSave" class="btn" type="submit" disabled>保存排便记录</button>
-            <button id="maternalConstipationCancel" class="btn ghost" type="button" hidden>取消编辑</button>
+          <dl class="maternal-trend-stats">
+            <div><dt>连续未排便</dt><dd id="maternalConstipationStreak" class="maternal-trend-value">—</dd>
+              <dd id="maternalConstipationStreakNote" class="fine maternal-bowel-stat-note"></dd></div>
+            <div><dt>最近 7 天排便次数</dt><dd id="maternalConstipationWeekTotal" class="maternal-trend-value">—</dd>
+              <dd id="maternalConstipationWeekNote" class="fine maternal-bowel-stat-note"></dd>
+              <dd id="maternalConstipationWeekWarning" class="fine maternal-bowel-stat-note"></dd></div>
+          </dl>
+          <h4>最近 30 天排便趋势</h4>
+          <div id="maternalConstipationTrend" role="group" aria-label="每日排便次数，按日期从早到晚" hidden></div>
+          <p id="maternalConstipationTrendDetail" class="maternal-bowel-chart-note" role="status"></p>
+          <p class="maternal-help maternal-bowel-chart-note">3+ 为 3 次及以上，– 为未记录，× 为同日多条，? 为次数未明确。</p>
+        </div>
+        <div class="maternal-bowel-layout">
+          <form id="maternalConstipationForm" class="card maternal-card" aria-labelledby="maternalConstipationHeading" tabindex="-1" novalidate>
+            <h3 class="section-title" id="maternalConstipationHeading">每日排便记录</h3>
+            <div class="maternal-bowel-fields">
+              <label class="field maternal-bowel-date">日期<input id="maternalConstipationDate" type="date" disabled></label>
+              <label class="field">是否排便
+                <select id="maternalConstipationDidDefecate" disabled><option value="">未记录</option><option value="true">是</option><option value="false">否</option></select>
+              </label>
+              <label class="field">排便次数
+                <select id="maternalConstipationCount" disabled><option value="">未记录</option><option value="0">0 次</option><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次及以上</option></select>
+              </label>
+              <div class="field maternal-field-wide">
+                <label for="maternalConstipationStoolType">Bristol 大便性状（可选）</label>
+                <select id="maternalConstipationStoolType" aria-describedby="maternalConstipationStoolHelp" disabled><option value="">不记录</option><option value="1">1 型</option><option value="2">2 型</option><option value="3">3 型</option><option value="4">4 型</option><option value="5">5 型</option><option value="6">6 型</option><option value="7">7 型</option></select>
+                <span id="maternalConstipationStoolHelp" class="maternal-help">记录当天最有代表性的大便性状，不填写也不影响保存。</span>
+              </div>
+              <label class="field">排便困难
+                <select id="maternalConstipationDifficulty" disabled><option value="">未记录</option><option value="none">无</option><option value="mild">轻微</option><option value="moderate">中度</option><option value="severe">严重</option></select>
+              </label>
+              <label class="field">腹胀
+                <select id="maternalConstipationBloating" disabled><option value="">未记录</option><option value="none">无</option><option value="mild">轻微</option><option value="moderate">中度</option><option value="severe">严重</option></select>
+              </label>
+              <label class="field">腹痛
+                <select id="maternalConstipationPain" disabled><option value="">未记录</option><option value="false">无</option><option value="true">有</option></select>
+              </label>
+              <label class="field">饮水情况（可选）
+                <select id="maternalConstipationWater" disabled><option value="">不记录</option><option value="lt_500">少于 500 ml</option><option value="500_999">500～999 ml</option><option value="1000_1499">1000～1499 ml</option><option value="1500_1999">1500～1999 ml</option><option value="2000_plus">2000 ml 及以上</option></select>
+              </label>
+              <label class="field maternal-bowel-note">备注（可选）<textarea id="maternalConstipationNote" rows="2" disabled></textarea></label>
+            </div>
+            <div class="maternal-actions maternal-primary-actions">
+              <button id="maternalConstipationSave" class="btn" type="submit" disabled>保存排便记录</button>
+              <button id="maternalConstipationCancel" class="btn ghost" type="button" hidden>取消编辑</button>
+            </div>
+            <p id="maternalConstipationBlocker" class="maternal-status" role="status">等待家庭账号验证完成。</p>
+            <p id="maternalConstipationStatus" class="maternal-status" role="status" aria-live="polite"></p>
+          </form>
+          <div class="card maternal-card maternal-bowel-history">
+            <h3 class="section-title">排便历史记录</h3>
+            <p id="maternalConstipationWarning" class="maternal-status" role="status" hidden></p>
+            <div id="maternalConstipationEmpty" class="empty">尚未读取云端排便记录。</div>
+            <ul id="maternalConstipationHistory" aria-label="排便历史记录"></ul>
           </div>
-          <p id="maternalConstipationBlocker" class="maternal-status" role="status">等待家庭账号验证完成。</p>
-          <p id="maternalConstipationStatus" class="maternal-status" role="status" aria-live="polite"></p>
-        </form>
-        <div class="card maternal-card maternal-bowel-history">
-          <h3 class="section-title">排便历史记录</h3>
-          <p id="maternalConstipationWarning" class="maternal-status" role="status" hidden></p>
-          <div id="maternalConstipationEmpty" class="empty">尚未读取云端排便记录。</div>
-          <ul id="maternalConstipationHistory" aria-label="排便历史记录"></ul>
         </div>
       </div>
     </section>

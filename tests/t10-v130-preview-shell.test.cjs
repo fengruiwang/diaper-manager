@@ -78,6 +78,58 @@ test('maternal layout keeps the profile and weight controls wired to their origi
   assert.match(tags, /<table class="tbl" role="table">[\s\S]*?<tbody id="maternalWeightRows">/);
 });
 
+test('R2-05 keeps the maternal profile and sync controls above both categories', () => {
+  const tags = markup(preview);
+  const layout = tags.match(/<div id="maternalCommon"[\s\S]*?(?=^    <\/section>)/m)?.[0] ?? '';
+  const [common, classified] = layout.split('<div id="maternalCategoryTabs"');
+  const [weight, bowel] = (classified ?? '').split('<div id="maternalBowelCategory"');
+  const includesIds = (region, ids) => {
+    for (const id of ids) assert.ok(region.includes('id="' + id + '"'), 'Missing ' + id);
+  };
+  includesIds(common, ['maternalProfileForm', 'maternalProfileStage', 'maternalProfileDue',
+    'maternalProfileDelivery', 'maternalProfileSave', 'maternalProfileStatus', 'maternalWeightRefresh',
+    'maternalWeightRecover', 'maternalWeightArchive', 'maternalHealthBack', 'maternalWeightStatus']);
+  includesIds(weight, ['maternalWeightForm', 'maternalWeightPregnancy', 'maternalWeightPostpartum',
+    'maternalWeightPeriods', 'maternalWeightLatest', 'maternalWeightDelta', 'maternalWeightChart',
+    'maternalWeightRows']);
+  includesIds(bowel, ['maternalConstipationStreak', 'maternalConstipationWeekTotal',
+    'maternalConstipationTrend', 'maternalConstipationTodayStatus', 'maternalConstipationForm',
+    'maternalConstipationStoolType', 'maternalConstipationHistory']);
+  assert.doesNotMatch(classified, /id="maternal(?:ProfileForm|WeightRefresh|WeightRecover|WeightArchive|HealthBack|WeightStatus)"/);
+  assert.doesNotMatch(weight, /id="maternalConstipation/);
+  assert.doesNotMatch(bowel, /id="maternalWeight/);
+});
+
+test('R2-05 internal tabs use reciprocal ARIA and stay isolated from the root navigation', () => {
+  const tags = markup(preview);
+  const tablist = tags.match(/<div id="maternalCategoryTabs"[^>]*>[\s\S]*?<\/div>/)?.[0] ?? '';
+  assert.match(tablist, /role="tablist" aria-label="妈妈健康分类"/);
+  assert.doesNotMatch(tablist, /\bdata-tab=|class="(?:[^"]* )?tab(?: |")/);
+  assert.equal(Array.from(tablist.matchAll(/role="tab"/g)).length, 2);
+  for (const [name, category, selected, tabIndex, hidden, form] of [
+    ['Weight', 'weight', true, 0, '', 'maternalWeightForm'],
+    ['Bowel', 'bowel', false, -1, ' hidden', 'maternalConstipationForm'],
+  ]) {
+    assert.match(tablist, new RegExp('id="maternal' + name + 'Tab"[^>]*role="tab" data-maternal-category="'
+      + category + '" aria-controls="maternal' + name + 'Category" aria-selected="' + selected
+      + '" tabindex="' + tabIndex + '"'));
+    assert.ok(tags.includes('<div id="maternal' + name + 'Category" role="tabpanel" aria-labelledby="maternal'
+      + name + 'Tab"' + hidden + '>'));
+    assert.ok(tags.includes('href="#' + form + '" data-maternal-entry="' + category + '"'));
+    assert.match(tags, new RegExp('<form id="' + form + '"[^>]*tabindex="-1"'));
+  }
+});
+
+test('R2-05 retains every reviewed DOM ID and has no duplicate IDs', () => {
+  const ids = html => Array.from(markup(html).matchAll(/\bid="([^"]+)"/g), match => match[1]);
+  const baseline = execFileSync('git', ['show', '74773093b1d9ac83638e0bca8754a71a7a8572b5:' + entry], {
+    cwd: root, encoding: 'utf8',
+  });
+  const current = ids(preview);
+  assert.equal(new Set(current).size, current.length);
+  for (const id of ids(baseline)) assert.ok(current.includes(id), 'Missing existing ID ' + id);
+});
+
 test('V1.3.0 loads existing sync and weight scripts before its write-enabled formal controller', () => {
   const pageUrl = new URL('/' + entry.replace(/index\.html$/, ''), 'http://localhost:8000');
   const files = [
