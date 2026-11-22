@@ -1,4 +1,4 @@
-/* V1.2.0 candidate PWA shell. No localStorage/IndexedDB mutation or fake backup controls. */
+/* V1.3.0 stable PWA shell. No localStorage/IndexedDB mutation or fake backup controls. */
 (() => {
  'use strict';
  const el=id=>document.getElementById(id);
