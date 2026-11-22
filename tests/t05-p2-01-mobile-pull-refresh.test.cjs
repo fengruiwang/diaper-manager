@@ -4,6 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const Formal=require('../preview/v1.2.0/formal-controller.js');
+const Formal130=require('../preview/v1.3.0/formal-controller.js');
 const Actions=require('../sync/primary-formal-ui-actions.js');
 const Projection=require('../sync/primary-ui-projection.js');
 
@@ -29,7 +30,7 @@ function cloudModel(scope){
   livePurchases:[],liveUses:[]
  };
 }
-function harness({session=true,connectResult=null,offline=false,
+function harness({session=true,connectResult=null,offline=false,formal=Formal,maternal,primaryUnavailable=false,
  readError=false,baselineStatus='PRIMARY_LOCAL_BASELINE_SYNCED',hold=[],mobile=true,
  cached=null,cloudInventory=null,sharedStock=null,touchMedia=true}={}){
  const scope={familyId:FAMILY,childId:CHILD_A,actorUid:'actor-A'};
@@ -39,7 +40,7 @@ function harness({session=true,connectResult=null,offline=false,
   connectStatus=connectResult,networkOnline=!offline,
   currentView=null,actions=null,submitted=0,readCount=0,activateCount=0,
   baselineCount=0,loginCount=0,clears=0,currentBaselineStatus=baselineStatus,
-  cacheReads=0;
+  cacheReads=0,uuidCalls=0,activePanel='overview';
  let businessBusy=false,actionCallbacks=null,clockOffset=0,
   pollCount=0,pollFail=false,pollResponse=null,pendingOut=0,
   activatedPrimary=null;
@@ -63,7 +64,7 @@ function harness({session=true,connectResult=null,offline=false,
  const item=id=>{
   if(!elements.has(id)){
    const node={id,value:'',hidden:false,disabled:false,dataset:{},
-    style:{},classList:{contains:()=>false},
+    style:{},classList:{contains:name=>name==='active'&&id===activePanel},
     addEventListener(type,fn){listeners.set(id+':'+type,fn);},
     removeEventListener(){},closest(){return this;},
     querySelectorAll(){return [];},querySelector(){return null;}};
@@ -105,7 +106,7 @@ function harness({session=true,connectResult=null,offline=false,
   navigator:{get onLine(){return networkOnline;},maxTouchPoints:mobile?5:0},
   matchMedia:()=>({matches:mobile&&touchMedia}),scrollY:0,
   location:{reload(){throw Error('FORBIDDEN_PAGE_RELOAD');}},
-  crypto:{randomUUID:()=> '04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2'},
+  crypto:{randomUUID:()=>{uuidCalls++;return '04e4577d-8a3d-4dd1-a7d3-71f6f8eb07f2';}},
   Date:{now:time},Intl,console,setTimeout,clearTimeout,
   setInterval:setTestInterval,clearInterval:clearTestInterval,
   addEventListener(type,fn){listeners.set('host:'+type,fn);},
@@ -155,11 +156,13 @@ function harness({session=true,connectResult=null,offline=false,
   show(view){currentView=view;events.push('ui.show');},
   clear(){currentView=null;clears++;events.push('ui.clear');}
  };
- const app=Formal.create({
+ const app=formal.create({
   host,doc,loginController:{create:()=>login},
+  maternalWeightFactory:maternal?()=>maternal:undefined,
   readModelFactory:()=>({read:async()=>{
    readCount++;await pause('read');
    if(failRead)throw failRead instanceof Error?failRead:Error('synthetic cloud read failure');
+   if(primaryUnavailable)return {status:'PRIMARY_NOT_READY'};
    const data=cloudModel(scope);
    if(cloudInventory)data.inventory={...data.inventory,...cloudInventory};
    if(sharedStock){
@@ -254,6 +257,12 @@ function harness({session=true,connectResult=null,offline=false,
   consumeBaseline(){return actionCallbacks?.readConsumeBaseline?.();},
   get loginCount(){return loginCount;},
   get submitted(){return submitted;},
+  get uuidCalls(){return uuidCalls;},
+  selectPanel(id){
+   activePanel=id;
+   if(id==='maternal-health'&&primaryUnavailable)doc.body.dataset.formalMaternalOnly='true';
+   else delete doc.body.dataset.formalMaternalOnly;
+  },
   get clears(){return clears;},
   hold(name){pauses.add(name);},
   async release(name){
@@ -298,7 +307,8 @@ function touch(h,{dy=100,dx=0,target=null,finishDy=dy,
   touches:Array.from({length:fingers},(_,i)=>t(x+dx+i*30,y+dy)),
   cancelable,preventDefault(){prevented++;}
  });
- const phase=h.item('formalNotice').dataset.pullPhase;
+ const bar=h.item('maternal-health').classList.contains('active')?'maternalPullFeedback':'formalNotice';
+ const phase=h.item(bar).dataset.pullPhase;
  if(cancel)h.listeners.get('document:touchcancel')?.({});
  else h.listeners.get('document:touchend')?.({
   changedTouches:[t(x+dx,y+finishDy)]
@@ -310,6 +320,77 @@ async function ready(h){
  await until(()=>/云端数据已更新|上次完整获取/.test(
   h.item('formalSyncState').textContent));
 }
+test('V1.3 maternal top pull shares one refresh and shows standalone feedback without using the baby toolbar',async()=>{
+ let finish,reads=0;
+ const h=harness({formal:Formal130,primaryUnavailable:true,maternal:{
+  setContext(){},canPullRefresh:()=>!finish,
+  refreshCloudRecords:()=>{reads++;return new Promise(resolve=>{finish=resolve;});},
+ }});
+ assert.equal(await h.app.start(),'unverified');
+ h.selectPanel('maternal-health');
+ const feedback=h.item('maternalPullFeedback');
+ assert.deepEqual(touch(h,{dy:84}),{prevented:1,phase:'armed'});
+ assert.equal(feedback.dataset.pullPhase,'refreshing');
+ assert.match(feedback.textContent,/正在获取/);
+ assert.equal(feedback.hidden,false);
+ assert.equal(h.item('formalNotice').dataset.pullPhase,undefined);
+ assert.equal(touch(h,{dy:100}).prevented,0);
+ assert.equal(reads,1);
+ assert.equal(feedback.dataset.pullPhase,'refreshing');
+ finish('partial');finish=null;
+ await until(()=>feedback.dataset.pullPhase==='partial');
+ assert.match(feedback.textContent,/部分数据已刷新/);
+ assert.equal(h.readCount,1);
+ assert.equal(h.uuidCalls,0);
+ assert.equal(h.submitted,0);
+
+ touch(h);h.setOnline(false);finish('success');finish=null;
+ await until(()=>feedback.dataset.pullPhase==='failure');
+ assert.match(feedback.textContent,/失败/);
+});
+
+test('V1.3 maternal gesture rejects invalid swipes and drops feedback after an account switch',async()=>{
+ let finish,pulls=0,draft=false;
+ const h=harness({formal:Formal130,maternal:{
+  setContext(){},canPullRefresh:()=>!draft,
+  refreshCloudRecords:()=>{pulls++;return new Promise(resolve=>{finish=resolve;});},
+ }});
+ await ready(h);
+ h.selectPanel('maternal-health');
+ h.setOnline(false);touch(h);h.setOnline(true);
+ for(const options of [{dy:63},{dx:110},{fingers:2},{cancelable:false},{cancel:true},
+  {target:{closest:selector=>selector.includes('input')?{}:null}},
+  {target:{closest:()=>null,style:{overflowY:'auto'},scrollHeight:300,clientHeight:80}}]){
+  touch(h,options);
+ }
+ h.doc.scrollingElement={scrollTop:4};
+ touch(h);
+ h.doc.scrollingElement.scrollTop=0;
+ draft=true;touch(h);draft=false;
+ assert.equal(pulls,0);
+ assert.equal(touch(h).phase,'armed');
+ h.switchAccount('actor-B',CHILD_B);
+ finish('success');
+ await tick();
+ assert.equal(h.item('maternalPullFeedback').dataset.pullPhase,undefined);
+ assert.equal(h.item('maternalPullFeedback').hidden,true);
+ assert.equal(h.uuidCalls,0);
+ assert.equal(h.submitted,0);
+});
+
+test('V1.3 keeps the complete cloud refresh for all five baby tabs',async()=>{
+ const h=harness({formal:Formal130,maternal:{
+  setContext(){},refreshCloudRecords:()=>assert.fail('baby tab must not refresh maternal records'),
+ }});
+ await ready(h);
+ for(const [index,id] of ['overview','compare','history','growth','settings'].entries()){
+  h.selectPanel(id);
+  assert.equal(touch(h).phase,'armed');
+  await until(()=>h.readCount===index+2&&h.item('formalNotice').dataset.pullPhase==='success');
+ }
+ assert.equal(h.uuidCalls,0);
+ assert.equal(h.submitted,0);
+});
 test('T05-P2-01 Android top pull over threshold triggers one real complete cloud refresh and keeps the home',async()=>{
  const h=harness({hold:[]});await ready(h);
  h.hold('read');

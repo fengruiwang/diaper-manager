@@ -120,6 +120,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
      documentsGuard=null,batchGuard=null;
  let actor=null,family=null,mode='boot',busy=false,revision=0;
  let familyContext=null,maternalWeight=null;
+ let resetMaternalPull=null;
  let maternalDatesRevision=null;
  let shownStock=null,localInventoryBaselineReady=false,cachedPreview=null;
  const BOOT_MESSAGE='正在进入小宝管家…';
@@ -435,6 +436,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    &&found.items.length>0);
  }
  function clear({keepFamily=false}={}){
+  resetMaternalPull?.();
   maternalDatesRevision=null;
   if(keepFamily)maternalWeight?.setBabyDates?.(null);
   else setFamilyContext(null);
@@ -2093,8 +2095,7 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   }
   on('formalRefresh',fetchCloudLatest);
   on('formalGetCloudLatest',fetchCloudLatest);
-  // T05-P2-01: an Android touch entrypoint only; both existing refresh
-  // buttons and this gesture call fetchCloudLatest(), never a second sync.
+  // A single Android touch entrypoint dispatches to the visible page.
   const touchInput=Number(host.navigator?.maxTouchPoints||0)>0
    ||host.matchMedia?.('(any-pointer: coarse)')?.matches===true
    ||host.matchMedia?.('(pointer: coarse)')?.matches===true;
@@ -2105,21 +2106,34 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
   // Only touch gestures remain conditional on the Android pointer capability.
   {
    const threshold=64;
-   let pull=null,pullFeedbackTimer=null;
-   const pullFeedback=(phase)=>{
-    const bar=$('formalNotice');
-    if(!bar?.dataset)return;
-    if(pullFeedbackTimer!==null){
-     (host.clearTimeout||clearTimeout)(pullFeedbackTimer);pullFeedbackTimer=null;
+   let pull=null;
+   const feedbackFor=(id,labels)=>{
+    let timer=null;
+    function show(phase){
+     const bar=$(id);
+     if(!bar?.dataset)return;
+     if(timer!==null){(host.clearTimeout||clearTimeout)(timer);timer=null;}
+     if(phase)bar.dataset.pullPhase=phase;
+     else delete bar.dataset.pullPhase;
+     if(labels){
+      bar.hidden=!phase;
+      bar.textContent=labels[phase]||'';
+     }
+     if(['success','partial','failure'].includes(phase))
+      timer=(host.setTimeout||setTimeout)(()=>{timer=null;show('');},1400);
     }
-    if(phase)bar.dataset.pullPhase=phase;
-    else delete bar.dataset.pullPhase;
-    if(phase==='success'||phase==='failure'){
-     pullFeedbackTimer=(host.setTimeout||setTimeout)(()=>{
-      if(bar.dataset.pullPhase===phase)delete bar.dataset.pullPhase;
-      pullFeedbackTimer=null;
-     },1400);
-    }
+    return show;
+   };
+   const pullFeedback=feedbackFor('formalNotice');
+   const maternalFeedback=feedbackFor('maternalPullFeedback',{
+    pulling:'下拉刷新',armed:'松开刷新',refreshing:'正在获取云端数据…',
+    success:'云端数据已更新',partial:'部分数据已刷新，请查看页面提示',
+    failure:'获取云端数据失败，请重试'
+   });
+   const maternalActive=()=>$('maternal-health')?.classList?.contains('active')===true;
+   resetMaternalPull=()=>{
+    if(pull?.maternal)pull=null;
+    maternalFeedback('');
    };
    // Static inputs survive renderAll(): connectivity alone cannot release
    // unsaved drafts. Ignore filter-only controls, but protect unknown edits.
@@ -2278,14 +2292,19 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
    // Check the scroll position at touchstart only. Android may briefly
    // report a root scroll offset during a finger drag; don't abort that
    // already-qualified gesture. Every other safety gate is rechecked.
-   const safe=(checkTop=true)=>{
-    if(mode!=='ready'||busy||refreshBusy||syncActionBusy
+   const safe=(maternal,checkTop=true)=>{
+    if(busy||refreshBusy||syncActionBusy
       ||(checkTop&&!atTop())
       ||hasPendingPageReview()||attached?.hasActiveBusinessAction?.()
       ||$('formalResolveDocumentConflict')?.hidden===false
       ||$('formalResolveBatchConflict')?.hidden===false
       ||editing())return false;
     const current=controller?.verifiedContext?.();
+    if(maternal)return host.navigator?.onLine!==false
+     &&(mode==='ready'||doc.body.dataset.formalMaternalOnly==='true')
+     &&sameFamilyContext(current)&&current.app===familyContext.app
+     &&maternalWeight?.canPullRefresh?.()===true;
+    if(mode!=='ready')return false;
     const selected=primary?.selectedScope?.();
     return Boolean(actor&&family&&primaryViewBase?.childId
      &&current?.actorUid===actor&&current?.familyId===family
@@ -2307,42 +2326,63 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     return false;
    };
    if(touchInput)doc.addEventListener('touchstart',event=>{
+    if(pull?.maternal)pull.feedback('');
     pull=null;
-    if(event.touches?.length!==1||!safe()
+    const maternal=maternalActive();
+    if(event.touches?.length!==1||!safe(maternal)
       ||exempt(event.target)||innerScroller(event.target))return;
-    pullFeedback('');
+    const feedback=maternal?maternalFeedback:pullFeedback;
+    feedback('');
     const t=event.touches[0];
-    pull={x:t.clientX,y:t.clientY,armed:false};
+    pull={x:t.clientX,y:t.clientY,armed:false,maternal,feedback,
+     epoch:documentEpoch,context:familyContext};
    },{passive:true,capture:true});
+   const samePullScope=gesture=>!gesture.maternal
+    ||(gesture.epoch===documentEpoch&&sameFamilyContext(gesture.context)
+     &&gesture.context.app===familyContext.app);
    if(touchInput)doc.addEventListener('touchmove',event=>{
     if(!pull)return;
-    if(event.touches?.length!==1||!safe(false)){
-     pull=null;pullFeedback('');return;
+    const {feedback,maternal}=pull;
+    if(event.touches?.length!==1||maternal!==maternalActive()||!samePullScope(pull)||!safe(maternal,false)){
+     pull=null;feedback('');return;
     }
     const t=event.touches[0],dy=t.clientY-pull.y;
     const dx=Math.abs(t.clientX-pull.x);
     // Never intercept ordinary upward scrolling or horizontal gestures.
     if(dy<=0||dx>Math.max(12,dy*.75)){
-     pull=null;pullFeedback('');return;
+     pull=null;feedback('');return;
     }
     if(dy<8)return;
     // Avoid a second navigation if the browser has already claimed the
     // gesture. On normal Android touch events passive:false allows cancel.
-    if(!event.cancelable){pull=null;pullFeedback('');return;}
+    if(!event.cancelable){pull=null;feedback('');return;}
     event.preventDefault();
     pull.armed=dy>=threshold;
-    pullFeedback(pull.armed?'armed':'pulling');
+    feedback(pull.armed?'armed':'pulling');
    },{passive:false,capture:true});
    if(touchInput)doc.addEventListener('touchend',event=>{
     const gesture=pull;pull=null;
-    if(!gesture||!gesture.armed||event.changedTouches?.length!==1
-      ||!safe(false)){pullFeedback('');return;}
+    if(!gesture){if(!maternalActive())pullFeedback('');return;}
+    const {feedback,maternal}=gesture;
+    if(!gesture.armed||event.changedTouches?.length!==1
+      ||maternal!==maternalActive()||!samePullScope(gesture)||!safe(maternal,false)){feedback('');return;}
     const t=event.changedTouches[0],dy=t.clientY-gesture.y;
     if(dy<threshold||Math.abs(t.clientX-gesture.x)>dy*.75){
-     pullFeedback('');return;
+     feedback('');return;
     }
-    pullFeedback('refreshing');
-    // The toolbar and the gesture share this one authenticated cloud path.
+    feedback('refreshing');
+    if(maternal){
+     const finish=phase=>{
+      if(!samePullScope(gesture))return;
+      const current=controller.verifiedContext();
+      if(!maternalActive()||!sameFamilyContext(current)||current.app!==gesture.context.app){
+       feedback('');return;
+      }
+      feedback(host.navigator?.onLine===false?'failure':phase||'failure');
+     };
+     void maternalWeight.refreshCloudRecords().then(finish,()=>finish('failure'));
+     return;
+    }
     void fetchCloudLatest().then(()=>{
      if(mode!=='ready'){pullFeedback('');return;}
      pullFeedback($('formalCloudSyncFeedback')?.textContent==='云端数据已更新'
@@ -2350,7 +2390,9 @@ function create({host,doc,loginController,readModelFactory,primaryFactory,
     }).catch(()=>pullFeedback('failure'));
    },{passive:true,capture:true});
    if(touchInput)doc.addEventListener('touchcancel',()=>{
-    pull=null;pullFeedback('');
+    const gesture=pull;pull=null;
+    if(gesture)gesture.feedback('');
+    else if(!maternalActive())pullFeedback('');
    },{passive:true,capture:true});
   }
 

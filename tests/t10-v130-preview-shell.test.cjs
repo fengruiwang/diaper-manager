@@ -38,6 +38,7 @@ test('V1.3.0 local preview adds maternal health to the five intact stable busine
     'saveProfile', 'savePlans', 'formalGetCloudLatest',
     'maternalWeightForm', 'maternalWeightChart', 'maternalWeightRows', 'maternalWeightSave',
     'maternalWeightRefresh', 'maternalWeightRecover', 'maternalWeightArchive', 'maternalHealthBack',
+    'maternalPullFeedback',
   ]) {
     assert.ok(tags.includes('id="' + id + '"'), 'Missing DOM ID ' + id);
   }
@@ -52,6 +53,7 @@ test('V1.3.0 local preview adds maternal health to the five intact stable busine
   assert.match(tags, /<strong id="maternalProfileDelivery">/);
   assert.doesNotMatch(tags, /<input[^>]*id="maternalProfile(?:Due|Delivery)"/);
   assert.match(tags, /id="formalOpenMaternalHealth"[^>]* hidden>/);
+  assert.match(tags, /id="maternalPullFeedback" role="status" aria-live="polite" hidden>/);
   assert.match(tags, /\.tabs\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.doesNotMatch(tags, /:has\([^)]*maternal/);
 });

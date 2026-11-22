@@ -136,6 +136,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  catch(_){/* Reading is available when persistent browser storage is unavailable. */}
  let scope=null,snapshot=null,canSave=false,busy=false,pending=false,conflict=null;
  let editId=null,draftRequest=null,deletionRequest=null;
+ let weightDirty=false;
  let profileDirty=false,profileRequest=null;
  let profileRead='idle';
 
@@ -164,6 +165,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  }
  function resetForm(){
   editId=draftRequest=null;
+  weightDirty=false;
   const now=new Date();
   date.max=date.value=localDate(now);
   if(time)time.value=localTime(now);
@@ -232,7 +234,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   busy=true;
   if(message)feedback.textContent=message;
   controls();
-  try{await work(started);}
+  try{return await work(started);}
   catch(_){
    if(current(started))feedback.textContent='操作未完成，请刷新记录或核验待确认保存。';
   }finally{
@@ -290,6 +292,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    status.textContent=datesMessage
     ?(partialRefresh?'部分刷新。':'')+healthMessage+' '+datesMessage
     :healthMessage;
+   return partialRefresh?'partial':canSave?'success':'failure';
   });
  }
  async function send(started,feedback=status){
@@ -350,6 +353,9 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    await saveDocument(started,nextBody,{deletedId:item.id});
   });
  }
+ const markWeightDirty=()=>{weightDirty=true;};
+ form.addEventListener('input',markWeightDirty);
+ form.addEventListener('change',markWeightDirty);
  form.addEventListener('submit',event=>{
   event.preventDefault();
   if(save.disabled)return;
@@ -392,7 +398,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   if(previous||profile.prePregnancyWeightKg!==null)nextBody.maternalProfile={...previous,...profile};
   return run('正在保存妈妈健康档案…',started=>saveDocument(started,nextBody,{profileSave:true}),profileStatus);
  });
- refreshButton.addEventListener('click',()=>refresh({babyDates:true}));
+ const refreshCloudRecords=()=>refresh({babyDates:true});
+ refreshButton.addEventListener('click',refreshCloudRecords);
  recover.addEventListener('click',()=>run('正在核验原保存请求…',send));
  cancel.addEventListener('click',()=>{resetForm();controls();});
  archive.addEventListener('click',()=>run('正在核验旧冲突请求…',async started=>{
@@ -418,7 +425,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   if(scope&&panel.classList.contains('active'))void refresh();
  }
  setBabyDates(null);resetForm();render();
- return {setContext,setBabyDates};
+ return {setContext,setBabyDates,refreshCloudRecords,
+  canPullRefresh:()=>Boolean(scope&&current(scope)&&!busy&&!editId&&!weightDirty&&!profileDirty)};
 }
 
 const api={mount,localDate,formatJin,weightInput,profileInput,maternalStage,history,updateDocument,deleteDocument,chart};

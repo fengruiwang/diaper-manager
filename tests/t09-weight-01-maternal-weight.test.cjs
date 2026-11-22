@@ -129,6 +129,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
   remove:()=>rows.querySelectorAll('button').filter(button=>button.dataset.deleteWeight),
   setConfirm:value=>{confirm=value;},setOutcome:value=>{outcome=value;},
   refresh,open:()=>handlers['maternal-health-open'](),setRead:next=>{read=next;},
+  refreshCloudRecords:panel.refreshCloudRecords,canPullRefresh:panel.canPullRefresh,
   setBabyDates:panel.setBabyDates,
   switchScope:(actorUid,familyId)=>{
    scope={...scope,actorUid,familyId};panel.setContext(scope);
@@ -148,10 +149,13 @@ test('manual refresh combines independent reads, preserves drafts, and reports p
  }});
  await f.open();
  assert.equal(datesReads,0);
+ assert.equal(f.refreshCloudRecords,f.get('maternalWeightRefresh').handlers.click);
+ assert.equal(f.canPullRefresh(),true);
  f.setBabyDates({dueDate:'2026-01-01',birthDate:''});
  f.edit(0);f.jin.value='111.25';
  f.get('maternalProfileJin').value='96.13';
  f.get('maternalProfileForm').handlers.input();
+ assert.equal(f.canPullRefresh(),false);
  readDates=async()=>{
   f.setBabyDates({dueDate:'2026-01-02',birthDate:'2026-01-01'});
   return true;
@@ -165,7 +169,7 @@ test('manual refresh combines independent reads, preserves drafts, and reports p
  assert.equal(f.get('maternalWeightCancel').hidden,false);
 
  readDates=async()=>{throw Error('synthetic profile read failure');};
- await f.refresh();
+ assert.equal(await f.refreshCloudRecords(),'partial');
  assert.match(f.status.textContent,/部分刷新。.*体重记录已刷新。.*保留上次已验证的日期/);
  assert.equal(f.get('maternalProfileDue').textContent,'2026-01-02');
 
@@ -177,6 +181,20 @@ test('manual refresh combines independent reads, preserves drafts, and reports p
  assert.match(f.status.textContent,/部分刷新。.*妈妈健康云端服务.*宝宝日期已刷新/);
  assert.deepEqual([f.jin.value,f.get('maternalProfileJin').value,f.rows.children.length],['111.25','96.13',1]);
  assert.equal(f.queued.length,0);
+});
+
+test('new weight drafts and existing edit mode block pulls until the form is reset',async()=>{
+ const f=await mountedWeights([first]);
+ const form=f.get('maternalWeightForm'),cancel=f.get('maternalWeightCancel');
+ f.jin.value='99.23';
+ form.handlers.input();
+ assert.equal(f.canPullRefresh(),false);
+ cancel.handlers.click();
+ assert.equal(f.canPullRefresh(),true);
+ f.edit(0);
+ assert.equal(f.canPullRefresh(),false);
+ cancel.handlers.click();
+ assert.equal(f.canPullRefresh(),true);
 });
 
 test('first maternal read reports loading and failure independently of the baby stage',async()=>{

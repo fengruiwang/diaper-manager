@@ -156,16 +156,19 @@ html.xiaobao-pull-touch:has(body[data-formal-state="ready"]),
 html.xiaobao-pull-touch body[data-formal-state="ready"]{
  overscroll-behavior-y:contain;
 }
+html.xiaobao-pull-touch body[data-formal-maternal-only="true"]{overscroll-behavior-y:contain}
 /* In-app Android gesture feedback is independent of the media-query result:
    some installed PWAs report maxTouchPoints while their hover mode differs. */
-body[data-formal-state="ready"] #formalNotice[data-pull-phase]::before{
- content:"下拉刷新";position:fixed;z-index:99;
+body[data-formal-state="ready"] #formalNotice[data-pull-phase]::before,
+#maternalPullFeedback[data-pull-phase]{
+ position:fixed;z-index:99;
  top:max(10px,env(safe-area-inset-top));left:50%;
  transform:translateX(-50%);pointer-events:none;
  background:#f4f2ff;border:1px solid #e0defd;color:#5147bb;
  box-shadow:0 4px 16px #26314720;border-radius:18px;
  padding:7px 13px;font-size:12px;white-space:nowrap;
 }
+body[data-formal-state="ready"] #formalNotice[data-pull-phase]::before{content:"下拉刷新"}
 body[data-formal-state="ready"] #formalNotice[data-pull-phase="armed"]::before{content:"松开刷新"}
 body[data-formal-state="ready"] #formalNotice[data-pull-phase="refreshing"]::before{content:"正在获取云端最新数据…"}
 body[data-formal-state="ready"] #formalNotice[data-pull-phase="success"]::before{content:"云端数据已更新"}
@@ -390,6 +393,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
       </div>
     </section>
     <section class="panel" id="maternal-health" role="tabpanel" aria-labelledby="tabMaternalHealth">
+      <div id="maternalPullFeedback" role="status" aria-live="polite" hidden></div>
       <div class="head"><h2>妈妈健康</h2></div>
       <div class="card weight-card">
         <h3 class="section-title">妈妈健康档案</h3>
