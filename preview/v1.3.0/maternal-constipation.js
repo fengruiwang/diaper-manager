@@ -84,7 +84,9 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
    const optional=name==='StoolType'||name==='Water';
    if(placeholder)placeholder.textContent=editId?'未记录':optional?'不记录':'未选择';
   }
-  stool.disabled=!writable||did.value!=='true';
+  const noBowelMovement=did.value==='false';
+  if(noBowelMovement)stool.value='';
+  stool.disabled=!writable||noBowelMovement;
   saveButton.disabled=!writable;
   cancel.hidden=!dirty&&!editId;
   cancel.disabled=!writable;
@@ -184,13 +186,11 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
  did.addEventListener('change',()=>{
   if(blocked)return;
   count.value=did.value==='true'?'1':did.value==='false'?'0':'';
-  if(did.value!=='true')stool.value='';
   dirty=true;controls();
  });
  count.addEventListener('change',()=>{
   if(blocked)return;
   did.value=count.value===''?'':String(count.value!=='0');
-  if(did.value!=='true')stool.value='';
   dirty=true;controls();
  });
  cancel.addEventListener('click',()=>{if(!blocked)reset();});
@@ -200,7 +200,8 @@ function mount({doc,localDate,validDate,validRecord,getBody,newId,save}){
   if(selectDate())return;
   const today=localDate(new Date());
   const values={date:date.value,didDefecate:booleanValue(did.value),
-   defecationCount:numericValue(count.value),stoolType:numericValue(stool.value),
+   defecationCount:numericValue(count.value),
+   stoolType:did.value==='false'?null:numericValue(stool.value),
    difficulty:inputs.Difficulty.value,bloating:inputs.Bloating.value,
    abdominalPain:booleanValue(inputs.Pain.value),waterIntakeRange:inputs.Water.value||null,
    note:inputs.Note.value};

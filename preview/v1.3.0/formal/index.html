@@ -120,84 +120,93 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
  body[data-formal-family-ready="true"] .tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%}
  body[data-formal-family-ready="true"] .tab{min-height:44px;padding:8px 4px}
 }
-#maternal-health .maternal-heading{margin:22px 0 14px}
+#maternal-health .maternal-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 16px;margin:16px 0 12px}
 #maternal-health .maternal-heading h2{margin:0;font-size:23px}
-#maternal-health .maternal-columns{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);gap:16px;margin-bottom:16px}
-#maternal-health .maternal-card{min-width:0;padding:20px}
-#maternal-health .maternal-wide-card{margin-bottom:16px}
-#maternal-health .maternal-card h3{font-size:16px;margin:0 0 16px}
+#maternal-health .maternal-jumps{display:flex;flex-wrap:wrap;gap:8px}
+#maternal-health .maternal-jumps a{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:#fff;text-decoration:none;font-size:13px;font-weight:700}
+#maternalWeightForm,#maternalConstipationForm{scroll-margin-top:16px}
+#maternal-health .maternal-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.65fr);align-items:start;gap:14px;margin-bottom:14px}
+#maternal-health .maternal-card{min-width:0;padding:18px}
+#maternal-health .maternal-wide-card{margin-bottom:14px}
+#maternal-health .maternal-card h3{font-size:16px;margin:0 0 12px}
 #maternal-health .maternal-profile{background:#fbfaff}
-#maternal-health .maternal-stage{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin:0 0 14px;color:var(--muted);font-size:13px}
-#maternalProfileStage{padding:4px 10px;border-radius:999px;background:var(--soft);color:var(--deep);font-size:13px}
+#maternal-health .maternal-profile-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 10px;margin-bottom:10px}
+#maternal-health .maternal-profile-heading h3{margin:0}
+#maternalProfileStage{padding:4px 10px;border:1px solid #e0dcfb;border-radius:999px;background:var(--soft);color:var(--deep);font-size:13px}
 #maternal-health .maternal-dates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}
-#maternal-health .maternal-dates div{padding:10px 12px;border-radius:12px;background:#fff;min-width:0}
-#maternal-health .maternal-dates dt{color:var(--muted);font-size:12px}
-#maternal-health .maternal-dates dd{margin:5px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:break-word}
-#maternal-health .maternal-note{margin:10px 0 16px;color:var(--muted)}
+#maternal-health .maternal-dates div{padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;min-width:0}
+#maternal-health .maternal-dates dt,#maternal-health .maternal-help{color:#5e687d;font-size:12px;font-weight:400}
+#maternal-health .maternal-dates dd{margin:2px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#maternal-health .maternal-note{margin:5px 0 9px}
 #maternal-health .maternal-profile-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}
-#maternal-health .maternal-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+#maternal-health .maternal-fields,#maternal-health .maternal-bowel-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 #maternal-health .maternal-field-wide{grid-column:1/-1}
-#maternal-health .maternal-card .field{min-width:0;font-size:13px;font-weight:650;color:var(--text)}
-#maternal-health .maternal-card input,#maternalWeightNote{min-width:0;width:100%;min-height:44px;background:#fff}
+#maternal-health .maternal-card .field{min-width:0;gap:4px;font-size:13px;font-weight:650;color:var(--text)}
+#maternal-health .maternal-card .field>label{font:inherit;color:inherit}
+#maternal-health .maternal-card :is(input,select,textarea){min-width:0;width:100%;min-height:44px;background:#fff;font-size:16px}
+#maternal-health .maternal-card :is(input[type="date"],input[type="time"],select){padding-inline:8px}
 #maternal-health .maternal-measure{position:relative;display:block;min-width:0}
 #maternal-health .maternal-measure input{padding-right:40px}
 #maternal-health .maternal-unit{position:absolute;top:50%;right:12px;transform:translateY(-50%);color:var(--muted);pointer-events:none}
-#maternalWeightNote{resize:vertical;font:inherit;font-weight:400;color:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
-#maternal-health .maternal-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px}
-#maternal-health .maternal-status{margin:12px 0 0;padding:9px 11px;border-radius:9px;background:#f3f1fc;color:#4f4a71;font-size:13px}
+#maternal-health .maternal-card textarea{display:block;resize:vertical;font-family:inherit;color:inherit;padding:8px 10px;border:1px solid #dfe3ed;border-radius:10px}
+#maternal-health .maternal-card textarea:focus-visible,#maternal-health a:focus-visible,#maternal-health button:focus-visible{outline:2px solid var(--deep);outline-offset:2px}
+#maternal-health .maternal-actions,#maternal-health .maternal-bowel-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px}
+#maternal-health .maternal-status{margin:8px 0 0;padding:7px 10px;border-radius:9px;background:#f3f1fc;color:#4f4a71;font-size:13px}
 #maternal-health .maternal-status:empty{display:none}
-#maternal-health .maternal-card .btn{min-height:40px}
-#maternal-health .maternal-trend-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-bottom:12px}
+#maternal-health .maternal-card .btn{min-height:44px}
+#maternalWeightCancel,#maternalConstipationCancel{border:1px solid var(--line);background:#fff}
+#maternal-health .maternal-trend-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-bottom:10px}
 #maternal-health .maternal-trend-heading h3{margin:0}
+#maternal-health .maternal-trend-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 #maternal-health .maternal-stage-selector{display:flex;gap:4px;padding:4px;border-radius:12px;background:#f3f1fc}
-#maternal-health .maternal-stage-selector .btn{min-width:64px}
-#maternal-health .maternal-stage-selector .btn[aria-pressed="true"]{background:#fff;color:var(--deep);box-shadow:0 1px 4px #5147bb26}
-#maternalWeightPeriods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));max-width:340px;margin-bottom:12px}
-#maternal-health #maternalWeightPeriods .btn{min-width:0}
-#maternal-health .maternal-trend-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0 0 14px}
-#maternal-health .maternal-trend-stats div{padding:10px 12px;border-radius:10px;background:#f8f9fc;min-width:0}
-#maternal-health .maternal-trend-stats dt,#maternal-health .maternal-trend-stats .fine{color:var(--muted);font-size:12px}
-#maternal-health .maternal-trend-stats dd{margin:2px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:break-word}
-#maternal-health .maternal-trend-value{font-size:16px;font-weight:750}
+#maternal-health .maternal-stage-selector .btn{min-width:48px}
+#maternal-health .maternal-stage-selector .btn[aria-pressed="true"]{background:var(--deep);color:#fff}
+#maternal-health #maternalWeightPeriods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#f0f2f7}
+#maternal-health .maternal-trend-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0 0 6px}
+#maternal-health .maternal-trend-stats div{padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:#f8f9fc;min-width:0}
+#maternal-health .maternal-trend-stats div:first-child{background:#f5f2ff;color:var(--deep)}
+#maternal-health .maternal-trend-stats dt,#maternal-health .maternal-trend-stats .fine{color:#5e687d;font-size:12px}
+#maternal-health .maternal-trend-stats dd{margin:1px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#maternal-health .maternal-trend-value{font-size:clamp(16px,2vw,22px);font-weight:800}
+#maternal-health .empty{padding:18px 12px}
 #maternalWeightChart .growth-chart{width:100%;height:auto;max-width:100%;max-height:none;display:block}
 #maternalWeightTable{overflow:visible}
 #maternalWeightTable .tbl{white-space:normal;table-layout:fixed}
 #maternalWeightTable th:nth-child(1){width:18%}
 #maternalWeightTable th:nth-child(2),#maternalWeightTable th:nth-child(3){width:12%}
 #maternalWeightTable th:nth-child(5){width:23%}
-#maternalWeightTable td{overflow-wrap:break-word}
+#maternalWeightTable td{padding:8px 10px;font-size:13px;overflow-wrap:anywhere}
+#maternalWeightTable td:nth-child(1),#maternalWeightTable td:nth-child(3){font-weight:750;font-variant-numeric:tabular-nums}
 #maternalWeightTable td:nth-child(4){white-space:pre-wrap;overflow-wrap:anywhere}
-#maternalWeightTable td:last-child .btn{margin:3px 5px 3px 0}
+#maternalWeightTable td:last-child .btn{margin:2px 6px 2px 0}
 #maternalWeightTable [data-delete-weight]{color:var(--red)}
-#maternal-health .maternal-bowel-card{margin-top:16px}
-#maternal-health .maternal-bowel-fields{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
-#maternal-health .maternal-bowel-fields .field{min-width:0}
-#maternal-health .maternal-bowel-fields input,#maternal-health .maternal-bowel-fields select,
-#maternal-health .maternal-bowel-fields textarea{box-sizing:border-box;width:100%;min-width:0;min-height:44px}
-#maternal-health .maternal-bowel-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-#maternalConstipationHistory{list-style:none;padding:0;margin:0;display:grid;gap:10px}
-#maternalConstipationHistory li{padding:12px;background:#f8f9fc;border-radius:12px;min-width:0}
-#maternalConstipationHistory h4{margin:0}
-#maternalConstipationHistory dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0}
-#maternalConstipationHistory dt{font-size:13px;color:var(--muted)}
+#maternal-health .maternal-bowel-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start;gap:14px;margin-top:14px}
+#maternal-health .maternal-bowel-history{background:#fafbfe}
+#maternal-health #maternalConstipationWarning{margin:0 0 8px;background:var(--orange-bg);color:#79480f}
+#maternalConstipationHistory{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+#maternalConstipationHistory li{padding:10px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;min-width:0}
+#maternalConstipationHistory h4{margin:0;font-size:14px;font-variant-numeric:tabular-nums}
+#maternalConstipationHistory dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px 8px;margin:6px 0;font-size:13px}
+#maternalConstipationHistory dt{font-size:12px;color:#5e687d}
 #maternalConstipationHistory dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
-#maternalConstipationHistory dl div:last-child{grid-column:1/-1}
-@media(min-width:840px){
- #maternal-health .maternal-bowel-fields,#maternalConstipationHistory dl{grid-template-columns:repeat(4,minmax(0,1fr))}
+#maternalConstipationHistory dl div:last-child,#maternal-health .maternal-bowel-note{grid-column:span 2}
+#maternalConstipationHistory .maternal-bowel-actions{justify-content:flex-end;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+#maternalConstipationHistory .btn:last-child{color:var(--red)}
+@media(max-width:900px){
+ #maternal-health .maternal-bowel-layout{grid-template-columns:minmax(0,1fr)}
 }
-@media(min-width:940px){
- #maternal-health .maternal-fields{grid-template-columns:repeat(3,minmax(0,1fr))}
- #maternal-health .maternal-weight-field{grid-column:auto}
-}
-@media(max-width:840px){
+@media(max-width:720px){
  #maternal-health .maternal-columns{grid-template-columns:minmax(0,1fr);gap:12px;margin-bottom:12px}
  #maternal-health .maternal-wide-card{margin-bottom:12px}
 }
 @media(max-width:600px){
- #maternal-health .maternal-card{padding:16px}
- #maternal-health .maternal-card .btn{min-height:44px}
- #maternal-health .maternal-primary-actions{flex-wrap:nowrap}
- #maternalWeightSave{flex:1 1 auto}
+ #maternal-health .maternal-card{padding:14px}
+ #maternal-health .maternal-bowel-layout{gap:12px;margin-top:12px}
+ #maternal-health .maternal-fields,#maternal-health .maternal-bowel-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+ #maternal-health .maternal-weight-field,#maternal-health .maternal-bowel-date,#maternal-health .maternal-bowel-note{grid-column:1/-1}
+ #maternal-health .maternal-primary-actions>.btn,#maternalConstipationHistory .btn{flex:1 1 auto}
+ #maternal-health .maternal-trend-controls,#maternal-health #maternalWeightPeriods{width:100%}
+ #maternal-health .maternal-stage-selector .btn{min-width:0}
  #maternalWeightChart svg{overflow:visible}
  #maternalWeightChart svg text{font-size:21px;font-weight:600}
  #maternalWeightChart svg text[font-size="14"]{font-size:25px}
@@ -205,7 +214,7 @@ body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:
  #maternalWeightTable .tbl,#maternalWeightTable tbody{display:block}
  #maternalWeightTable thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
  #maternalWeightTable tbody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);gap:4px 12px;
-  padding:12px;margin-bottom:8px;background:#f8f9fc;border-radius:12px}
+  padding:10px 12px;margin-bottom:8px;border:1px solid var(--line);background:#f8f9fc;border-radius:12px}
  #maternalWeightTable tbody tr:last-child{margin-bottom:0}
  #maternalWeightTable td{min-width:0;padding:0;border:0}
  #maternalWeightTable td:nth-child(1){grid-column:1;grid-row:1;font-size:14px;font-weight:750}
@@ -476,16 +485,24 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
     </section>
     <section class="panel" id="maternal-health" role="tabpanel" aria-labelledby="tabMaternalHealth">
       <div id="maternalPullFeedback" role="status" aria-live="polite" hidden></div>
-      <header class="maternal-heading"><h2>妈妈健康</h2></header>
+      <header class="maternal-heading">
+        <h2>妈妈健康</h2>
+        <nav class="maternal-jumps" aria-label="妈妈健康录入">
+          <a href="#maternalWeightForm">记录体重</a>
+          <a href="#maternalConstipationForm">记录排便</a>
+        </nav>
+      </header>
       <div class="maternal-columns">
         <div class="card maternal-card maternal-profile">
-          <h3 class="section-title">妈妈健康档案</h3>
-          <p class="maternal-stage"><span>当前阶段</span><strong id="maternalProfileStage" aria-live="polite">未关联宝宝资料</strong></p>
+          <div class="maternal-profile-heading">
+            <h3 class="section-title">妈妈健康档案</h3>
+            <strong id="maternalProfileStage" aria-live="polite">未关联宝宝资料</strong>
+          </div>
           <dl class="maternal-dates">
             <div><dt>预产期</dt><dd><strong id="maternalProfileDue">未填写</strong></dd></div>
             <div><dt>实际分娩日期</dt><dd><strong id="maternalProfileDelivery">未填写</strong></dd></div>
           </dl>
-          <p class="fine maternal-note">日期在「个性设置 → 宝宝基本资料」中维护。</p>
+          <p class="maternal-help maternal-note">日期来自「个性设置 → 宝宝基本资料」。</p>
           <form id="maternalProfileForm" class="maternal-profile-form" novalidate>
             <label class="field">孕前体重<span class="maternal-measure">
               <input id="maternalProfileJin" type="number" inputmode="decimal" step="0.01" min="0.01" aria-label="孕前体重（斤）" disabled>
@@ -496,12 +513,12 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
           <p class="maternal-status" id="maternalProfileStatus" role="status" aria-live="polite">尚未读取妈妈健康档案。</p>
         </div>
         <div class="card maternal-card">
-          <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
-          <form id="maternalWeightForm" novalidate>
+          <form id="maternalWeightForm" aria-labelledby="maternalWeightHeading" novalidate>
+            <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
             <div class="maternal-fields">
               <label class="field">测量日期<input id="maternalWeightDate" type="date" required></label>
               <label class="field">测量时间<input id="maternalWeightTime" type="time" step="60"></label>
-              <label class="field maternal-field-wide maternal-weight-field">体重<span class="maternal-measure">
+              <label class="field maternal-weight-field">体重<span class="maternal-measure">
                 <input id="maternalWeightJin" type="number" inputmode="decimal" step="0.01" min="0.01" aria-label="体重（斤）" required>
                 <span class="maternal-unit" aria-hidden="true">斤</span>
               </span></label>
@@ -524,16 +541,18 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
       <div class="card maternal-card maternal-wide-card">
         <div class="maternal-trend-heading">
           <h3 class="section-title">体重趋势（斤）</h3>
-          <div class="maternal-stage-selector" role="group" aria-label="趋势和历史记录的阶段">
-            <button id="maternalWeightPregnancy" class="btn ghost sm" type="button" aria-pressed="true">孕期</button>
-            <button id="maternalWeightPostpartum" class="btn ghost sm" type="button" aria-pressed="false" hidden>产后</button>
+          <div class="maternal-trend-controls">
+            <div class="maternal-stage-selector" role="group" aria-label="趋势和历史记录的阶段">
+              <button id="maternalWeightPregnancy" class="btn ghost sm" type="button" aria-pressed="true">孕期</button>
+              <button id="maternalWeightPostpartum" class="btn ghost sm" type="button" aria-pressed="false" hidden>产后</button>
+            </div>
+            <div id="maternalWeightPeriods" class="maternal-stage-selector" role="group" aria-label="趋势周期">
+              <button class="btn ghost sm" type="button" data-period="day" aria-pressed="false">日</button>
+              <button class="btn ghost sm" type="button" data-period="week" aria-pressed="false">周</button>
+              <button class="btn ghost sm" type="button" data-period="month" aria-pressed="false">月</button>
+              <button class="btn ghost sm" type="button" data-period="all" aria-pressed="true">全部</button>
+            </div>
           </div>
-        </div>
-        <div id="maternalWeightPeriods" class="maternal-stage-selector" role="group" aria-label="趋势周期">
-          <button class="btn ghost sm" type="button" data-period="day" aria-pressed="false">日</button>
-          <button class="btn ghost sm" type="button" data-period="week" aria-pressed="false">周</button>
-          <button class="btn ghost sm" type="button" data-period="month" aria-pressed="false">月</button>
-          <button class="btn ghost sm" type="button" data-period="all" aria-pressed="true">全部</button>
         </div>
         <dl class="maternal-trend-stats">
           <div><dt>最新体重</dt><dd class="maternal-trend-value" id="maternalWeightLatest">尚未读取体重记录</dd>
@@ -544,7 +563,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <div id="maternalWeightChart" class="empty">尚未读取体重记录</div>
       </div>
       <div class="card maternal-card">
-        <h3 class="section-title">历史记录</h3>
+        <h3 class="section-title">体重历史记录</h3>
         <div id="maternalWeightEmpty" class="empty">尚未读取体重记录</div>
         <div id="maternalWeightTable" class="table-wrap" hidden>
           <table class="tbl" role="table">
@@ -553,21 +572,22 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
           </table>
         </div>
       </div>
-      <div class="card maternal-card maternal-bowel-card">
-        <h3 class="section-title" id="maternalConstipationHeading">每日排便记录</h3>
-        <form id="maternalConstipationForm" novalidate>
-          <p class="fine">每天记录一条汇总。Bristol 性状选当天最有代表性的一型，排便困难和腹胀记录当天最明显的程度。</p>
+      <div class="maternal-bowel-layout">
+        <form id="maternalConstipationForm" class="card maternal-card" aria-labelledby="maternalConstipationHeading" novalidate>
+          <h3 class="section-title" id="maternalConstipationHeading">每日排便记录</h3>
           <div class="maternal-bowel-fields">
-            <label class="field">日期<input id="maternalConstipationDate" type="date" disabled></label>
+            <label class="field maternal-bowel-date">日期<input id="maternalConstipationDate" type="date" disabled></label>
             <label class="field">是否排便
               <select id="maternalConstipationDidDefecate" disabled><option value="">未记录</option><option value="true">是</option><option value="false">否</option></select>
             </label>
             <label class="field">排便次数
               <select id="maternalConstipationCount" disabled><option value="">未记录</option><option value="0">0 次</option><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次及以上</option></select>
             </label>
-            <label class="field">Bristol 大便性状
-              <select id="maternalConstipationStoolType" disabled><option value="">不记录</option><option value="1">1 型</option><option value="2">2 型</option><option value="3">3 型</option><option value="4">4 型</option><option value="5">5 型</option><option value="6">6 型</option><option value="7">7 型</option></select>
-            </label>
+            <div class="field maternal-field-wide">
+              <label for="maternalConstipationStoolType">Bristol 大便性状（可选）</label>
+              <select id="maternalConstipationStoolType" aria-describedby="maternalConstipationStoolHelp" disabled><option value="">不记录</option><option value="1">1 型</option><option value="2">2 型</option><option value="3">3 型</option><option value="4">4 型</option><option value="5">5 型</option><option value="6">6 型</option><option value="7">7 型</option></select>
+              <span id="maternalConstipationStoolHelp" class="maternal-help">记录当天最有代表性的大便性状，不填写也不影响保存。</span>
+            </div>
             <label class="field">排便困难
               <select id="maternalConstipationDifficulty" disabled><option value="">未记录</option><option value="none">无</option><option value="mild">轻微</option><option value="moderate">中度</option><option value="severe">严重</option></select>
             </label>
@@ -580,19 +600,21 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
             <label class="field">饮水情况（可选）
               <select id="maternalConstipationWater" disabled><option value="">不记录</option><option value="lt_500">少于 500 ml</option><option value="500_999">500～999 ml</option><option value="1000_1499">1000～1499 ml</option><option value="1500_1999">1500～1999 ml</option><option value="2000_plus">2000 ml 及以上</option></select>
             </label>
-            <label class="field maternal-field-wide">备注（可选）<textarea id="maternalConstipationNote" rows="2" disabled></textarea></label>
+            <label class="field maternal-bowel-note">备注（可选）<textarea id="maternalConstipationNote" rows="2" disabled></textarea></label>
           </div>
-          <div class="maternal-bowel-actions">
-            <button id="maternalConstipationSave" class="btn primary" type="submit" disabled>保存排便记录</button>
+          <div class="maternal-actions maternal-primary-actions">
+            <button id="maternalConstipationSave" class="btn" type="submit" disabled>保存排便记录</button>
             <button id="maternalConstipationCancel" class="btn ghost" type="button" hidden>取消编辑</button>
           </div>
           <p id="maternalConstipationBlocker" class="maternal-status" role="status">等待家庭账号验证完成。</p>
           <p id="maternalConstipationStatus" class="maternal-status" role="status" aria-live="polite"></p>
         </form>
-        <h3 class="section-title">排便历史记录</h3>
-        <p id="maternalConstipationWarning" class="maternal-status" role="status" hidden></p>
-        <div id="maternalConstipationEmpty" class="empty">尚未读取云端排便记录。</div>
-        <ul id="maternalConstipationHistory" aria-label="排便历史记录"></ul>
+        <div class="card maternal-card maternal-bowel-history">
+          <h3 class="section-title">排便历史记录</h3>
+          <p id="maternalConstipationWarning" class="maternal-status" role="status" hidden></p>
+          <div id="maternalConstipationEmpty" class="empty">尚未读取云端排便记录。</div>
+          <ul id="maternalConstipationHistory" aria-label="排便历史记录"></ul>
+        </div>
       </div>
     </section>
   </main>

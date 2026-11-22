@@ -329,6 +329,97 @@ test('R2-02: a weight can still be added on a day with both weight and bowel rec
  assert.deepEqual(items.filter(item=>item.kind==='weight').map(item=>item.date),[today,today]);
 });
 
+test('R2-03: a writable new form allows Bristol selection before a bowel choice',async()=>{
+ const f=await mountedBowel();
+ assert.equal(f.b('StoolType').disabled,false);
+ assert.equal(f.b('StoolType').value,'');
+ f.b('StoolType').value='4';
+ await f.submit();
+ assert.equal(f.queued.length,0);
+ assert.match(f.b('Status').textContent,/明确选择是否排便/);
+ assert.equal(f.b('StoolType').value,'4');
+ f.change('DidDefecate','true');
+ assert.equal(f.b('StoolType').value,'4');
+});
+
+test('R2-03: an affirmative record can save with Bristol unselected',async()=>{
+ const f=await mountedBowel();
+ f.change('DidDefecate','true');
+ await f.submit();
+ const [saved]=f.queued[0].nextBody.items;
+ assert.equal(saved.didDefecate,true);
+ assert.equal(saved.stoolType,null);
+ assert.match(f.b('Status').textContent,/已保存至云端/);
+});
+
+test('R2-03: choosing no or setting zero clears and disables Bristol',async()=>{
+ const f=await mountedBowel();
+ f.b('StoolType').value='3';
+ f.change('DidDefecate','false');
+ assert.equal(f.b('StoolType').value,'');
+ assert.equal(f.b('StoolType').disabled,true);
+ f.change('Count','1');
+ f.b('StoolType').value='6';
+ f.change('Count','0');
+ assert.equal(f.b('StoolType').value,'');
+ assert.equal(f.b('StoolType').disabled,true);
+ await f.submit();
+ const [saved]=f.queued[0].nextBody.items;
+ assert.equal(saved.didDefecate,false);
+ assert.equal(saved.stoolType,null);
+});
+
+test('R2-03: choosing yes enables Bristol and saves the selected type',async()=>{
+ const f=await mountedBowel();
+ f.change('DidDefecate','false');
+ f.change('DidDefecate','true');
+ assert.equal(f.b('StoolType').disabled,false);
+ f.b('StoolType').value='7';
+ await f.submit();
+ assert.equal(f.queued[0].nextBody.items[0].stoolType,7);
+});
+
+test('R2-03: clearing a selected Bristol type remains valid when editing',async()=>{
+ const f=await mountedBowel([recordedBowel]);
+ f.edit(0);
+ assert.equal(f.b('StoolType').value,'4');
+ assert.equal(f.b('StoolType').disabled,false);
+ f.b('StoolType').value='';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[{...recordedBowel,stoolType:null}]);
+});
+
+test('R2-03: an existing unrecorded Bristol value stays empty during a note edit',async()=>{
+ const entry={...recordedBowel,stoolType:null};
+ const f=await mountedBowel([entry]);
+ f.edit(0);
+ assert.equal(f.b('StoolType').value,'');
+ assert.equal(f.b('StoolType').options[0].textContent,'未记录');
+ f.b('Note').value='synthetic correction';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[{...entry,note:'synthetic correction'}]);
+});
+
+test('R2-03: editing the note preserves the existing Bristol value',async()=>{
+ const f=await mountedBowel([recordedBowel]);
+ f.edit(0);
+ assert.equal(f.b('StoolType').value,'4');
+ f.b('Note').value='synthetic correction';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[{...recordedBowel,note:'synthetic correction'}]);
+});
+
+test('R2-03: editing a no-bowel legacy day clears an inapplicable historical Bristol type',async()=>{
+ const entry={...other,didDefecate:false,defecationCount:0,stoolType:4};
+ const f=await mountedBowel([entry]);
+ f.edit(0);
+ assert.equal(f.b('StoolType').value,'');
+ assert.equal(f.b('StoolType').disabled,true);
+ f.b('Note').value='synthetic correction';
+ await f.submit();
+ assert.deepEqual(f.queued[0].nextBody.items,[{...entry,stoolType:null,note:'synthetic correction'}]);
+});
+
 test('bowel Save follows the verified read, storage, pending receipt and account state',async()=>{
  const {mount}=require('../preview/v1.3.0/maternal-constipation.js');
  const f=await mountedWeights([],{constipationFactory:mount,autoRead:false});
