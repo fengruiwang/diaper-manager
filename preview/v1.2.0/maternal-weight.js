@@ -151,7 +151,7 @@ const messages={
  REVISION_CONFLICT:'另一端已更新数据。本次未保存，请刷新云端记录后核对并重新保存。',
  REQUEST_ID_CONFLICT:'原保存请求与云端回执不一致。请刷新记录后核对。',
  INVALID_INPUT:'体重记录未通过保存校验，请检查输入后重试。',
- COMMITTED_NEEDS_REFRESH:'云端已确认保存，历史记录暂未刷新。请点击刷新云端记录。',
+ COMMITTED_NEEDS_REFRESH:'云端已确认保存，历史记录暂未刷新。请下拉刷新或重新进入妈妈健康。',
  COMMITTED_QUEUE_UNVERIFIED:'云端已确认保存，本地回执尚未核验，请继续核验原保存请求。',
  QUEUE_WRITE_FAILED:'本地入队失败，尚未提交云端，请检查浏览器存储后重试。',
  QUEUE_UNVERIFIED:'本地队列状态未确认，请刷新后核验原保存请求。',
@@ -214,7 +214,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
  const date=$('maternalWeightDate'),jin=$('maternalWeightJin');
  const time=$('maternalWeightTime'),note=$('maternalWeightNote');
  const save=$('maternalWeightSave'),cancel=$('maternalWeightCancel');
- const refreshButton=$('maternalWeightRefresh'),recover=$('maternalWeightRecover');
+ const recover=$('maternalWeightRecover');
  const archive=$('maternalWeightArchive'),status=$('maternalWeightStatus');
  const chartNode=$('maternalWeightChart'),empty=$('maternalWeightEmpty');
  const table=$('maternalWeightTable'),rows=$('maternalWeightRows');
@@ -272,7 +272,7 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    profileSave.disabled=!canWriteNow;
    profileJin.disabled=disabled||!canSave||pending;
   }
-  date.disabled=jin.disabled=cancel.disabled=refreshButton.disabled=disabled;
+  date.disabled=jin.disabled=cancel.disabled=disabled;
   if(time)time.disabled=disabled;
   if(note)note.disabled=disabled;
   cancel.hidden=!editId;
@@ -451,8 +451,8 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
    if(canSave){snapshot=result;render();}
    else{
     if(profileStatus)profileStatus.textContent=snapshot
-     ?'云端刷新失败，当前显示上次读取的数据。请点击「刷新云端记录」重试。'
-     :'暂时无法读取妈妈健康档案，请点击「刷新云端记录」重试。';
+     ?'云端刷新失败，当前显示上次读取的数据。请下拉刷新或重新进入妈妈健康。'
+     :'暂时无法读取妈妈健康档案，请下拉刷新或重新进入妈妈健康。';
    }
    await review(started,{refreshing:true});
    const datesResult=await datesRead;
@@ -610,7 +610,6 @@ function mount({doc,host,controller,clientFactory,operationsFactory,refreshBabyD
   trendPeriod=button.dataset.period;
   renderTrend(stageRecords());
  });
- refreshButton.addEventListener('click',refreshCloudRecords);
  recover.addEventListener('click',()=>{
   if(canRecover())return run('正在核验原保存请求…',send);
  });

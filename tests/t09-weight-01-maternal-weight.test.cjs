@@ -148,8 +148,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
   })},
  });
  panel.setContext(scope);
- const refresh=()=>get('maternalWeightRefresh').handlers.click();
- if(autoRead)await refresh();
+ if(autoRead)await panel.refreshCloudRecords();
  return {get,status,statusWrites,rows,chart,history,jin,prompts,queued,sentIds,
   get sends(){return sends;},
   get reads(){return reads;},get revision(){return snapshot.revision;},
@@ -166,7 +165,7 @@ async function mountedWeights(items,{legacy=false,profile,extensions={},autoRead
   setQueueChecks:(queue,conflicts)=>{readPending=queue;readConflicts=conflicts;},
   setEnqueue:next=>{enqueue=next;},
   setBeforeSend:next=>{beforeSend=next;},
-  refresh,open:()=>handlers['maternal-health-open'](),setRead:next=>{read=next;},
+  open:()=>handlers['maternal-health-open'](),setRead:next=>{read=next;},
   refreshCloudRecords:panel.refreshCloudRecords,canPullRefresh:panel.canPullRefresh,
   setBabyDates:panel.setBabyDates,
   switchScope:(actorUid,familyId)=>{
@@ -198,7 +197,7 @@ async function mountedBowel(items=[]){
  const submit=()=>b('Form').handlers.submit({preventDefault(){}});
  const edit=index=>b('History').children[index].querySelectorAll('button')[0].handlers.click();
  return {b,change,values,submit,edit,get:f.get,queued:f.queued,setOutcome:f.setOutcome,
-  refresh:f.refresh,setRead:f.setRead,switchScope:f.switchScope};
+  refreshCloudRecords:f.refreshCloudRecords,setRead:f.setRead,switchScope:f.switchScope};
 }
 
 test('R2-02: a new bowel form starts today with symptom defaults and explicit bowel choices',async()=>{
@@ -616,7 +615,7 @@ test('R2-04: refresh and account switching use only the current verified snapsho
  const f=await mountedBowel([recentBowelDay(0,1)]);
  f.setRead(async()=>({status:'READ_VERIFIED',revision:6,body:{schemaVersion:1,
   items:[recentBowelDay(0,1,'a'),recentBowelDay(0,2,'b')]}}));
- await f.refresh();
+ await f.refreshCloudRecords();
  assert.equal(f.b('TodayStatus').textContent,'今日有多条记录');
  assert.equal(f.b('Trend').children[29].dataset.state,'duplicate');
  assert.equal(f.b('TodayEntry').hidden,true);
@@ -625,7 +624,7 @@ test('R2-04: refresh and account switching use only the current verified snapsho
  assert.equal(f.b('Trend').hidden,true);
  assert.equal(f.b('Trend').children.length,0);
  f.setRead(async()=>({status:'READ_VERIFIED',revision:1,body:{schemaVersion:1,items:[recentBowelDay(0,2)]}}));
- await f.refresh();
+ await f.refreshCloudRecords();
  assert.equal(f.b('TodayStatus').textContent,'今日已记录 · 2 次');
  assert.equal(f.b('Trend').children[29].dataset.count,'2');
  assert.equal(f.b('WeekWarning').textContent,'');
@@ -741,7 +740,7 @@ test('R2-05: common refresh and receipt verification keep working in the bowel c
  const f=await mountedCategories([],{profile:{prePregnancyWeightKg:48}});
  const {reads}=f;
  f.get('maternalBowelTab').handlers.click();
- await f.refresh();
+ await f.refreshCloudRecords();
  assert.equal(f.reads,reads+1);
  assert.equal(f.get('maternalProfileJin').value,'96');
  assertCategory(f,'Bowel');
@@ -863,7 +862,7 @@ test('R2-06: refresh still reports reading, queue verification and success in th
  f.setRead(()=>new Promise(resolve=>{releaseRead=resolve;}));
  f.setQueueChecks(()=>new Promise(resolve=>{releaseQueueCheck=resolve;enterQueueCheck();}),
   async()=>({status:'CONFLICTS_VERIFIED',items:[]}));
- const refreshing=f.refresh();
+ const refreshing=f.refreshCloudRecords();
  assert.equal(f.status.textContent,'正在读取云端体重记录…');
  releaseRead({status:'READ_VERIFIED',revision:6,body:{schemaVersion:1,items:[]}});
  await checking;
@@ -890,7 +889,7 @@ test('bowel Save follows the verified read, storage, pending receipt and account
  assert.match(f.status.textContent,/云端读取失败/);
  let finish;
  f.setRead(()=>new Promise(resolve=>{finish=resolve;}));
- const reading=f.refresh();
+ const reading=f.refreshCloudRecords();
  assertBlocked(/正在读取/);
  finish({status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items:[]}});
  assert.equal(await reading,'success');
@@ -903,10 +902,10 @@ test('bowel Save follows the verified read, storage, pending receipt and account
  assert.equal(f.queued.length,0);
  f.setRead(async()=>({status:'READ_VERIFIED',revision:f.revision,body:{schemaVersion:1,items:[]}}));
  f.setStorageReady(false);
- await f.refresh();
+ await f.refreshCloudRecords();
  assertBlocked(/检查浏览器存储/);
  f.setStorageReady(true);
- await f.refresh();
+ await f.refreshCloudRecords();
  b('DidDefecate').value='false';b('DidDefecate').handlers.change();
  b('Difficulty').value='none';b('Bloating').value='mild';b('Pain').value='false';
  const saving=submit();
@@ -938,7 +937,7 @@ test('a stalled maternal read releases the disabled state for a fresh verified r
  assert.equal(f.get('maternalConstipationSave').disabled,true);
  assert.match(f.get('maternalConstipationBlocker').textContent,/请先刷新云端记录/);
  f.setRead(async()=>({status:'READ_VERIFIED',revision:5,body:{schemaVersion:1,items:[]}}));
- assert.equal(await f.refresh(),'success');
+ assert.equal(await f.refreshCloudRecords(),'success');
  assert.equal(f.get('maternalConstipationSave').disabled,false);
  lateRead({status:'UNKNOWN'});
  assert.equal(f.get('maternalConstipationSave').disabled,false);
@@ -981,7 +980,7 @@ test('failure in both cloud and queue reads hides any stale recovery status and 
  assert.equal(recover.hidden,false);
  f.setRead(async()=>({status:'UNKNOWN'}));
  f.setQueueChecks(()=>new Promise(()=>{}),conflictsClear);
- const refreshing=f.refresh();
+ const refreshing=f.refreshCloudRecords();
  await nextTurn();
  t.mock.timers.tick(12000);
  assert.equal(await refreshing,'failure');
@@ -1012,9 +1011,8 @@ for(const stalled of ['pending','conflicts','both']){
   assert.match(f.status.textContent,/部分刷新.*核验超时/);
   for(const id of ['maternalWeightSave','maternalProfileSave','maternalConstipationSave'])
    assert.equal(f.get(id).disabled,true);
-  assert.equal(f.get('maternalWeightRefresh').disabled,false);
   f.setQueueChecks(queueClear,conflictsClear);
-  assert.equal(await f.refresh(),'success');
+  assert.equal(await f.refreshCloudRecords(),'success');
   for(const resolve of late)resolve();
   await nextTurn();
   for(const id of ['maternalWeightSave','maternalProfileSave','maternalConstipationSave'])
@@ -1028,15 +1026,15 @@ test('account changes discard in-flight queue results and keep V1.2 weight write
  const f=await mountedWeights([first],{autoRead:false,legacy:true});
  let finish;
  f.setQueueChecks(()=>new Promise(resolve=>{finish=resolve;}),conflictsClear);
- const old=f.refresh();
+ const old=f.refreshCloudRecords();
  await nextTurn();
  f.switchScope('synthetic-b','another-family');
  f.setQueueChecks(queueClear,()=>{throw Error('synthetic storage rejection');});
- assert.equal(await f.refresh(),'partial');
+ assert.equal(await f.refreshCloudRecords(),'partial');
  assert.equal(f.get('maternalWeightSave').disabled,true);
  assert.match(f.status.textContent,/检查浏览器存储/);
  f.setQueueChecks(queueClear,conflictsClear);
- assert.equal(await f.refresh(),'success');
+ assert.equal(await f.refreshCloudRecords(),'success');
  finish({status:'QUEUE_VERIFIED',pending:1,retry:0});
  await old;
  assert.equal(f.get('maternalWeightRecover').hidden,true);
@@ -1304,7 +1302,7 @@ test('comparison shows precision, signed losses, zero and empty stages without b
  f.setRead(async()=>({status:'READ_VERIFIED',revision:6,body:{schemaVersion:1,items:[
   {...earlier,weightKg:a.weightKg},a
  ]}}));
- await f.refresh();
+ await f.refreshCloudRecords();
  assert.equal(delta.textContent,'0.00 斤');
  f.get('maternalWeightPostpartum').handlers.click();
  assert.match(f.get('maternalWeightLatest').textContent,/暂无.*体重记录/);
@@ -1340,7 +1338,7 @@ test('saving, backfilling and deleting in a stage preserves the other stage and 
  assert.equal(f.queued[2].nextBody.items[1],other);
 });
 
-test('manual refresh combines independent reads, preserves drafts, and reports partial failures',async()=>{
+test('R2-07: the refresh API combines independent reads, preserves drafts, and reports partial failures',async()=>{
  let datesReads=0,readDates;
  const f=await mountedWeights([first],{autoRead:false,refreshBabyDates:()=>{
   datesReads++;
@@ -1348,7 +1346,7 @@ test('manual refresh combines independent reads, preserves drafts, and reports p
  }});
  await f.open();
  assert.equal(datesReads,0);
- assert.equal(f.refreshCloudRecords,f.get('maternalWeightRefresh').handlers.click);
+ assert.equal(typeof f.refreshCloudRecords,'function');
  assert.equal(f.canPullRefresh(),true);
  f.setBabyDates({dueDate:'2026-01-01',birthDate:''});
  f.edit(0);f.jin.value='111.25';
@@ -1359,8 +1357,17 @@ test('manual refresh combines independent reads, preserves drafts, and reports p
   f.setBabyDates({dueDate:'2026-01-02',birthDate:'2026-01-01'});
   return true;
  };
- await f.refresh();
+ const previousReads=f.reads;
+ let finishHealthRead;
+ f.setRead(()=>new Promise(resolve=>{finishHealthRead=resolve;}));
+ const refreshing=f.refreshCloudRecords();
+ await nextTurn();
+ assert.equal(f.reads,previousReads+1);
  assert.equal(datesReads,1);
+ const refreshed={status:'READ_VERIFIED',revision:6,body:{schemaVersion:1,items:[first]}};
+ finishHealthRead(refreshed);
+ assert.equal(await refreshing,'success');
+ f.setRead(async()=>refreshed);
  assert.equal(f.get('maternalProfileDue').textContent,'2026-01-02');
  assert.equal(f.get('maternalProfileStage').textContent,'产后');
  assert.match(f.status.textContent,/体重记录已刷新。.*宝宝日期已刷新/);
@@ -1374,7 +1381,7 @@ test('manual refresh combines independent reads, preserves drafts, and reports p
 
  f.setRead(async()=>({status:'UNAVAILABLE'}));
  readDates=async()=>{f.setBabyDates({dueDate:'2026-01-03',birthDate:''});return true;};
- await f.refresh();
+ await f.refreshCloudRecords();
  assert.equal(f.get('maternalProfileDue').textContent,'2026-01-03');
  assert.equal(f.get('maternalProfileStage').textContent,'孕期');
  assert.match(f.status.textContent,/部分刷新。.*妈妈健康云端服务.*宝宝日期已刷新/);
@@ -1404,9 +1411,9 @@ test('first maternal read reports loading and failure independently of the baby 
  assert.match(feedback.textContent,/尚未读取/);
  assert.equal(save.disabled,true);
  f.setRead(async()=>{throw Error('synthetic read rejection');});
- await f.refresh();
+ await f.refreshCloudRecords();
  assert.equal(stage.textContent,'未关联宝宝资料');
- assert.match(feedback.textContent,/暂时无法读取.*刷新云端记录/);
+ assert.match(feedback.textContent,/暂时无法读取.*下拉刷新或重新进入妈妈健康/);
  assert.equal(save.disabled,true);
  let resolve;
  f.setRead(()=>new Promise(done=>{resolve=done;}));

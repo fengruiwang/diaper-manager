@@ -37,7 +37,7 @@ test('V1.3.0 local preview adds maternal health to the five intact stable busine
     'buyNow', 'historyList', 'saveStocks', 'growthChart', 'growthHistory', 'saveWeight',
     'saveProfile', 'savePlans', 'formalGetCloudLatest',
     'maternalWeightForm', 'maternalWeightChart', 'maternalWeightRows', 'maternalWeightSave',
-    'maternalWeightRefresh', 'maternalWeightRecover', 'maternalWeightArchive', 'maternalHealthBack',
+    'maternalWeightRecover', 'maternalWeightArchive', 'maternalHealthBack',
     'maternalPullFeedback',
   ]) {
     assert.ok(tags.includes('id="' + id + '"'), 'Missing DOM ID ' + id);
@@ -71,7 +71,7 @@ test('maternal layout keeps the profile and weight controls wired to their origi
   assert.match(weightForm, /<textarea id="maternalWeightNote"/);
   assert.match(weightForm, /<button id="maternalWeightSave"[^>]*type="submit"/);
   assert.match(weightForm, /<button id="maternalWeightCancel"[^>]*type="button"/);
-  assert.match(tags, /<button id="maternalWeightRefresh"[^>]*type="button"/);
+  assert.doesNotMatch(tags, /\bid="maternalWeightRefresh"|>\s*刷新云端记录\s*<\/button>/);
   for (const id of ['maternalWeightStatus', 'maternalProfileStatus']) {
     assert.match(tags, new RegExp('id="' + id + '" role="status" aria-live="polite"'));
   }
@@ -87,7 +87,7 @@ test('R2-05 keeps the maternal profile and sync controls above both categories',
     for (const id of ids) assert.ok(region.includes('id="' + id + '"'), 'Missing ' + id);
   };
   includesIds(common, ['maternalProfileForm', 'maternalProfileStage', 'maternalProfileDue',
-    'maternalProfileDelivery', 'maternalProfileSave', 'maternalProfileStatus', 'maternalWeightRefresh',
+    'maternalProfileDelivery', 'maternalProfileSave', 'maternalProfileStatus',
     'maternalWeightRecover', 'maternalWeightArchive', 'maternalHealthBack', 'maternalWeightStatus']);
   includesIds(weight, ['maternalWeightForm', 'maternalWeightPregnancy', 'maternalWeightPostpartum',
     'maternalWeightPeriods', 'maternalWeightLatest', 'maternalWeightDelta', 'maternalWeightChart',
@@ -95,7 +95,7 @@ test('R2-05 keeps the maternal profile and sync controls above both categories',
   includesIds(bowel, ['maternalConstipationStreak', 'maternalConstipationWeekTotal',
     'maternalConstipationTrend', 'maternalConstipationTodayStatus', 'maternalConstipationForm',
     'maternalConstipationStoolType', 'maternalConstipationHistory']);
-  assert.doesNotMatch(classified, /id="maternal(?:ProfileForm|WeightRefresh|WeightRecover|WeightArchive|HealthBack|WeightStatus)"/);
+  assert.doesNotMatch(classified, /id="maternal(?:ProfileForm|WeightRecover|WeightArchive|HealthBack|WeightStatus)"/);
   assert.doesNotMatch(weight, /id="maternalConstipation/);
   assert.doesNotMatch(bowel, /id="maternalWeight/);
 });
@@ -126,14 +126,16 @@ test('R2-06 removes the redundant quick-entry region from the maternal heading',
   assert.doesNotMatch(tags, /data-maternal-entry|maternal-jumps/);
 });
 
-test('R2-06 retains every reviewed DOM ID and has no duplicate IDs', () => {
+test('R2-07 removes only the redundant refresh ID from the reviewed controls and has no duplicate IDs', () => {
   const ids = html => Array.from(markup(html).matchAll(/\bid="([^"]+)"/g), match => match[1]);
   const baseline = execFileSync('git', ['show', '6ea25872a2e3c5c5f550ec9b988262b35bbe62ed:' + entry], {
     cwd: root, encoding: 'utf8',
   });
   const current = ids(preview);
   assert.equal(new Set(current).size, current.length);
-  for (const id of ids(baseline)) assert.ok(current.includes(id), 'Missing existing ID ' + id);
+  for (const id of ids(baseline).filter(id => id !== 'maternalWeightRefresh')) {
+    assert.ok(current.includes(id), 'Missing existing ID ' + id);
+  }
 });
 
 test('V1.3.0 loads existing sync and weight scripts before its write-enabled formal controller', () => {
@@ -150,6 +152,9 @@ test('V1.3.0 loads existing sync and weight scripts before its write-enabled for
   }
   const controller = read(files.at(-1).slice(1));
   assert.match(controller, /XBMaternalWeight\.mount\(\{[\s\S]*?clientFactory:root\.XBMaternalHealthClient,operationsFactory:root\.XBMaternalHealthOperations,\s*cloudWritesEnabled:true/);
+  assert.match(controller, /maternalWeight\?\.canPullRefresh\?\.\(\)===true/);
+  assert.match(controller, /maternalWeight\.refreshCloudRecords\(\)\.then\(finish/);
+  assert.doesNotMatch(read('preview/v1.2.0/maternal-weight.js'), /\bmaternalWeightRefresh\b/);
   const browserHost = controller.match(/function uuidFromRandomValues[\s\S]*?(?=function browserStart)/)[0];
   const withUuid = vm.runInNewContext(browserHost + 'maternalBrowserHost');
   const oldChrome = { crypto: { getRandomValues: bytes => bytes.fill(0xab) } };
