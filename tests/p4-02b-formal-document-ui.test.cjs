@@ -22,7 +22,7 @@ function snapshot(actor='A',valid=true){
  if(!valid)delete documents.settings.body.daily;
  return {status:'PRIMARY_DOCUMENTS_FULLY_READ',canWrite:false,documents};
 }
-function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
+function fixture({readAll=async()=>snapshot(),timeoutMs=80,onSharedRender}={}){
  let actor='A',loggedIn=true,docReads=0,currentReadAll=readAll,refreshReads=0,currentOne=null;
  let currentChild=CHILD,documentClients=0;const acceptedScopes=[];
  const elements=new Map(),handlers=new Map(),shows=[],clears=[],timeouts=[];
@@ -79,9 +79,11 @@ function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
   commandsFactory:{create:()=>({submit:async()=>({status:'NO_WRITE'})})},
   actionsFactory:{create:()=>({attach:()=>({detach(){}})})},
   projection:{project:projection},
-  ui:{defaults:()=>({}),show:data=>shows.push({
-   actor:data.actorUid,shared:data.sharedBusinessDocumentsVerified===true
-  }),clear:()=>clears.push(actor)},
+  ui:{defaults:()=>({}),show:data=>{
+   const shared=data.sharedBusinessDocumentsVerified===true;
+   shows.push({actor:data.actorUid,shared});
+   if(shared)onSharedRender?.();
+  },clear:()=>clears.push(actor)},
   documentsFactory:()=>{
    documentClients++;
    return {acceptVerifiedPrimary:verified=>{acceptedScopes.push({
@@ -111,22 +113,50 @@ function fixture({readAll=async()=>snapshot(),timeoutMs=80}={}){
   get acceptedScopes(){return acceptedScopes;}
  };
 }
-test('B1 single-pass five-doc read can exceed 12s without false early sync',async()=>{
- let steps=0;
+test('B1 single-pass five-doc read can exceed 12s without false early sync',{timeout:5000},async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const reads=KINDS.map(kind=>{
+  let complete;
+  const done=new Promise(resolve=>{complete=resolve;});
+  return {kind,done,complete};
+ });
+ const completed=[];
+ let renderVerified;
+ const verified=new Promise(resolve=>{renderVerified=resolve;});
+ const expected=snapshot();
  const f=fixture({
-  timeoutMs:120,
+  timeoutMs:60000,
+  onSharedRender:renderVerified,
   readAll:async()=>{
-   // Simulated one-pass RPC list: each kind is read once.
-   for(let i=0;i<5;i++){await sleep(6);steps++;}
-   return snapshot();
+   const documents={};
+   for(const {kind,done} of reads){
+    documents[kind]=await done;
+    completed.push(kind);
+   }
+   return {...expected,documents};
   }
  });
+ const assertPending=()=>{
+  assert.match(f.status(),/正在核验共享数据/);
+  assert.equal(f.uiVerified(),false);
+  assert.equal(f.shows.filter(x=>x.shared).length,0);
+ };
  assert.equal(await f.app.start(),'ready');
- assert.match(f.status(),/正在核验共享数据/);
- assert.equal(f.uiVerified(),false);
- assert.equal(f.shows.filter(x=>x.shared).length,0);
- await sleep(55);
- assert.equal(steps,5);
+ assertPending();
+ for(const [index,{kind,done,complete}] of reads.slice(0,-1).entries()){
+  complete(expected.documents[kind]);
+  await done;
+  assert.deepEqual(completed,KINDS.slice(0,index+1));
+  assertPending();
+ }
+ t.mock.timers.tick(12001);
+ await nextTick();
+ assertPending();
+ const last=reads.at(-1);
+ last.complete(expected.documents[last.kind]);
+ await verified;
+ assert.deepEqual(completed,KINDS);
+ assert.equal(f.docReads,1);
  assert.equal(f.uiVerified(),true);
  assert.equal(f.shows.filter(x=>x.shared).length,1);
  assert.ok(f.timeouts.includes(60000),'complete read timeout must be 60s');
