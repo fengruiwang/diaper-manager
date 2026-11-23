@@ -8,15 +8,24 @@
 <link rel="manifest" href="./manifest.webmanifest" />
 <link rel="icon" href="./icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
-<title>小宝管家 V1.2.0 · 家庭云端管理</title>
-<meta name="xiaobao-pages-candidate-source" content="eb2fec3a9d9e5aa5e29e273929a25bac5e02632c" />
-
-
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="小宝管家" />
-<meta name="application-name" content="小宝管家" />
+<title>小宝管家 V1.3.0 · 家庭云端管理</title>
+<meta name="xiaobao-pages-candidate-source" content="734e8730cf8f263fd210cd8917c898db98b1d88b" />
+
+
 <style>
+/* PWA install/update layer only; all shopping, inventory and price logic remains intact. */
+.pwa-launch{display:flex;align-items:center;gap:9px;margin:12px 1px 0;flex-wrap:wrap}
+.pwa-launch .pwa-note{font-size:11px;color:#8993a6}
+.pwa-notice{margin:13px 1px 0;padding:11px 13px;border:1px solid #e0defd;background:#f4f2ff;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pwa-notice p{margin:0;font-size:12px;color:#5b568f}
+.pwa-notice .btn{flex-shrink:0}
+.pwa-notice.migration{background:#fff9ec;border-color:#f5e2bd}
+.pwa-notice.migration p{color:#8b6530}
+@media(max-width:600px){.pwa-notice{flex-wrap:wrap}.pwa-launch{margin:10px 1px 0}}
+@media print{.pwa-launch,.pwa-notice{display:none!important}}
 :root{--bg:#f6f7fb;--card:#fff;--text:#263147;--muted:#788299;--line:#e7eaf2;--primary:#6b61d8;--deep:#5046ba;--soft:#efedff;--green:#18856c;--green-bg:#e6f7f1;--orange:#a86618;--orange-bg:#fff2df;--red:#bd5b55;--red-bg:#fff0ee;--shadow:0 6px 24px rgba(42,53,93,.045);--radius:18px}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft Yahei",sans-serif;font-size:14px;line-height:1.56}button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}input,select{min-width:0;border:1px solid #dfe3ed;border-radius:11px;padding:10px 12px;background:#fff;color:var(--text);outline:none;transition:.15s}input:focus,select:focus{border-color:#877eec;box-shadow:0 0 0 3px #eeebff}input[type=number]{font-variant-numeric:tabular-nums}a{color:var(--deep)}.wrap{max-width:1120px;margin:0 auto;padding:0 22px 70px}.top{height:84px;display:flex;align-items:center;justify-content:space-between;gap:18px}.logo{display:flex;align-items:center;gap:11px}.logo-mark{width:41px;height:41px;border-radius:14px;background:linear-gradient(150deg,#8d86ed,#5c50ca);display:grid;place-items:center;color:#fff;font-size:23px;box-shadow:0 6px 15px #dcd8ff}.logo-title{font-size:19px;font-weight:800;letter-spacing:-.45px}.logo-sub{font-size:11px;color:var(--muted);font-weight:500}.privacy{font-size:12px;color:#5d687d;background:#e9edf4;padding:8px 11px;border-radius:25px;white-space:nowrap}.privacy span{font-size:13px;color:var(--green)}.hero{display:flex;align-items:center;justify-content:space-between;gap:20px;overflow:hidden;position:relative;border:1px solid #e5e2ff;border-radius:23px;background:linear-gradient(117deg,#edeaff 0%,#f7f4ff 58%,#fff8f2 100%);padding:29px 32px}.hero::after{content:"";position:absolute;width:175px;height:175px;border-radius:50%;right:24px;top:-67px;background:rgba(190,182,255,.23)}.hero .eyebrow{color:#685cc4;font-size:12px;font-weight:800;letter-spacing:1.1px}.hero h1{font-size:26px;letter-spacing:-.7px;line-height:1.3;margin:7px 0 9px}.hero p{margin:0;color:#70798f;font-size:13px;max-width:600px}.due{position:relative;z-index:1;flex-shrink:0;min-width:182px;background:#fff;border:1px solid #eeeafd;border-radius:17px;padding:17px 20px;text-align:center;box-shadow:0 6px 19px #877ad010}.due-label{font-size:11px;color:#8a89a5}.due-value{color:#5c50c6;font-size:26px;line-height:1.5;font-weight:800;font-variant-numeric:tabular-nums}.due-sub{font-size:11px;color:#888ca0}.due-age{margin-top:5px;font-size:12px;font-weight:650;color:#685cc4;white-space:nowrap}.tabs{display:flex;gap:7px;padding:7px;background:#eaeef5;border-radius:14px;width:max-content;max-width:100%;margin:23px 0 20px;overflow-x:auto}.tab{white-space:nowrap;border:0;background:transparent;padding:10px 19px;border-radius:10px;color:#6e788b;font-weight:700}.tab.active{color:#4e45b5;background:#fff;box-shadow:0 2px 8px #4d4b8521}.panel{display:none}.panel.active{display:block}.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px}.kpi,.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}.kpi{padding:17px 18px}.kpi-label{font-size:12px;color:var(--muted)}.kpi-value{font-size:27px;line-height:1.4;font-weight:850;font-variant-numeric:tabular-nums;margin-top:7px;letter-spacing:-.8px}.kpi-meta{font-size:11px;color:#939bab;margin-top:4px}.purple{color:var(--primary)}.orange{color:var(--orange)}.green{color:var(--green)}.head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:24px 0 13px}.head h2{font-size:17px;letter-spacing:-.3px;margin:0}.sub{color:var(--muted);font-size:12px}.btn{border:0;border-radius:11px;padding:10px 15px;font-weight:700;white-space:nowrap;background:var(--primary);color:#fff;box-shadow:0 3px 7px #6b61d81b}.btn:hover{filter:brightness(.97)}.btn.secondary{background:#efedff;color:#554cbb;box-shadow:none}.btn.ghost{color:#5e677c;background:#f4f6fa;box-shadow:none}.btn.danger{color:#b95350;background:#fff0ee;box-shadow:none}.btn.sm{padding:7px 10px;font-size:12px;border-radius:9px}.card{padding:20px}.alert{border-radius:15px;padding:14px 17px;display:flex;align-items:center;justify-content:space-between;gap:15px;background:#f0efff;border:1px solid #e1deff;color:#514bb2;margin-bottom:16px}.alert.warning{background:var(--orange-bg);border-color:#ffe3b7;color:var(--orange)}.alert strong{font-size:13px}.alert p{margin:2px 0 0;color:inherit;opacity:.84;font-size:12px}.alert .btn{flex-shrink:0}.sizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.sizecard{border:1px solid var(--line);border-radius:17px;background:#fff;padding:19px;min-width:0}.sizecard.focus{border-color:#b3adfa;box-shadow:0 0 0 2px #eeecff}.size-top{display:flex;justify-content:space-between;align-items:center}.size-pill{background:#f0efff;color:#5c52bb;border-radius:10px;padding:5px 11px;font-weight:850;font-size:13px}.size-range{font-size:11px;color:#929aad}.stock-number{display:flex;align-items:baseline;gap:6px;margin:12px 0 2px}.stock-number b{font-size:29px;font-variant-numeric:tabular-nums;line-height:1.2}.stock-number small{font-size:12px;color:#9199aa}.bar{height:7px;border-radius:30px;background:#eeeefa;overflow:hidden;margin:12px 0 10px}.bar span{display:block;height:100%;border-radius:30px;background:linear-gradient(90deg,#a7a1f6,#7167da);transition:width .25s}.micro{font-size:11px;color:#8c94a5;display:flex;justify-content:space-between;gap:6px}.size-actions{display:flex;gap:8px;align-items:center;margin-top:15px}.size-actions .btn{flex:1}.size-detail{font-size:11px;color:#858fa2;margin-top:13px;padding-top:11px;border-top:1px dashed #eaeaf1}.two-col{display:grid;grid-template-columns:1.25fr .75fr;gap:16px}.section-title{font-weight:800;font-size:15px;margin:0 0 13px}.plan-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:13px 0}.plan-row:last-child{border-bottom:none}.plan-left{display:flex;align-items:center;gap:11px}.dot{width:34px;height:34px;background:#f0efff;color:var(--deep);font-weight:800;border-radius:11px;display:grid;place-items:center;font-size:12px}.progress-info{font-size:12px;color:#8b93a5}.planned{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}.tip{background:#f8f9fc;border:1px solid #edf0f6;border-radius:13px;padding:12px 14px;color:#758095;font-size:12px}.tip b{color:#485167}.statline{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:12px 0;border-bottom:1px solid var(--line)}.statline:last-child{border:0}.statline strong{font-size:16px;font-variant-numeric:tabular-nums}.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.field{display:flex;flex-direction:column;gap:6px}.field label{font-size:12px;color:#728098;font-weight:600}.form-grid .wide{grid-column:span 2}.action-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:17px}.result{border:1px solid #e3e0fc;border-radius:16px;background:linear-gradient(130deg,#f6f4ff,#fff);display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 20px;margin-top:18px}.unit{font-weight:850;font-size:32px;color:var(--primary);letter-spacing:-1px;font-variant-numeric:tabular-nums}.result small{display:block;color:#8992a5;font-size:11px}.tag{display:inline-flex;align-items:center;border-radius:20px;font-size:11px;font-weight:700;padding:5px 9px;white-space:nowrap;background:var(--soft);color:var(--deep)}.tag.good{background:var(--green-bg);color:var(--green)}.tag.warn{background:var(--orange-bg);color:var(--orange)}.tag.bad{background:var(--red-bg);color:var(--red)}.empty{padding:35px 18px;text-align:center;background:#fafbfe;border:1px dashed #e1e5ef;border-radius:14px;color:#99a1b0}.empty b{display:block;color:#697488;margin-bottom:6px}.table-wrap{overflow-x:auto}.tbl{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}.tbl th{text-align:left;background:#f8f9fc;color:#8791a3;font-weight:700;padding:12px 10px;border-bottom:1px solid #e9ecf3}.tbl td{padding:13px 10px;border-bottom:1px solid #eef0f5}.tbl tr:last-child td{border-bottom:0}.tbl b{font-size:13px}.tbl button{margin-right:5px}.soft-note{font-size:12px;color:#929aaa;margin-top:12px}.profile{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.profile-item{border:1px solid #edf0f4;border-radius:13px;padding:13px;background:#fdfdff}.profile-item .field{margin-bottom:0}.setting-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}.setting-size{border:1px solid #edf0f5;border-radius:12px;padding:11px;background:#fcfcfe}.setting-size b{display:block;margin-bottom:9px;color:#554bc0}.setting-size label{font-size:11px;color:#8590a4;display:block;margin-bottom:4px}.setting-size input{width:100%;padding:9px 7px;margin-bottom:9px}.setting-size input:last-child{margin:0}.footer-note{margin:30px 0 0;color:#929bb0;font-size:11px;line-height:1.8;text-align:center}.toast{position:fixed;left:50%;bottom:23px;transform:translateX(-50%) translateY(90px);z-index:99;background:#30354a;color:#fff;padding:12px 19px;border-radius:12px;font-size:13px;box-shadow:0 10px 25px #0002;opacity:0;transition:.23s;pointer-events:none;max-width:90vw;text-align:center}.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}.chip-row{display:flex;gap:7px;flex-wrap:wrap;margin:11px 0}.chip{border:1px solid #e5e7f0;background:#fff;border-radius:20px;padding:6px 11px;color:#657189;font-size:12px}.chip.active{background:#efedff;border-color:#aaa3f4;color:#5147bb}.hint-icon{font-size:17px}.fine{font-size:11px;color:#929aac}.small-num{font-variant-numeric:tabular-nums;font-weight:800}
 /* Reference price enhancement */
@@ -45,17 +54,6 @@
 @media(max-width:600px){.ref-list .tbl{white-space:normal}.ref-list .tbl thead{display:none}.ref-list .tbl tbody{display:block}.ref-list .tbl tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:12px;border-bottom:1px solid #edf0f5}.ref-list .tbl tr:last-child{border-bottom:0}.ref-list .tbl td{padding:0;border:0;min-width:0}.ref-list .tbl td:nth-child(1){grid-column:1;grid-row:1;font-size:11px;color:var(--muted)}.ref-list .tbl td:nth-child(2){grid-column:1;grid-row:2}.ref-list .tbl td:nth-child(3){grid-column:2;grid-row:1 / span 2;display:flex;flex-direction:column;justify-content:center;align-items:flex-end}.ref-list .tbl td:nth-child(4){grid-column:1 / -1;grid-row:3;display:flex;gap:8px;margin-top:7px}.ref-list .tbl td:nth-child(4) .btn{flex:1;margin:0}.ref-list .tbl .ref-unit{font-size:15px}}
 @media(max-width:370px){.privacy{display:none}.profile{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.form-grid .wide{grid-column:span 1}.alert{display:block}.alert .btn{margin-top:10px}}
 @media print{.tabs,.action-row,.size-actions,.btn,.footer-note,.privacy,.no-print{display:none!important}.panel{display:block!important;page-break-inside:avoid}.wrap{max-width:none}.hero,.card,.sizecard{box-shadow:none}}
-/* PWA install/update layer only; all shopping, inventory and price logic remains intact. */
-.pwa-launch{display:flex;align-items:center;gap:9px;margin:12px 1px 0;flex-wrap:wrap}
-.pwa-launch .pwa-note{font-size:11px;color:#8993a6}
-.pwa-notice{margin:13px 1px 0;padding:11px 13px;border:1px solid #e0defd;background:#f4f2ff;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-.pwa-notice p{margin:0;font-size:12px;color:#5b568f}
-.pwa-notice .btn{flex-shrink:0}
-.pwa-notice.migration{background:#fff9ec;border-color:#f5e2bd}
-.pwa-notice.migration p{color:#8b6530}
-@media(max-width:600px){.pwa-notice{flex-wrap:wrap}.pwa-launch{margin:10px 1px 0}}
-@media print{.pwa-launch,.pwa-notice{display:none!important}}
-
 /* Growth v1.1.0: responsive and standalone chart. */
 .growth-chart{width:100%;max-height:320px;display:block}
 .growth-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
@@ -122,6 +120,152 @@ body[data-formal-state="ready"] #formalNotice:is([data-sync-phase="partial"],[da
 #formalNotice .btn{font-size:12px;padding:4px 8px}
 body:not([data-formal-state="ready"]) .wrap{display:none!important}
 body[data-formal-state="ready"] #formalGate{display:none!important}
+body:not([data-formal-family-ready="true"]) [data-tab="maternal-health"],
+body:not([data-formal-family-ready="true"]) #maternal-health,
+body[data-formal-state="ready"] #maternalHealthBack{display:none!important}
+body[data-formal-family-ready="true"][data-formal-maternal-only="true"] .wrap{display:block!important}
+body[data-formal-maternal-only="true"] #formalGate,
+body[data-formal-maternal-only="true"] .wrap .hero,
+body[data-formal-maternal-only="true"] .wrap .tab:not([data-tab="maternal-health"]),
+body[data-formal-maternal-only="true"] .wrap .panel:not(#maternal-health),
+body[data-formal-maternal-only="true"] #formalNotice,
+body[data-formal-maternal-only="true"] #priceEditor{display:none!important}
+body[data-formal-maternal-only="true"] [data-tab="maternal-health"]{grid-column:1/-1}
+@media(max-width:600px){
+ body[data-formal-family-ready="true"] .tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%}
+ body[data-formal-family-ready="true"] .tab{min-height:44px;padding:8px 4px}
+}
+#maternal-health .maternal-heading{margin:16px 0 12px}
+#maternal-health .maternal-heading h2{margin:0;font-size:23px}
+#maternal-health .maternal-common{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:16px;margin-bottom:12px}
+#maternal-health .maternal-cloud-actions{min-width:0;border-left:1px solid var(--line);padding-left:16px}
+#maternal-health .maternal-category-tabs{display:flex;gap:4px;width:max-content;max-width:100%;overflow-x:auto;margin-bottom:12px;padding:4px;border-radius:12px;background:#eaeef5}
+#maternal-health .maternal-category-tab{flex:0 0 auto;padding:8px 16px;min-width:112px;min-height:44px;border:0;border-radius:9px;background:transparent;color:#515c71;font:inherit;font-weight:750;white-space:nowrap}
+#maternal-health .maternal-category-tab[aria-selected="true"]{background:var(--deep);color:#fff}
+#maternal-health .maternal-category-tab:focus-visible{outline-offset:-3px;outline-color:currentColor}
+#maternal-health .maternal-card{min-width:0;padding:18px}
+#maternal-health .maternal-wide-card{margin-bottom:14px}
+#maternal-health .maternal-card h3{font-size:16px;margin:0 0 12px}
+#maternal-health .maternal-profile{background:#fbfaff}
+#maternal-health .maternal-profile-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 10px;margin-bottom:10px}
+#maternal-health .maternal-profile-heading h3{margin:0}
+#maternalProfileStage{padding:4px 10px;border:1px solid #e0dcfb;border-radius:999px;background:var(--soft);color:var(--deep);font-size:13px}
+#maternal-health .maternal-dates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}
+#maternal-health .maternal-dates div{padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;min-width:0}
+#maternal-health .maternal-dates dt,#maternal-health .maternal-help{color:#5e687d;font-size:12px;font-weight:400}
+#maternal-health .maternal-dates dd{margin:2px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#maternal-health .maternal-note{margin:5px 0 9px}
+#maternal-health .maternal-profile-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}
+#maternal-health .maternal-fields,#maternal-health .maternal-bowel-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+#maternal-health .maternal-field-wide{grid-column:1/-1}
+#maternal-health .maternal-card .field{min-width:0;gap:4px;font-size:13px;font-weight:650;color:var(--text)}
+#maternal-health .maternal-card .field>label{font:inherit;color:inherit}
+#maternal-health .maternal-card :is(input,select,textarea){min-width:0;width:100%;min-height:44px;background:#fff;font-size:16px}
+#maternal-health .maternal-card :is(input[type="date"],input[type="time"],select){padding-inline:8px}
+#maternal-health .maternal-measure{position:relative;display:block;min-width:0}
+#maternal-health .maternal-measure input{padding-right:40px}
+#maternal-health .maternal-unit{position:absolute;top:50%;right:12px;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+#maternal-health .maternal-card textarea{display:block;resize:vertical;font-family:inherit;color:inherit;padding:8px 10px;border:1px solid #dfe3ed;border-radius:10px}
+#maternal-health .maternal-card textarea:focus-visible,#maternal-health a:focus-visible,#maternal-health button:focus-visible{outline:2px solid var(--deep);outline-offset:2px}
+#maternal-health .maternal-actions,#maternal-health .maternal-bowel-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px}
+#maternal-health .maternal-status{margin:8px 0 0;padding:7px 10px;border-radius:9px;background:#f3f1fc;color:#4f4a71;font-size:13px}
+#maternal-health .maternal-status:empty{display:none}
+#maternal-health .maternal-card .btn{min-height:44px}
+#maternalWeightCancel,#maternalConstipationCancel{border:1px solid var(--line);background:#fff}
+#maternal-health .maternal-trend-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-bottom:10px}
+#maternal-health .maternal-trend-heading h3{margin:0}
+#maternal-health .maternal-trend-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+#maternal-health .maternal-stage-selector{display:flex;gap:4px;padding:4px;border-radius:12px;background:#f3f1fc}
+#maternal-health .maternal-stage-selector .btn{min-width:48px}
+#maternal-health .maternal-stage-selector .btn[aria-pressed="true"]{background:var(--deep);color:#fff}
+#maternal-health #maternalWeightPeriods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#f0f2f7}
+#maternal-health .maternal-trend-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0 0 6px}
+#maternal-health .maternal-trend-stats div{padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:#f8f9fc;min-width:0}
+#maternal-health .maternal-trend-stats div:first-child{background:#f5f2ff;color:var(--deep)}
+#maternal-health .maternal-trend-stats dt,#maternal-health .maternal-trend-stats .fine{color:#5e687d;font-size:12px}
+#maternal-health .maternal-trend-stats dd{margin:1px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#maternal-health .maternal-trend-value{font-size:clamp(16px,2vw,22px);font-weight:800}
+#maternal-health .empty{padding:18px 12px}
+#maternalWeightChart .growth-chart{width:100%;height:auto;max-width:100%;max-height:none;display:block}
+#maternalWeightTable{overflow:visible}
+#maternalWeightTable .tbl{white-space:normal;table-layout:fixed}
+#maternalWeightTable th:nth-child(1){width:18%}
+#maternalWeightTable th:nth-child(2),#maternalWeightTable th:nth-child(3){width:12%}
+#maternalWeightTable th:nth-child(5){width:23%}
+#maternalWeightTable td{padding:8px 10px;font-size:13px;overflow-wrap:anywhere}
+#maternalWeightTable td:nth-child(1),#maternalWeightTable td:nth-child(3){font-weight:750;font-variant-numeric:tabular-nums}
+#maternalWeightTable td:nth-child(4){white-space:pre-wrap;overflow-wrap:anywhere}
+#maternalWeightTable td:last-child .btn{margin:2px 6px 2px 0}
+#maternalWeightTable [data-delete-weight]{color:var(--red)}
+#maternal-health .maternal-bowel-stats-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin-bottom:8px}
+#maternal-health .maternal-bowel-stats-heading h3{margin:0}
+#maternal-health .maternal-bowel-today{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
+#maternalConstipationTodayStatus{margin:0;font-weight:650}
+#maternal-health .maternal-bowel-stats .maternal-trend-stats{margin-bottom:10px}
+#maternal-health .maternal-bowel-stat-note:empty,#maternalConstipationTrend[hidden]~.maternal-bowel-chart-note{display:none}
+#maternalConstipationWeekWarning{color:#79480f}
+#maternal-health .maternal-bowel-stats h4{margin:0 0 4px;font-size:14px}
+#maternalConstipationTrend{display:grid;grid-template-columns:repeat(30,minmax(0,1fr));gap:4px 1px}
+#maternal-health .maternal-bowel-point{display:grid;grid-template-rows:42px 15px;align-items:end;gap:2px;min-width:0;padding:3px 0 0;border:1px solid transparent;border-radius:7px;background:#f6f7fb;color:var(--text);font-size:10px;font-variant-numeric:tabular-nums}
+#maternal-health .maternal-bowel-point:is(:hover,[aria-pressed="true"]){border-color:#b9b1ef;background:var(--soft)}
+#maternal-health .maternal-bowel-point-date{align-self:start;line-height:1.2}
+#maternal-health .maternal-bowel-mark{justify-self:center;display:grid;align-items:end;justify-items:center;width:calc(100% - 6px);max-width:26px;border-radius:4px;min-height:14px;color:#58637a;font-weight:750}
+#maternal-health [data-count="1"] .maternal-bowel-mark,#maternal-health [data-count="2"] .maternal-bowel-mark,#maternal-health [data-count="3"] .maternal-bowel-mark{background:var(--deep);color:#fff}
+#maternal-health [data-count="1"] .maternal-bowel-mark{height:18px}
+#maternal-health [data-count="2"] .maternal-bowel-mark{height:29px}
+#maternal-health [data-count="3"] .maternal-bowel-mark{height:40px}
+#maternal-health [data-count="0"] .maternal-bowel-mark{border:1px solid #8177d6;background:#fff;color:var(--deep)}
+#maternal-health [data-state="duplicate"] .maternal-bowel-mark{background:var(--orange-bg);color:#79480f}
+#maternal-health .maternal-bowel-chart-note{margin:5px 0 0}
+#maternalConstipationTrendDetail{font-size:13px;font-weight:700}
+#maternal-health .maternal-bowel-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start;gap:14px;margin-top:14px}
+#maternal-health .maternal-bowel-history{background:#fafbfe}
+#maternal-health #maternalConstipationWarning{margin:0 0 8px;background:var(--orange-bg);color:#79480f}
+#maternalConstipationHistory{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+#maternalConstipationHistory li{padding:10px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;min-width:0}
+#maternalConstipationHistory h4{margin:0;font-size:14px;font-variant-numeric:tabular-nums}
+#maternalConstipationHistory dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px 8px;margin:6px 0;font-size:13px}
+#maternalConstipationHistory dt{font-size:12px;color:#5e687d}
+#maternalConstipationHistory dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+#maternalConstipationHistory dl div:last-child,#maternal-health .maternal-bowel-note{grid-column:span 2}
+#maternalConstipationHistory .maternal-bowel-actions{justify-content:flex-end;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+#maternalConstipationHistory .btn:last-child{color:var(--red)}
+@media(max-width:900px){
+ #maternalConstipationTrend{grid-template-columns:repeat(10,minmax(0,1fr))}
+ #maternal-health .maternal-bowel-layout{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:720px){
+ #maternal-health .maternal-common{grid-template-columns:minmax(0,1fr);gap:12px}
+ #maternal-health .maternal-cloud-actions{border-left:0;border-top:1px solid var(--line);padding:10px 0 0}
+ #maternal-health .maternal-wide-card{margin-bottom:12px}
+}
+@media(max-width:600px){
+ #maternal-health .maternal-card{padding:14px}
+ #maternal-health .maternal-bowel-layout{gap:12px;margin-top:12px}
+ #maternal-health .maternal-fields,#maternal-health .maternal-bowel-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+ #maternal-health .maternal-weight-field,#maternal-health .maternal-bowel-date,#maternal-health .maternal-bowel-note{grid-column:1/-1}
+ #maternal-health .maternal-primary-actions>.btn,#maternalConstipationHistory .btn{flex:1 1 auto}
+ #maternal-health .maternal-trend-controls,#maternal-health #maternalWeightPeriods{width:100%}
+ #maternal-health .maternal-stage-selector .btn{min-width:0}
+ #maternalWeightChart svg{overflow:visible}
+ #maternalWeightChart svg text{font-size:21px;font-weight:600}
+ #maternalWeightChart svg text[font-size="14"]{font-size:25px}
+ #maternalWeightChart svg .maternal-reference-label{font-size:26px}
+ #maternalWeightTable .tbl,#maternalWeightTable tbody{display:block}
+ #maternalWeightTable thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+ #maternalWeightTable tbody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);gap:4px 12px;
+  padding:10px 12px;margin-bottom:8px;border:1px solid var(--line);background:#f8f9fc;border-radius:12px}
+ #maternalWeightTable tbody tr:last-child{margin-bottom:0}
+ #maternalWeightTable td{min-width:0;padding:0;border:0}
+ #maternalWeightTable td:nth-child(1){grid-column:1;grid-row:1;font-size:14px;font-weight:750}
+ #maternalWeightTable td:nth-child(2){grid-column:1;grid-row:2;color:var(--muted)}
+ #maternalWeightTable td:nth-child(3){grid-column:2;grid-row:1/3;align-self:center;font-size:18px;font-weight:800;color:var(--deep)}
+ #maternalWeightTable td:nth-child(3)::after{content:" 斤";font-size:12px;font-weight:650}
+ #maternalWeightTable td:nth-child(4){grid-column:1/-1;margin-top:4px;color:var(--muted)}
+ #maternalWeightTable td:nth-child(4):empty{display:none}
+ #maternalWeightTable td:last-child{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:6px}
+ #maternalWeightTable td:last-child .btn{margin:0;background:#fff}
+}
 /* Android Chrome/Edge/PWA: prefer the in-app top pull to browser reload.
    Native desktop scrolling and editing containers are unaffected. */
 @media (pointer:coarse), (any-pointer:coarse), (hover:none){
@@ -143,16 +287,19 @@ html.xiaobao-pull-touch:has(body[data-formal-state="ready"]),
 html.xiaobao-pull-touch body[data-formal-state="ready"]{
  overscroll-behavior-y:contain;
 }
+html.xiaobao-pull-touch body[data-formal-maternal-only="true"]{overscroll-behavior-y:contain}
 /* In-app Android gesture feedback is independent of the media-query result:
    some installed PWAs report maxTouchPoints while their hover mode differs. */
-body[data-formal-state="ready"] #formalNotice[data-pull-phase]::before{
- content:"下拉刷新";position:fixed;z-index:99;
+body[data-formal-state="ready"] #formalNotice[data-pull-phase]::before,
+#maternalPullFeedback[data-pull-phase]{
+ position:fixed;z-index:99;
  top:max(10px,env(safe-area-inset-top));left:50%;
  transform:translateX(-50%);pointer-events:none;
  background:#f4f2ff;border:1px solid #e0defd;color:#5147bb;
  box-shadow:0 4px 16px #26314720;border-radius:18px;
  padding:7px 13px;font-size:12px;white-space:nowrap;
 }
+body[data-formal-state="ready"] #formalNotice[data-pull-phase]::before{content:"下拉刷新"}
 body[data-formal-state="ready"] #formalNotice[data-pull-phase="armed"]::before{content:"松开刷新"}
 body[data-formal-state="ready"] #formalNotice[data-pull-phase="refreshing"]::before{content:"正在获取云端最新数据…"}
 body[data-formal-state="ready"] #formalNotice[data-pull-phase="success"]::before{content:"云端数据已更新"}
@@ -175,6 +322,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
   </div>
   <div id="formalGateActions" hidden>
    <div class="action-row">
+    <button id="formalOpenMaternalHealth" class="btn secondary" type="button" hidden>进入妈妈健康</button>
     <button id="formalRetry" type="button" class="btn secondary sm">重新检查</button>
     <button id="formalGateSignOut" type="button" class="btn ghost sm">切换账号</button>
    </div>
@@ -194,6 +342,7 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
     <div><h1>把纸尿裤买得刚刚好。</h1><p>从备货到日常使用，轻松管理宝宝的每一片纸尿裤。</p></div>
     <div class="due"><div><div class="due-label" id="dueTitle">距离预产期</div><div class="due-value" id="dueValue">—</div><div class="due-age" id="dueAge" hidden></div></div><div class="due-sub" id="dueSub">预产期 2027-01-08</div></div>
   </section>
+
   <div class="pwa-launch" id="pwaLaunch">
     <button class="btn secondary sm" type="button" id="installPwa">📱 添加到手机桌面</button>
     <span id="pwaInstallTip" class="pwa-note">打开一次，日后可从桌面图标进入</span>
@@ -203,14 +352,13 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
     <button class="btn sm" type="button" id="pwaUpdateNow">更新应用</button>
   </div>
 
-  
-
   <nav class="tabs" role="tablist" aria-label="功能导航">
     <button class="tab active" data-tab="overview">🏠 备货总览</button>
     <button class="tab" data-tab="compare">🏷️ 好价比对</button>
     <button class="tab" data-tab="history">📒 采购记录</button>
     <button class="tab" data-tab="growth">📈 成长</button>
     <button class="tab" data-tab="settings">⚙️ 个性设置</button>
+    <button class="tab" id="tabMaternalHealth" type="button" role="tab" aria-controls="maternal-health" aria-selected="false" data-tab="maternal-health">🌿 妈妈健康</button>
   </nav>
   <div class="sync-line" id="formalNotice" role="status" aria-live="polite">
    <span id="formalSyncState" class="fine">正在检查…</span>
@@ -382,6 +530,167 @@ body[data-formal-state="ready"] #formalNotice[data-pull-phase="failure"]::before
         <button id="importDataBtn" disabled type="button"></button>
         <button id="resetAll" disabled type="button"></button>
         <input type="file" id="importFile" disabled />
+      </div>
+    </section>
+    <section class="panel" id="maternal-health" role="tabpanel" aria-labelledby="tabMaternalHealth">
+      <div id="maternalPullFeedback" role="status" aria-live="polite" hidden></div>
+      <header class="maternal-heading">
+        <h2>妈妈健康</h2>
+      </header>
+      <div id="maternalCommon" class="card maternal-card maternal-profile maternal-common">
+        <div>
+          <div class="maternal-profile-heading">
+            <h3 class="section-title">妈妈健康档案</h3>
+            <strong id="maternalProfileStage" aria-live="polite">未关联宝宝资料</strong>
+          </div>
+          <dl class="maternal-dates">
+            <div><dt>预产期</dt><dd><strong id="maternalProfileDue">未填写</strong></dd></div>
+            <div><dt>实际分娩日期</dt><dd><strong id="maternalProfileDelivery">未填写</strong></dd></div>
+          </dl>
+          <p class="maternal-help maternal-note">日期来自「个性设置 → 宝宝基本资料」。</p>
+          <form id="maternalProfileForm" class="maternal-profile-form" novalidate>
+            <label class="field">孕前体重<span class="maternal-measure">
+              <input id="maternalProfileJin" type="number" inputmode="decimal" step="0.01" min="0.01" aria-label="孕前体重（斤）" disabled>
+              <span class="maternal-unit" aria-hidden="true">斤</span>
+            </span></label>
+            <button id="maternalProfileSave" class="btn secondary" type="submit" disabled>保存档案</button>
+          </form>
+          <p class="maternal-status" id="maternalProfileStatus" role="status" aria-live="polite">尚未读取妈妈健康档案。</p>
+        </div>
+        <div class="maternal-cloud-actions">
+          <h3 class="section-title">云端同步</h3>
+          <p class="maternal-status" id="maternalWeightStatus" role="status" aria-live="polite">尚未读取云端体重记录。</p>
+          <div class="maternal-actions">
+            <button id="maternalWeightRefresh" class="btn secondary sm" type="button">刷新云端记录</button>
+            <button id="maternalWeightRecover" class="btn secondary sm" type="button" hidden>核验待确认保存</button>
+            <button id="maternalWeightArchive" class="btn ghost sm" type="button" hidden>放弃旧冲突请求</button>
+            <button id="maternalHealthBack" class="btn ghost sm" type="button">查看宝宝业务状态</button>
+          </div>
+        </div>
+      </div>
+      <div id="maternalCategoryTabs" class="maternal-category-tabs" role="tablist" aria-label="妈妈健康分类">
+        <button id="maternalWeightTab" class="maternal-category-tab" type="button" role="tab" data-maternal-category="weight" aria-controls="maternalWeightCategory" aria-selected="true" tabindex="0">体重记录</button>
+        <button id="maternalBowelTab" class="maternal-category-tab" type="button" role="tab" data-maternal-category="bowel" aria-controls="maternalBowelCategory" aria-selected="false" tabindex="-1">排便记录</button>
+      </div>
+      <div id="maternalWeightCategory" role="tabpanel" aria-labelledby="maternalWeightTab">
+        <div class="card maternal-card maternal-wide-card">
+          <form id="maternalWeightForm" aria-labelledby="maternalWeightHeading" novalidate>
+            <h3 class="section-title" id="maternalWeightHeading">记录体重</h3>
+            <div class="maternal-fields">
+              <label class="field">测量日期<input id="maternalWeightDate" type="date" required></label>
+              <label class="field">测量时间<input id="maternalWeightTime" type="time" step="60"></label>
+              <label class="field maternal-weight-field">体重<span class="maternal-measure">
+                <input id="maternalWeightJin" type="number" inputmode="decimal" step="0.01" min="0.01" aria-label="体重（斤）" required>
+                <span class="maternal-unit" aria-hidden="true">斤</span>
+              </span></label>
+              <label class="field maternal-field-wide">备注（可选）<textarea id="maternalWeightNote" rows="2"></textarea></label>
+            </div>
+            <div class="maternal-actions maternal-primary-actions">
+              <button id="maternalWeightSave" class="btn" type="submit" disabled>保存体重记录</button>
+              <button id="maternalWeightCancel" class="btn ghost" type="button" hidden>取消编辑</button>
+            </div>
+          </form>
+        </div>
+        <div class="card maternal-card maternal-wide-card">
+          <div class="maternal-trend-heading">
+            <h3 class="section-title">体重趋势（斤）</h3>
+            <div class="maternal-trend-controls">
+              <div class="maternal-stage-selector" role="group" aria-label="趋势和历史记录的阶段">
+                <button id="maternalWeightPregnancy" class="btn ghost sm" type="button" aria-pressed="true">孕期</button>
+                <button id="maternalWeightPostpartum" class="btn ghost sm" type="button" aria-pressed="false" hidden>产后</button>
+              </div>
+              <div id="maternalWeightPeriods" class="maternal-stage-selector" role="group" aria-label="趋势周期">
+                <button class="btn ghost sm" type="button" data-period="day" aria-pressed="false">日</button>
+                <button class="btn ghost sm" type="button" data-period="week" aria-pressed="false">周</button>
+                <button class="btn ghost sm" type="button" data-period="month" aria-pressed="false">月</button>
+                <button class="btn ghost sm" type="button" data-period="all" aria-pressed="true">全部</button>
+              </div>
+            </div>
+          </div>
+          <dl class="maternal-trend-stats">
+            <div><dt>最新体重</dt><dd class="maternal-trend-value" id="maternalWeightLatest">尚未读取体重记录</dd>
+              <dd class="fine" id="maternalWeightLatestDate" hidden></dd></div>
+            <div><dt>较上一条</dt><dd class="maternal-trend-value" id="maternalWeightDelta">暂无可比较记录</dd>
+              <dd class="fine" id="maternalWeightPreviousDate" hidden></dd></div>
+          </dl>
+          <div id="maternalWeightChart" class="empty">尚未读取体重记录</div>
+        </div>
+        <div class="card maternal-card">
+          <h3 class="section-title">体重历史记录</h3>
+          <div id="maternalWeightEmpty" class="empty">尚未读取体重记录</div>
+          <div id="maternalWeightTable" class="table-wrap" hidden>
+            <table class="tbl" role="table">
+              <thead><tr><th scope="col">测量日期</th><th scope="col">时间</th><th scope="col">体重（斤）</th><th scope="col">备注</th><th scope="col">操作</th></tr></thead>
+              <tbody id="maternalWeightRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div id="maternalBowelCategory" role="tabpanel" aria-labelledby="maternalBowelTab" hidden>
+        <div class="card maternal-card maternal-bowel-stats">
+          <div class="maternal-bowel-stats-heading">
+            <h3 class="section-title">排便统计</h3>
+            <div class="maternal-bowel-today">
+              <p id="maternalConstipationTodayStatus" role="status">尚未读取云端排便记录。</p>
+              <button id="maternalConstipationTodayEntry" class="btn secondary sm" type="button" hidden>录入今日排便</button>
+            </div>
+          </div>
+          <dl class="maternal-trend-stats">
+            <div><dt>连续未排便</dt><dd id="maternalConstipationStreak" class="maternal-trend-value">—</dd>
+              <dd id="maternalConstipationStreakNote" class="fine maternal-bowel-stat-note"></dd></div>
+            <div><dt>最近 7 天排便次数</dt><dd id="maternalConstipationWeekTotal" class="maternal-trend-value">—</dd>
+              <dd id="maternalConstipationWeekNote" class="fine maternal-bowel-stat-note"></dd>
+              <dd id="maternalConstipationWeekWarning" class="fine maternal-bowel-stat-note"></dd></div>
+          </dl>
+          <h4>最近 30 天排便趋势</h4>
+          <div id="maternalConstipationTrend" role="group" aria-label="每日排便次数，按日期从早到晚" hidden></div>
+          <p id="maternalConstipationTrendDetail" class="maternal-bowel-chart-note" role="status"></p>
+          <p class="maternal-help maternal-bowel-chart-note">3+ 为 3 次及以上，– 为未记录，× 为同日多条，? 为次数未明确。</p>
+        </div>
+        <div class="maternal-bowel-layout">
+          <form id="maternalConstipationForm" class="card maternal-card" aria-labelledby="maternalConstipationHeading" novalidate>
+            <h3 class="section-title" id="maternalConstipationHeading">每日排便记录</h3>
+            <div class="maternal-bowel-fields">
+              <label class="field maternal-bowel-date">日期<input id="maternalConstipationDate" type="date" disabled></label>
+              <label class="field">是否排便
+                <select id="maternalConstipationDidDefecate" disabled><option value="">未记录</option><option value="true">是</option><option value="false">否</option></select>
+              </label>
+              <label class="field">排便次数
+                <select id="maternalConstipationCount" disabled><option value="">未记录</option><option value="0">0 次</option><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次及以上</option></select>
+              </label>
+              <div class="field maternal-field-wide">
+                <label for="maternalConstipationStoolType">Bristol 大便性状（可选）</label>
+                <select id="maternalConstipationStoolType" aria-describedby="maternalConstipationStoolHelp" disabled><option value="">不记录</option><option value="1">1 型</option><option value="2">2 型</option><option value="3">3 型</option><option value="4">4 型</option><option value="5">5 型</option><option value="6">6 型</option><option value="7">7 型</option></select>
+                <span id="maternalConstipationStoolHelp" class="maternal-help">记录当天最有代表性的大便性状，不填写也不影响保存。</span>
+              </div>
+              <label class="field">排便困难
+                <select id="maternalConstipationDifficulty" disabled><option value="">未记录</option><option value="none">无</option><option value="mild">轻微</option><option value="moderate">中度</option><option value="severe">严重</option></select>
+              </label>
+              <label class="field">腹胀
+                <select id="maternalConstipationBloating" disabled><option value="">未记录</option><option value="none">无</option><option value="mild">轻微</option><option value="moderate">中度</option><option value="severe">严重</option></select>
+              </label>
+              <label class="field">腹痛
+                <select id="maternalConstipationPain" disabled><option value="">未记录</option><option value="false">无</option><option value="true">有</option></select>
+              </label>
+              <label class="field">饮水情况（可选）
+                <select id="maternalConstipationWater" disabled><option value="">不记录</option><option value="lt_500">少于 500 ml</option><option value="500_999">500～999 ml</option><option value="1000_1499">1000～1499 ml</option><option value="1500_1999">1500～1999 ml</option><option value="2000_plus">2000 ml 及以上</option></select>
+              </label>
+              <label class="field maternal-bowel-note">备注（可选）<textarea id="maternalConstipationNote" rows="2" disabled></textarea></label>
+            </div>
+            <div class="maternal-actions maternal-primary-actions">
+              <button id="maternalConstipationSave" class="btn" type="submit" disabled>保存排便记录</button>
+              <button id="maternalConstipationCancel" class="btn ghost" type="button" hidden>取消编辑</button>
+            </div>
+            <p id="maternalConstipationBlocker" class="maternal-status" role="status">等待家庭账号验证完成。</p>
+            <p id="maternalConstipationStatus" class="maternal-status" role="status" aria-live="polite"></p>
+          </form>
+          <div class="card maternal-card maternal-bowel-history">
+            <h3 class="section-title">排便历史记录</h3>
+            <p id="maternalConstipationWarning" class="maternal-status" role="status" hidden></p>
+            <div id="maternalConstipationEmpty" class="empty">尚未读取云端排便记录。</div>
+            <ul id="maternalConstipationHistory" aria-label="排便历史记录"></ul>
+          </div>
+        </div>
       </div>
     </section>
   </main>
@@ -626,8 +935,31 @@ const currMonth=()=>localDate().slice(0,7);
 const fmtDate=d=>String(d??'').slice(0,10);
 let toastTimer;function toast(txt){const el=$('toast');el.textContent=txt;el.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('on'),2600)}
 // M3 tab navigation is memory-only.
-const VALID_TABS=new Set(['overview','compare','history','growth','settings']);
-function tab(to,{scroll=true}={}){if(!VALID_TABS.has(to))return;document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===to));document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));void 0;if(to==='history')renderHistory();if(to==='settings')renderSettings();if(to==='growth')renderGrowth();if(to==='compare'){renderQuotes();renderReferenceTable();}if(scroll)window.scrollTo({top:0,behavior:'smooth'})}
+const VALID_TABS=new Set(['overview','compare','history','growth','settings','maternal-health']);
+function selectTab(to){
+ const state=document.body.dataset;
+ if(to==='maternal-health'&&state.formalState!=='ready'&&state.formalFamilyReady==='true')
+  state.formalMaternalOnly='true';
+ else delete state.formalMaternalOnly;
+ document.querySelectorAll('.tab').forEach(el=>{
+  const selected=el.dataset.tab===to;
+  el.classList.toggle('active',selected);
+  el.setAttribute('aria-selected',String(selected));
+ });
+ document.querySelectorAll('.panel').forEach(el=>el.classList.toggle('active',el.id===to));
+}
+function tab(to,{scroll=true}={}){
+ if(!VALID_TABS.has(to))return;
+ const {formalState,formalFamilyReady}=document.body.dataset;
+ if(to==='maternal-health'?formalFamilyReady!=='true':formalState!=='ready')return;
+ selectTab(to);
+ if(to==='history')renderHistory();
+ if(to==='settings')renderSettings();
+ if(to==='growth')renderGrowth();
+ if(to==='compare'){renderQuotes();renderReferenceTable();}
+ if(to==='maternal-health')document.dispatchEvent(new Event('maternal-health-open'));
+ if(scroll)window.scrollTo({top:0,behavior:'smooth'});
+}
 function restoreActiveTab(){/* default overview, never read tab storage */}
 // Calendar-month age. Month anniversaries are capped to the last day in short months.
 function calculateBirthAge(birth,today){
@@ -1012,6 +1344,10 @@ $('qBrand').addEventListener('change',()=>{$('qSeries').value='';updateSeriesPic
 $('qSeriesChoice').addEventListener('change',chooseSeriesFromSelect);
 $('qSeries').addEventListener('input',renderSeriesChips);
 Array.from(document.querySelectorAll('.tab')).forEach(el=>el.addEventListener('click',()=>tab(el.dataset.tab)));
+$('maternalHealthBack').addEventListener('click',()=>{
+ selectTab('overview');
+ $('formalRetry').focus();
+});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;if(action==='go'){tab(b.dataset.target);return}if(action==='consume'){consume(b.dataset.size,b.dataset.count);return}if(action==='editstock'){tab('history');const field=$('inv_'+b.dataset.size);const section=field?.closest('details');if(section)section.open=true;field?.focus();return}if(action==='deletequote'){state.quotes=state.quotes.filter(q=>q.id!==b.dataset.id);save();renderQuotes();toast('候选已移除');return}if(action==='buyquote'){const q=state.quotes.find(q=>q.id===b.dataset.id);if(q)addBuy(q);return}if(action==='deletetx'){undo(b.dataset.id);return}if(action==='series'){$('qSeries').value=b.dataset.series;$('qSeriesChoice').value=b.dataset.series;$('qSeries').hidden=true;renderSeriesChips();preview();return}if(action==='pickref'){$('qBrand').value=b.dataset.brand;$('qSeries').value=b.dataset.series;$('qSize').value=b.dataset.size;updateSeriesPicks();preview();document.querySelector('#compare .head')?.scrollIntoView({behavior:'smooth',block:'start'});toast('已填入品牌、系列与尺码');return}if(action==='editref'){editReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}if(action==='resetref'){restoreReference(b.dataset.brand,b.dataset.series,b.dataset.size);return}});
 for(const x of ['qBrand','qSeries','qSize','qPerPack','qPacks','qPrice'])$(x).addEventListener('input',preview);
 $('saveQuote').addEventListener('click',()=>{const q=compareInput();if(!validateQuote(q))return;state.quotes.push({...q,id:uid(),date:localDate()});save();renderQuotes();toast('候选价已保存，可继续录入另一款比较')});
@@ -1057,6 +1393,19 @@ $('resetAll').addEventListener('click',()=>{if(window.XBM102?.isActive()){toast(
 window.XBM3UI=Object.freeze({
  defaults:()=>defaults(),
  isActive:()=>m3ReadOnly,
+ openMaternalHealth:()=>{
+  tab('maternal-health');
+  $('tabMaternalHealth').focus();
+ },
+ resetNavigation:()=>{
+  selectTab('overview');
+  closeReferenceEditor();
+  formalEditingQuoteId=null;
+  $('saveQuote').textContent='加入候选价';
+  for(const id of ['qBrand','qSize'])$(id).selectedIndex=0;
+  for(const id of ['qSeries','qPerPack','qPacks','qPrice'])$(id).value=$(id).defaultValue;
+  updateSeriesPicks();
+ },
  show:projection=>{
   if(window.XBM102?.isActive())throw Error('m3:smoke_mode_active');
   if(!projection||projection.canWrite!==false||!projection.state)
@@ -3956,7 +4305,7 @@ restoreActiveTab();
 })(typeof window!=='undefined'?window:null);
 
 </script>
-<script src="./m1-controller.js?v=1.2.0" defer></script>
+<script src="./m1-controller.js?v=1.3.0" defer></script>
 <script>/* M3 formal PRIMARY inventory/transaction bridge, using P2/P3 modules.
  * NOT imported by M1-02, M3 synthetic preview, V1.1.2 or live PWA.
  * No auto network calls on import/create. This is NOT an authorization.
@@ -5151,7 +5500,7 @@ restoreActiveTab();
    queued:'正在保存宝宝资料…',
    submitting:'正在保存宝宝资料…',
    readback:'正在保存宝宝资料…',
-   pending:'宝宝资料保存结果待核验，请勿重复提交'
+   pending:'宝宝资料保存结果待核验，原请求编号已保留，请勿重复提交。'
   });
   const SETTINGS_STAGES=Object.freeze({
    checking:'正在保存设置…',queued:'正在保存设置…',
@@ -5183,6 +5532,9 @@ restoreActiveTab();
     if(feedback){
      const status=String(answer?.status||'');
      feedback.textContent=phase==='success'?'宝宝资料已保存'
+      :status==='PROFILE_REQUEST_ID_UNAVAILABLE'?'无法生成安全请求编号，本次未提交。'
+      :status==='DOCUMENT_LOCAL_QUEUE_UNVERIFIED_KEEP_REQUEST_ID'
+       ?'本机保存队列写入未获确认，原请求编号已保留，请核验待确认操作，勿重复保存。'
       :phase==='working'||Object.prototype.hasOwnProperty.call(PROFILE_STAGES,phase)
        ?PROFILE_STAGES[phase]
       :phase==='idle'?'原宝宝资料请求已核验，可以继续操作。'
@@ -6243,7 +6595,7 @@ restoreActiveTab();
    const handler=event=>{
     if(!formalModeSelected())return;
     const el=event.target?.closest?.('button,[data-action],[data-preset]');
-    if(!el)return;
+    if(!el||doc.getElementById('maternal-health')?.contains?.(el))return;
     const action=el.dataset?.action||'';
     const allowedIds=new Set(['formalRefresh','formalSignOut',
       'formalGateSignOut','formalRetry','formalSendOtp',
@@ -6291,7 +6643,7 @@ restoreActiveTab();
       ()=>notify(result('FORMAL_OPERATION_REVIEW_REQUIRED')));
    };
    const formHandler=event=>{
-    if(!formalModeSelected())return;
+    if(!formalModeSelected()||doc.getElementById('maternal-health')?.contains?.(event.target))return;
     event.preventDefault();event.stopImmediatePropagation();
     if(event.target?.id!=='priceEditForm')return;
     if(readSyncBusy()){
@@ -7199,7 +7551,12 @@ function create({client,queue,uuid,isOnline=()=>true}={}){
    if(expectedRevision!==null&&read.revision!==expectedRevision)
     return reply('DOCUMENT_REVISION_CHANGED_REVIEW_REQUIRED');
    const body=transform(kind,action,read.body,record);
-   const requestId=uuid();
+   let requestId;
+   try{requestId=uuid(kind);}
+   catch(error){
+    if(kind==='profile')return reply('PROFILE_REQUEST_ID_UNAVAILABLE');
+    throw error;
+   }
    const saved=await queue.queue({kind,nextBody:body,
     expectedRevision:read.revision,requestId,operatorApproved:true,
     action,verifiedBaseline:fastKind
@@ -7446,8 +7803,14 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:null);
 </script>
-<script src="./formal-controller.js?v=1.2.0" defer></script>
-<script src="./pwa.js?v=1.2.0" defer></script>
+<script src="./outbox-contract.js?v=1.3.0" defer></script>
+<script src="./idb-outbox.js?v=1.3.0" defer></script>
+<script src="./maternal-health-client.js?v=1.3.0" defer></script>
+<script src="./maternal-health-operations.js?v=1.3.0" defer></script>
+<script src="./maternal-weight.js?v=1.3.0" defer></script>
+<script src="./maternal-constipation.js?v=1.3.0" defer></script>
+<script src="./formal-controller.js?v=1.3.0" defer></script>
+<script src="./pwa.js?v=1.3.0" defer></script>
 
 </body>
 </html>
