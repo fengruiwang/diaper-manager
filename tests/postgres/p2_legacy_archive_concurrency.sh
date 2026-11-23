@@ -24,14 +24,26 @@ run_sql "
  VALUES('$C','$F','primary','PARALLEL SYNTHETIC BABY','parallel-archive-owner');
 "
 # Reuse the exact same synthetic JSON in the PG16 contract. No personal data.
-payload="$(python3 - <<'PY'
-from pathlib import Path
-source=Path('tests/postgres/p2_legacy_archive_atomic_contract.sql').read_text()
-parts=source.split('$synthetic_source$')
-assert len(parts)>=3, 'Synthetic PG fixture not found'
-print(parts[1].strip())
-PY
-)"
+if ! payload="$(awk '
+ { sub(/\r$/, "") }
+ !in_payload && index($0, "set_config") && /\$synthetic_source\$[[:blank:]]*$/ {
+  in_payload = 1
+  next
+ }
+ in_payload && /^[[:blank:]]*\$synthetic_source\$/ {
+  closed = 1
+  exit
+ }
+ in_payload { print }
+ END { if (!closed) exit 1 }
+' tests/postgres/p2_legacy_archive_atomic_contract.sql)"; then
+ echo 'FAIL P2-4E-B1 cannot extract synthetic JSON: missing or unreadable SQL fixture delimiters' >&2
+ exit 1
+fi
+if [[ -z "$payload" || ! "$payload" =~ ^[[:space:]]*\{ || ! "$payload" =~ \}[[:space:]]*$ ]]; then
+ echo 'FAIL P2-4E-B1 synthetic JSON must be a non-empty object enclosed by braces' >&2
+ exit 1
+fi
 run_request(){
  local stage_id="$1" dest="$2"
  run_sql "
